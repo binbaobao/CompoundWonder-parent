@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS stock_trade_calendar (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    trade_date DATE NOT NULL COMMENT '交易日期',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_trade_date (trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票交易日历表';
