@@ -3,6 +3,7 @@ package com.compoundwonder.hxdata.controller;
 
 
 import com.compoundwonder.hxdata.api.BasicDataApi;
+import com.compoundwonder.hxdata.service.StockSyncTaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,9 @@ public class TestController {
     @Autowired
     private BasicDataApi basicDataApi;
 
+    @Autowired
+    private StockSyncTaskService stockSyncTaskService;
+
 
     /**
      * 测试打开基础数据查询。
@@ -32,26 +36,50 @@ public class TestController {
         log.info("test openMarketTask");
 
 //        basicDataApi.queryStockDayQuotation(1);
-        basicDataApi.queryShareCalendar(1);
-        basicDataApi.queryShareCalendar(2);
+//        basicDataApi.queryShareCalendar(1);
+//        basicDataApi.queryShareCalendar(2);
 
 //        basicDataApi.queryShareDescription(1);
 //        basicDataApi.queryShareIssuance(1);
-//        basicDataApi.queryFreeFloatShares(1);
+        basicDataApi.queryFreeFloatShares(1);
         return "open ok";
     }
 
     /**
-     * 同步 2022 年至 2026 年 A 股交易日历。
-     * 作用：每年发起一次查询，每次最多取 500 条交易日，并通过异步回调落库。
+     * 同步指定年份 A 股交易日历。
+     * 作用：手动传入年份，每次最多取 500 条交易日，并通过异步回调落库。
      */
     @GetMapping("sync-calendar")
-    public String syncCalendar() {
+    public String syncCalendar(@RequestParam Integer year) {
         if (!basicDataApi.awaitLoginReady(10000)) {
             return "增值服务尚未登录成功，请稍后重试";
         }
 
-        basicDataApi.syncShareCalendarYears(2022, 2026);
-        return "sync calendar started";
+        basicDataApi.syncShareCalendarYears(year, year);
+        return "sync calendar started year=" + year;
+    }
+
+    /**
+     * 初始化股票历史数据同步任务。
+     * 作用：从曾用名历史表去重股票代码，为每只股票创建一条同步进度任务。
+     */
+    @GetMapping("init-sync-task")
+    public String initSyncTask() {
+        int count = stockSyncTaskService.initTasksFromPreviousNameHistory();
+        return "init sync task count=" + count;
+    }
+
+    /**
+     * 启动自由流通股本全量同步任务。
+     * 作用：从任务表按股票代码升序逐只同步自由流通股本历史区间。
+     */
+    @GetMapping("free-float-start")
+    public String freeFloatStart() {
+        if (!basicDataApi.awaitLoginReady(10000)) {
+            return "增值服务尚未登录成功，请稍后重试";
+        }
+
+        basicDataApi.startFreeFloatShareSyncTasks();
+        return "free float sync started";
     }
 }

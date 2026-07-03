@@ -4,9 +4,15 @@ package com.compoundwonder.hxdata.api;
 
 import cn.hutool.core.date.LocalDateTimeUtil;
 
+import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
+import com.compoundwonder.hxdata.dto.FreeFloatSharePoint;
+import com.compoundwonder.hxdata.entity.StockSyncTask;
+import com.compoundwonder.hxdata.service.StockFreeFloatShareHistoryService;
+import com.compoundwonder.hxdata.service.StockSyncTaskService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.hxdata.spi.SimpleQrySpi;
+import com.qcvalueaddproapi.CQCVDFreeFloatSharesDataField;
 import com.qcvalueaddproapi.CQCVDRspInfoField;
 import com.qcvalueaddproapi.CQCVDQryFreeFloatSharesInfoField;
 import com.qcvalueaddproapi.CQCVDReqQryShareCalendarField;
@@ -21,10 +27,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -35,7 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 基础数据API提供
  */
 @Component
-public class BasicDataApi implements ShareCalendarResponseHandler {
+public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatSharesResponseHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BasicDataApi.class);
     private static final int PAGE_COUNT = 1200;
@@ -60,16 +68,22 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
 
     private SimpleQrySpi simpleQrySpi = null;
     private final StockTradeCalendarService stockTradeCalendarService;
+    private final StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService;
+    private final StockSyncTaskService stockSyncTaskService;
     private final AtomicBoolean loginReady = new AtomicBoolean(false);
+    private final AtomicBoolean freeFloatTaskRunning = new AtomicBoolean(false);
     private final CountDownLatch loginReadyLatch = new CountDownLatch(1);
     private final Map<Integer, ShareCalendarRequestContext> shareCalendarRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, FreeFloatSharesRequestContext> freeFloatSharesRequestContextMap = new ConcurrentHashMap<>();
 
     /**
      * 创建基础数据 API 组件。
      * 作用：注入交易日历服务，供异步回调收到数据后直接落库。
      */
-    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService) {
+    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockSyncTaskService stockSyncTaskService) {
         this.stockTradeCalendarService = stockTradeCalendarService;
+        this.stockFreeFloatShareHistoryService = stockFreeFloatShareHistoryService;
+        this.stockSyncTaskService = stockSyncTaskService;
     }
 
     /**
@@ -93,7 +107,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
         try {
             basicDataApi = CQCValueAddProApi.CreateInfoQryApi();
             basicDataApi.RegisterFront(ADDRESS, PORT);
-            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this);
+            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this, this);
             basicDataApi.RegisterSpi(simpleQrySpi);
             basicDataApi.Run();
         } catch (Throwable e) {
@@ -143,7 +157,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
         request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
         request.setBegDate(BEGIN_DATE);
         request.setEndDate(today());
-        request.setPageCount(SHARE_CALENDAR_YEAR_PAGE_COUNT);
+        request.setPageCount(PAGE_COUNT);
         request.setPageLocate(page);
 
         int ret = basicDataApi.ReqReqQryShareCalendar(request, nextRequestId());
@@ -180,7 +194,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
         request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
         request.setBegDate(beginDate);
         request.setEndDate(endDate);
-        request.setPageCount(PAGE_COUNT);
+        request.setPageCount(SHARE_CALENDAR_YEAR_PAGE_COUNT);
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
@@ -253,15 +267,97 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
         }
 
         CQCVDQryFreeFloatSharesInfoField request = new CQCVDQryFreeFloatSharesInfoField();
-        request.setSecurityID("001257");
-        request.setExchangeID('2');
+        request.setSecurityID("603991");
         request.setBegDate(BEGIN_DATE);
         request.setEndDate(today());
-        request.setPageCount(PAGE_COUNT);
+        request.setPageCount(1800);
         request.setPageLocate(page);
 
         int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, nextRequestId());
         log.info("发起查询自由流通股本信息 page={} ret={}", page, ret);
+    }
+
+    /**
+     * 启动自由流通股本全量同步任务。
+     * 处理逻辑：从任务表按股票代码升序取未完成任务，一只股票完成后自动继续下一只。
+     */
+    public void startFreeFloatShareSyncTasks() {
+        if (!isLoginReady("自由流通股本全量同步")) {
+            return;
+        }
+
+        if (!freeFloatTaskRunning.compareAndSet(false, true)) {
+            log.warn("自由流通股本全量同步已在运行，本次启动请求忽略");
+            return;
+        }
+
+        log.info("自由流通股本全量同步任务启动");
+        queryNextFreeFloatShareTask();
+    }
+
+    /**
+     * 查询指定股票自由流通股本并保存历史区间。
+     * 请求接口：ReqQryFreeFloatSharesInfo。
+     * 请求限制：PageCount 固定 1800，当前测试阶段不传交易所代码。
+     */
+    public void queryFreeFloatSharesAndSaveHistory(String stockCode, int page) {
+        if (!isLoginReady("自由流通股本信息入库")) {
+            return;
+        }
+
+        CQCVDQryFreeFloatSharesInfoField request = new CQCVDQryFreeFloatSharesInfoField();
+        request.setSecurityID(stockCode);
+        request.setBegDate(BEGIN_DATE);
+        request.setEndDate(today());
+        request.setPageCount(1800);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, false));
+        int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
+        log.info("发起查询自由流通股本入库 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
+        if (ret != 0) {
+            freeFloatSharesRequestContextMap.remove(currentRequestId);
+        }
+    }
+
+    /**
+     * 查询下一个未完成自由流通股本同步任务。
+     * 处理逻辑：按股票代码升序取一条未完成任务，发起异步查询；没有任务时结束本轮同步。
+     */
+    private void queryNextFreeFloatShareTask() {
+        List<StockSyncTask> tasks = stockSyncTaskService.listPendingFreeFloatTasks(1);
+        if (tasks.isEmpty()) {
+            freeFloatTaskRunning.set(false);
+            log.info("自由流通股本全量同步任务完成，已没有待同步股票");
+            return;
+        }
+
+        String stockCode = tasks.get(0).getStockCode();
+        queryFreeFloatSharesTask(stockCode, 1);
+    }
+
+    /**
+     * 查询任务表中的指定股票自由流通股本。
+     * 请求限制：PageCount 固定 1800，当前阶段不传交易所代码。
+     */
+    private void queryFreeFloatSharesTask(String stockCode, int page) {
+        CQCVDQryFreeFloatSharesInfoField request = new CQCVDQryFreeFloatSharesInfoField();
+        request.setSecurityID(stockCode);
+        request.setBegDate(BEGIN_DATE);
+        request.setEndDate(today());
+        request.setPageCount(1800);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, true));
+        int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
+        log.info("发起自由流通股本任务查询 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
+        if (ret != 0) {
+            freeFloatSharesRequestContextMap.remove(currentRequestId);
+            freeFloatTaskRunning.set(false);
+            log.warn("自由流通股本任务查询发起失败 stockCode={} page={} ret={}，任务已暂停", stockCode, page, ret);
+        }
     }
 
     /**
@@ -338,6 +434,62 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
     }
 
     /**
+     * 接收单条自由流通股本数据。
+     * 处理逻辑：按请求 ID 找到查询上下文，把接口返回值转换成原始时间点暂存。
+     */
+    @Override
+    public void onFreeFloatSharesData(CQCVDFreeFloatSharesDataField freeFloatSharesData, int requestId) {
+        FreeFloatSharesRequestContext context = freeFloatSharesRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+
+        LocalDate changeDate = parseApiDate(freeFloatSharesData.getChangeDateEX());
+        if (changeDate == null) {
+            return;
+        }
+
+        FreeFloatSharePoint point = new FreeFloatSharePoint();
+        point.setStockCode(freeFloatSharesData.getSecurityID());
+        point.setFreeSharesTenThousand(BigDecimal.valueOf(freeFloatSharesData.getFreeShares()));
+        point.setChangeDate(changeDate);
+        point.setAnnouncementDate(parseNullableApiDate(freeFloatSharesData.getAnnouncementDate()));
+        context.points.add(point);
+    }
+
+    /**
+     * 接收自由流通股本分页结束事件。
+     * 处理逻辑：本页结束后把缓存数据压缩成区间并落库；当前测试阶段不自动翻页。
+     */
+    @Override
+    public void onFreeFloatSharesPageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        FreeFloatSharesRequestContext context = freeFloatSharesRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("自由流通股本入库失败 stockCode={} page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            return;
+        }
+
+        int saveCount = stockFreeFloatShareHistoryService.replaceStockHistory(context.stockCode, context.points);
+        if (context.fromTask) {
+            stockSyncTaskService.markFreeFloatSynced(context.stockCode);
+        }
+        log.info("自由流通股本入库完成 stockCode={} page={} requestId={} rawRows={} historyRows={} totalLast={}",
+                context.stockCode, context.page, requestId, context.points.size(), saveCount, totalLast);
+        if (!totalLast) {
+            log.warn("自由流通股本入库返回未结束 stockCode={} page={} requestId={}，当前测试阶段未自动翻页",
+                    context.stockCode, context.page, requestId);
+        }
+        if (context.fromTask) {
+            queryNextFreeFloatShareTask();
+        }
+    }
+
+    /**
      * 标记华鑫增值服务已登录。
      * 作用：登录回调成功后释放等待中的查询入口。
      */
@@ -391,6 +543,17 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
     }
 
     /**
+     * 解析可为空的华鑫接口日期。
+     * 作用：公告日期等非必填字段为空时直接返回 null。
+     */
+    private LocalDate parseNullableApiDate(String apiDate) {
+        if (apiDate == null || apiDate.isBlank()) {
+            return null;
+        }
+        return parseApiDate(apiDate);
+    }
+
+    /**
      * A 股交易日历年度同步请求上下文。
      * 作用：绑定请求 ID、年份、页码和当前页收到的交易日期。
      */
@@ -417,6 +580,42 @@ public class BasicDataApi implements ShareCalendarResponseHandler {
         private ShareCalendarRequestContext(int year, int page) {
             this.year = year;
             this.page = page;
+        }
+    }
+
+    /**
+     * 自由流通股本查询请求上下文。
+     * 作用：绑定请求 ID、股票代码、页码和当前页收到的自由流通股本原始点。
+     */
+    private static class FreeFloatSharesRequestContext {
+
+        /**
+         * 股票代码。
+         */
+        private final String stockCode;
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 是否来自任务表全量同步。
+         */
+        private final boolean fromTask;
+
+        /**
+         * 当前页自由流通股本原始点缓存。
+         */
+        private final ArrayList<FreeFloatSharePoint> points = new ArrayList<>();
+
+        /**
+         * 创建自由流通股本查询上下文。
+         */
+        private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask) {
+            this.stockCode = stockCode;
+            this.page = page;
+            this.fromTask = fromTask;
         }
     }
 

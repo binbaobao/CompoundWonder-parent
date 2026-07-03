@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.spi;
 
+import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
 import com.qcvalueaddproapi.*;
 import org.slf4j.Logger;
@@ -14,15 +15,17 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     private CQCValueAddProApi api;
     private Runnable loginSuccessCallback;
     private ShareCalendarResponseHandler shareCalendarResponseHandler;
+    private FreeFloatSharesResponseHandler freeFloatSharesResponseHandler;
 
     /**
      * 创建华鑫查询 SPI。
-     * 作用：保存 API 对象、登录成功回调和交易日历回调处理器，供异步回调时使用。
+     * 作用：保存 API 对象、登录成功回调、交易日历回调处理器和自由流通股回调处理器，供异步回调时使用。
      */
-    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler) {
+    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler, FreeFloatSharesResponseHandler freeFloatSharesResponseHandler) {
         this.api = api;
         this.loginSuccessCallback = loginSuccessCallback;
         this.shareCalendarResponseHandler = shareCalendarResponseHandler;
+        this.freeFloatSharesResponseHandler = freeFloatSharesResponseHandler;
     }
 
     /**
@@ -173,14 +176,10 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     public void OnRspInquiryFreeFloatShares(CQCVDFreeFloatSharesDataField pFreeFloatSharesData, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
         if (pFreeFloatSharesData == null) {
             logPageEnd("自由流通股本信息", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            freeFloatSharesResponseHandler.onFreeFloatSharesPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;
         }
-
-        log.info("自由流通股本信息 RequestID={} IsPageLast={} IsTotalLast={} ExchangeID={} SecurityID={} FreeShares={} ChangeDateEX={} ChangeDateList={} AnnouncementDate={} PageLocate={}",
-                nRequestID, bIsPageLast, bIsTotalLast, pFreeFloatSharesData.getExchangeID(), pFreeFloatSharesData.getSecurityID(),
-                pFreeFloatSharesData.getFreeShares(), pFreeFloatSharesData.getChangeDateEX(),
-                pFreeFloatSharesData.getChangeDateList(), pFreeFloatSharesData.getAnnouncementDate(),
-                pFreeFloatSharesData.getPageLocate());
+        freeFloatSharesResponseHandler.onFreeFloatSharesData(pFreeFloatSharesData, nRequestID);
     }
 
     /**
