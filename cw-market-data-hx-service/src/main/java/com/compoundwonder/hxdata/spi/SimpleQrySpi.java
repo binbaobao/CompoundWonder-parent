@@ -2,6 +2,7 @@ package com.compoundwonder.hxdata.spi;
 
 import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
+import com.compoundwonder.hxdata.callback.StockDayQuotationResponseHandler;
 import com.qcvalueaddproapi.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,16 +17,18 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     private Runnable loginSuccessCallback;
     private ShareCalendarResponseHandler shareCalendarResponseHandler;
     private FreeFloatSharesResponseHandler freeFloatSharesResponseHandler;
+    private StockDayQuotationResponseHandler stockDayQuotationResponseHandler;
 
     /**
      * 创建华鑫查询 SPI。
-     * 作用：保存 API 对象、登录成功回调、交易日历回调处理器和自由流通股回调处理器，供异步回调时使用。
+     * 作用：保存 API 对象、登录成功回调和各业务回调处理器，供异步回调时使用。
      */
-    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler, FreeFloatSharesResponseHandler freeFloatSharesResponseHandler) {
+    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler, FreeFloatSharesResponseHandler freeFloatSharesResponseHandler, StockDayQuotationResponseHandler stockDayQuotationResponseHandler) {
         this.api = api;
         this.loginSuccessCallback = loginSuccessCallback;
         this.shareCalendarResponseHandler = shareCalendarResponseHandler;
         this.freeFloatSharesResponseHandler = freeFloatSharesResponseHandler;
+        this.stockDayQuotationResponseHandler = stockDayQuotationResponseHandler;
     }
 
     /**
@@ -61,17 +64,10 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     public void OnRspInquiryStockDayQuotation(CQCVDStockDayQuotationField pStockDayQuotation, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
         if (pStockDayQuotation == null) {
             logPageEnd("股票日K行情", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            stockDayQuotationResponseHandler.onStockDayQuotationPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;
         }
-
-        log.info("股票日K行情 RequestID={} IsPageLast={} IsTotalLast={} ExchangeID={} SecurityID={} TradingDay={} Open={} High={} Low={} Close={} PreClose={} Change={} PercentChange={} Volume={} Turnover={} TradeStatus={} LimitPrice={} StoppingPrice={} AdjustFactor={} PageLocate={} PageTotal={}",
-                nRequestID, bIsPageLast, bIsTotalLast, pStockDayQuotation.getExchangeID(), pStockDayQuotation.getSecurityID(),
-                pStockDayQuotation.getTradingDay(), pStockDayQuotation.getOpenPrice(), pStockDayQuotation.getHighPrice(),
-                pStockDayQuotation.getLowPrice(), pStockDayQuotation.getClosePrice(), pStockDayQuotation.getPreClosePrice(),
-                pStockDayQuotation.getChange(), pStockDayQuotation.getPercentChange(), pStockDayQuotation.getVolume(),
-                pStockDayQuotation.getTurnover(), pStockDayQuotation.getTradeStatus(), pStockDayQuotation.getLimitPrice(),
-                pStockDayQuotation.getStoppingPrice(), pStockDayQuotation.getAdjustFactor(), pStockDayQuotation.getPageLocate(),
-                pStockDayQuotation.getPageTotal());
+        stockDayQuotationResponseHandler.onStockDayQuotationData(pStockDayQuotation, nRequestID);
     }
 
     /**

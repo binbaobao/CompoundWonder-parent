@@ -6,8 +6,11 @@ import cn.hutool.core.date.LocalDateTimeUtil;
 
 import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
+import com.compoundwonder.hxdata.callback.StockDayQuotationResponseHandler;
 import com.compoundwonder.hxdata.dto.FreeFloatSharePoint;
+import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
 import com.compoundwonder.hxdata.entity.StockSyncTask;
+import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockFreeFloatShareHistoryService;
 import com.compoundwonder.hxdata.service.StockSyncTaskService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
@@ -20,6 +23,7 @@ import com.qcvalueaddproapi.CQCVDReqQryShareDescriptionField;
 import com.qcvalueaddproapi.CQCVDReqQryShareIssuanceField;
 import com.qcvalueaddproapi.CQCVDReqQryStockDayQuotationField;
 import com.qcvalueaddproapi.CQCVDShareCalendarField;
+import com.qcvalueaddproapi.CQCVDStockDayQuotationField;
 import com.qcvalueaddproapi.CQCValueAddProApi;
 import com.qcvalueaddproapi.qcvalueaddproapiConstants;
 import jakarta.annotation.PostConstruct;
@@ -43,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 基础数据API提供
  */
 @Component
-public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatSharesResponseHandler {
+public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatSharesResponseHandler, StockDayQuotationResponseHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BasicDataApi.class);
     private static final int PAGE_COUNT = 1200;
@@ -68,20 +72,24 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
 
     private SimpleQrySpi simpleQrySpi = null;
     private final StockTradeCalendarService stockTradeCalendarService;
+    private final StockDailyService stockDailyService;
     private final StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService;
     private final StockSyncTaskService stockSyncTaskService;
     private final AtomicBoolean loginReady = new AtomicBoolean(false);
     private final AtomicBoolean freeFloatTaskRunning = new AtomicBoolean(false);
+    private final AtomicBoolean stockDailyTaskRunning = new AtomicBoolean(false);
     private final CountDownLatch loginReadyLatch = new CountDownLatch(1);
     private final Map<Integer, ShareCalendarRequestContext> shareCalendarRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, FreeFloatSharesRequestContext> freeFloatSharesRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, StockDayQuotationRequestContext> stockDayQuotationRequestContextMap = new ConcurrentHashMap<>();
 
     /**
      * 创建基础数据 API 组件。
      * 作用：注入交易日历服务，供异步回调收到数据后直接落库。
      */
-    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockSyncTaskService stockSyncTaskService) {
+    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockDailyService stockDailyService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockSyncTaskService stockSyncTaskService) {
         this.stockTradeCalendarService = stockTradeCalendarService;
+        this.stockDailyService = stockDailyService;
         this.stockFreeFloatShareHistoryService = stockFreeFloatShareHistoryService;
         this.stockSyncTaskService = stockSyncTaskService;
     }
@@ -107,7 +115,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         try {
             basicDataApi = CQCValueAddProApi.CreateInfoQryApi();
             basicDataApi.RegisterFront(ADDRESS, PORT);
-            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this, this);
+            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this, this, this);
             basicDataApi.RegisterSpi(simpleQrySpi);
             basicDataApi.Run();
         } catch (Throwable e) {
@@ -138,6 +146,85 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
 
         int ret = basicDataApi.ReqReqQryStockDayQuotation(request, nextRequestId());
         log.info("发起查询股票日K行情 page={} ret={}", page, ret);
+    }
+
+    /**
+     * 启动股票日 K 全量同步任务。
+     * 处理逻辑：从任务表按股票代码升序取未完成任务，一只股票完成后自动继续下一只。
+     */
+    public void startStockDailySyncTasks() {
+        if (!isLoginReady("股票日K全量同步")) {
+            return;
+        }
+
+        if (!stockDailyTaskRunning.compareAndSet(false, true)) {
+            log.warn("股票日K全量同步已在运行，本次启动请求忽略");
+            return;
+        }
+
+        log.info("股票日K全量同步任务启动");
+        queryNextStockDailyTask();
+    }
+
+    /**
+     * 查询指定股票日 K 并落库。
+     * 用途：单只股票测试入口，不修改任务表同步状态。
+     */
+    public void queryStockDailyAndSave(String stockCode, int page) {
+        if (!isLoginReady("股票日K单股测试")) {
+            return;
+        }
+
+        queryStockDaily(stockCode, page, false);
+    }
+
+    /**
+     * 查询下一个未完成股票日 K 同步任务。
+     * 处理逻辑：按股票代码升序取一条未完成任务，发起异步查询；没有任务时结束本轮同步。
+     */
+    private void queryNextStockDailyTask() {
+        List<StockSyncTask> tasks = stockSyncTaskService.listPendingDailyKlineTasks(1);
+        if (tasks.isEmpty()) {
+            stockDailyTaskRunning.set(false);
+            log.info("股票日K全量同步任务完成，已没有待同步股票");
+            return;
+        }
+
+        queryStockDailyTask(tasks.get(0).getStockCode(), 1);
+    }
+
+    /**
+     * 查询任务表中的指定股票日 K。
+     * 请求限制：PageCount 固定 1800，当前阶段按单只股票查询。
+     */
+    private void queryStockDailyTask(String stockCode, int page) {
+        queryStockDaily(stockCode, page, true);
+    }
+
+    /**
+     * 查询指定股票日 K。
+     * 处理逻辑：按股票代码发起 2022 年至今的日 K 查询，回调结束后由上下文决定是否标记任务完成。
+     */
+    private void queryStockDaily(String stockCode, int page, boolean fromTask) {
+        CQCVDReqQryStockDayQuotationField request = new CQCVDReqQryStockDayQuotationField();
+        request.setSecurityID(stockCode);
+        request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
+        request.setBegDate(BEGIN_DATE);
+        request.setEndDate(today());
+        request.setPageCount(1800);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        stockDayQuotationRequestContextMap.put(currentRequestId, new StockDayQuotationRequestContext(stockCode, page, fromTask));
+        int ret = basicDataApi.ReqReqQryStockDayQuotation(request, currentRequestId);
+        log.info("发起股票日K任务查询 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
+        if (ret != 0) {
+            stockDayQuotationRequestContextMap.remove(currentRequestId);
+            if (fromTask) {
+                stockDailyTaskRunning.set(false);
+            }
+            log.warn("股票日K任务查询发起失败 stockCode={} page={} ret={}，任务已暂停", stockCode, page, ret);
+        }
     }
 
     /**
@@ -471,22 +558,130 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (rspInfo != null && rspInfo.getErrorID() != 0) {
             log.warn("自由流通股本入库失败 stockCode={} page={} requestId={} ErrorID={} ErrorMsg={}",
                     context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromTask) {
+                freeFloatTaskRunning.set(false);
+            }
             return;
         }
 
-        int saveCount = stockFreeFloatShareHistoryService.replaceStockHistory(context.stockCode, context.points);
-        if (context.fromTask) {
-            stockSyncTaskService.markFreeFloatSynced(context.stockCode);
-        }
-        log.info("自由流通股本入库完成 stockCode={} page={} requestId={} rawRows={} historyRows={} totalLast={}",
-                context.stockCode, context.page, requestId, context.points.size(), saveCount, totalLast);
         if (!totalLast) {
-            log.warn("自由流通股本入库返回未结束 stockCode={} page={} requestId={}，当前测试阶段未自动翻页",
-                    context.stockCode, context.page, requestId);
+            log.warn("自由流通股本入库返回未结束 stockCode={} page={} requestId={} rawRows={}，未落库也未标记完成，请调大 PageCount 或补充翻页逻辑",
+                    context.stockCode, context.page, requestId, context.points.size());
+            if (context.fromTask) {
+                freeFloatTaskRunning.set(false);
+            }
+            return;
         }
+
+        try {
+            int saveCount = stockFreeFloatShareHistoryService.replaceStockHistory(context.stockCode, context.points);
+            if (context.fromTask) {
+                stockSyncTaskService.markFreeFloatSynced(context.stockCode);
+            }
+            log.info("自由流通股本入库完成 stockCode={} page={} requestId={} rawRows={} historyRows={} totalLast={}",
+                    context.stockCode, context.page, requestId, context.points.size(), saveCount, totalLast);
+        } catch (RuntimeException e) {
+            log.error("自由流通股本入库异常 stockCode={} page={} requestId={} rawRows={}，任务已暂停",
+                    context.stockCode, context.page, requestId, context.points.size(), e);
+            if (context.fromTask) {
+                freeFloatTaskRunning.set(false);
+            }
+            return;
+        }
+
         if (context.fromTask) {
             queryNextFreeFloatShareTask();
         }
+    }
+
+    /**
+     * 接收单条股票日 K 数据。
+     * 处理逻辑：按请求 ID 找到查询上下文，暂存原始日 K 数据。
+     */
+    @Override
+    public void onStockDayQuotationData(CQCVDStockDayQuotationField stockDayQuotation, int requestId) {
+        StockDayQuotationRequestContext context = stockDayQuotationRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+        context.quotations.add(copyStockDayQuotation(stockDayQuotation));
+    }
+
+    /**
+     * 接收股票日 K 分页结束事件。
+     * 处理逻辑：本页结束后批量构建并保存 stock_daily；来自任务表时标记完成并继续下一只。
+     */
+    @Override
+    public void onStockDayQuotationPageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        StockDayQuotationRequestContext context = stockDayQuotationRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("股票日K入库失败 stockCode={} page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromTask) {
+                stockDailyTaskRunning.set(false);
+            }
+            return;
+        }
+
+        if (!totalLast) {
+            log.warn("股票日K入库返回未结束 stockCode={} page={} requestId={} rows={}，未落库也未标记完成，请调大 PageCount 或补充翻页逻辑",
+                    context.stockCode, context.page, requestId, context.quotations.size());
+            if (context.fromTask) {
+                stockDailyTaskRunning.set(false);
+            }
+            return;
+        }
+
+        try {
+            int saveCount = stockDailyService.replaceStockDaily(context.stockCode, context.quotations);
+            if (context.fromTask) {
+                stockSyncTaskService.markDailyKlineSynced(context.stockCode);
+            }
+            log.info("股票日K入库完成 stockCode={} page={} requestId={} rows={} totalLast={}",
+                    context.stockCode, context.page, requestId, saveCount, totalLast);
+        } catch (RuntimeException e) {
+            log.error("股票日K入库异常 stockCode={} page={} requestId={} rows={}，任务已暂停",
+                    context.stockCode, context.page, requestId, context.quotations.size(), e);
+            if (context.fromTask) {
+                stockDailyTaskRunning.set(false);
+            }
+            return;
+        }
+
+        if (context.fromTask) {
+            queryNextStockDailyTask();
+        }
+    }
+
+    /**
+     * 复制股票日 K 回调数据。
+     * 作用：把 SDK 原生对象转换成普通 Java 对象，后续排序和落库不再依赖回调对象生命周期。
+     */
+    private StockDayQuotationPoint copyStockDayQuotation(CQCVDStockDayQuotationField stockDayQuotation) {
+        StockDayQuotationPoint point = new StockDayQuotationPoint();
+        point.setStockCode(stockDayQuotation.getSecurityID());
+        point.setTradingDay(stockDayQuotation.getTradingDay());
+        point.setLimitPrice(stockDayQuotation.getLimitPrice());
+        point.setStoppingPrice(stockDayQuotation.getStoppingPrice());
+        point.setOpenPrice(stockDayQuotation.getOpenPrice());
+        point.setHighPrice(stockDayQuotation.getHighPrice());
+        point.setLowPrice(stockDayQuotation.getLowPrice());
+        point.setClosePrice(stockDayQuotation.getClosePrice());
+        point.setPreClosePrice(stockDayQuotation.getPreClosePrice());
+        point.setAdjustPreClosePrice(stockDayQuotation.getAdjustPreClosePrice());
+        point.setAdjustOpenPrice(stockDayQuotation.getAdjustOpenPrice());
+        point.setAdjustHighPrice(stockDayQuotation.getAdjustHighPrice());
+        point.setAdjustLowPrice(stockDayQuotation.getAdjustLowPrice());
+        point.setAdjustClosePrice(stockDayQuotation.getAdjustClosePrice());
+        point.setAdjustFactor(stockDayQuotation.getAdjustFactor());
+        point.setVolume(stockDayQuotation.getVolume());
+        point.setTurnover(stockDayQuotation.getTurnover());
+        point.setPercentChange(stockDayQuotation.getPercentChange());
+        return point;
     }
 
     /**
@@ -613,6 +808,42 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
          * 创建自由流通股本查询上下文。
          */
         private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask) {
+            this.stockCode = stockCode;
+            this.page = page;
+            this.fromTask = fromTask;
+        }
+    }
+
+    /**
+     * 股票日 K 查询请求上下文。
+     * 作用：绑定请求 ID、股票代码、页码和当前页收到的股票日 K 原始数据。
+     */
+    private static class StockDayQuotationRequestContext {
+
+        /**
+         * 股票代码。
+         */
+        private final String stockCode;
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 是否来自任务表全量同步。
+         */
+        private final boolean fromTask;
+
+        /**
+         * 当前页股票日 K 原始数据缓存。
+         */
+        private final ArrayList<StockDayQuotationPoint> quotations = new ArrayList<>();
+
+        /**
+         * 创建股票日 K 查询上下文。
+         */
+        private StockDayQuotationRequestContext(String stockCode, int page, boolean fromTask) {
             this.stockCode = stockCode;
             this.page = page;
             this.fromTask = fromTask;

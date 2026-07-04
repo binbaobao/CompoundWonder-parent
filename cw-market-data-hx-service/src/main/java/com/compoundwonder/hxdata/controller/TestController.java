@@ -82,4 +82,32 @@ public class TestController {
         basicDataApi.startFreeFloatShareSyncTasks();
         return "free float sync started";
     }
+
+    /**
+     * 启动股票日 K 全量同步任务。
+     * 作用：从任务表按股票代码升序逐只同步股票日 K 数据。
+     */
+    @GetMapping("daily-kline-start")
+    public String dailyKlineStart() {
+        if (!basicDataApi.awaitLoginReady(10000)) {
+            return "增值服务尚未登录成功，请稍后重试";
+        }
+
+        basicDataApi.startStockDailySyncTasks();
+        return "daily kline sync started";
+    }
+
+    /**
+     * 测试单只股票日 K 入库。
+     * 作用：默认查询 603928，从 2022-01-01 至今落库，用于观察辅助字段计算是否正确。
+     */
+    @GetMapping("daily-kline-test")
+    public String dailyKlineTest(@RequestParam(defaultValue = "603928") String stockCode) {
+        if (!basicDataApi.awaitLoginReady(10000)) {
+            return "增值服务尚未登录成功，请稍后重试";
+        }
+
+        basicDataApi.queryStockDailyAndSave(stockCode, 1);
+        return "daily kline test started stockCode=" + stockCode;
+    }
 }

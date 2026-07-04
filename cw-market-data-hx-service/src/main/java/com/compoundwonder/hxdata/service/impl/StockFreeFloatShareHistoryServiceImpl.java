@@ -11,10 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 股票自由流通股本历史区间服务实现。
@@ -27,21 +29,50 @@ public class StockFreeFloatShareHistoryServiceImpl extends ServiceImpl<StockFree
 
     /**
      * 保存指定股票的自由流通股本历史区间。
-     * 实现逻辑：同一股票先删除旧历史，再把自由流通股相同的连续日期压缩成一条区间。
+     * 实现逻辑：先把自由流通股相同的连续日期压缩成区间，确认有数据后再替换旧历史。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int replaceStockHistory(String stockCode, List<FreeFloatSharePoint> points) {
-        remove(Wrappers.<StockFreeFloatShareHistory>lambdaQuery()
-                .eq(StockFreeFloatShareHistory::getStockCode, stockCode));
-
         List<StockFreeFloatShareHistory> histories = buildHistories(stockCode, points);
         if (histories.isEmpty()) {
             return 0;
         }
 
-        saveBatch(histories);
+        remove(Wrappers.<StockFreeFloatShareHistory>lambdaQuery()
+                .eq(StockFreeFloatShareHistory::getStockCode, stockCode));
+        saveBatch(histories, 1000);
         return histories.size();
+    }
+
+    /**
+     * 查询指定日期有效的自由流通股本区间。
+     * 实现逻辑：start_date 小于等于交易日，且 end_date 为空或大于等于交易日。
+     */
+    @Override
+    public Optional<StockFreeFloatShareHistory> findByTradeDate(String stockCode, LocalDate tradeDate) {
+        return Optional.ofNullable(getOne(Wrappers.<StockFreeFloatShareHistory>lambdaQuery()
+                .eq(StockFreeFloatShareHistory::getStockCode, stockCode)
+                .le(StockFreeFloatShareHistory::getStartDate, tradeDate)
+                .and(wrapper -> wrapper.isNull(StockFreeFloatShareHistory::getEndDate)
+                        .or()
+                        .ge(StockFreeFloatShareHistory::getEndDate, tradeDate))
+                .last("LIMIT 1")));
+    }
+
+    /**
+     * 按时间区间查询有效的自由流通股本历史。
+     * 实现逻辑：查询自由流通股区间和传入查询区间有交集的所有记录，并按开始日期升序返回。
+     */
+    @Override
+    public List<StockFreeFloatShareHistory> findByDateRange(String stockCode, LocalDate startDate, LocalDate endDate) {
+        return list(Wrappers.<StockFreeFloatShareHistory>lambdaQuery()
+                .eq(StockFreeFloatShareHistory::getStockCode, stockCode)
+                .le(StockFreeFloatShareHistory::getStartDate, endDate)
+                .and(wrapper -> wrapper.isNull(StockFreeFloatShareHistory::getEndDate)
+                        .or()
+                        .ge(StockFreeFloatShareHistory::getEndDate, startDate))
+                .orderByAsc(StockFreeFloatShareHistory::getStartDate));
     }
 
     /**
