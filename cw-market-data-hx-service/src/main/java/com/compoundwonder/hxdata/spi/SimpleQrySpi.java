@@ -19,6 +19,7 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     private FreeFloatSharesResponseHandler freeFloatSharesResponseHandler;
     private StockDayQuotationResponseHandler stockDayQuotationResponseHandler;
 
+    public static final String TRADING_HALT = "停牌";
     /**
      * 创建华鑫查询 SPI。
      * 作用：保存 API 对象、登录成功回调和各业务回调处理器，供异步回调时使用。
@@ -62,7 +63,7 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
      */
     @Override
     public void OnRspInquiryStockDayQuotation(CQCVDStockDayQuotationField pStockDayQuotation, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
-        if (pStockDayQuotation == null) {
+        if (pStockDayQuotation == null && !TRADING_HALT.equals(pStockDayQuotation.getTradeStatus())) {
             logPageEnd("股票日K行情", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             stockDayQuotationResponseHandler.onStockDayQuotationPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;

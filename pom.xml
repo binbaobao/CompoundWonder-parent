@@ -17,7 +17,8 @@
     <description>擒龙作妖复利奇迹牛逼量化</description>
     <packaging>pom</packaging>
     <modules>
-        <module>cw-market-data-hx-service</module> <!--市场基础数据主服务-->
+        <module>cw-market-data-hx-service</module><!--市场基础数据主服务-->
+        <module>cw-core-oreder-book</module> <!-- 核心订单簿-->
     </modules>
 
 
