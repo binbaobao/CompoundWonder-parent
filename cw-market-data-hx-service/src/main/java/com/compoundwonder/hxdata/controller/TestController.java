@@ -275,7 +275,7 @@ public class TestController {
 
     /**
      * 盘前基础数据更新。
-     * 作用：同时发起新上市股票发现、曾用名变化同步和自由流通股本变化同步。
+     * 作用：按交易日判断后，依次执行曾用名、新股、自由流通股、可转债、地域和融资融券标识维护。
      */
     @GetMapping("pre-open-update")
     public String preOpenUpdate(@RequestParam(required = false) String date) {
@@ -284,19 +284,35 @@ public class TestController {
         }
 
         LocalDate queryDate = parseDateOrToday(date);
-        basicDataApi.discoverNewListedStocks(queryDate, 1);
-        basicDataApi.syncDailyPreviousNameChanges(queryDate, 1);
-        basicDataApi.syncDailyFreeFloatShares(queryDate, 1);
-        return "pre open update started date=" + queryDate.format(API_DATE_FORMATTER);
+        basicDataApi.startPreOpenUpdate(queryDate);
+        return "pre open update started date=" + queryDate;
+    }
+
+    /**
+     * 盘后行情数据更新。
+     * 作用：按交易日判断后，启动日 K 同步任务并记录每日任务状态。
+     */
+    @GetMapping("post-close-update")
+    public String postCloseUpdate(@RequestParam(required = false) String date) {
+        if (!basicDataApi.awaitLoginReady(10000)) {
+            return "增值服务尚未登录成功，请稍后重试";
+        }
+
+        LocalDate queryDate = parseDateOrToday(date);
+        basicDataApi.startPostCloseUpdate(queryDate);
+        return "post close update started date=" + queryDate;
     }
 
     /**
      * 解析接口日期。
-     * 作用：未传日期时默认使用当天，传入时要求 yyyyMMdd。
+     * 作用：未传日期时默认使用当天，传入时支持 yyyy-MM-dd 或 yyyyMMdd。
      */
     private LocalDate parseDateOrToday(String date) {
         if (date == null || date.isBlank()) {
             return LocalDate.now();
+        }
+        if (date.contains("-")) {
+            return LocalDate.parse(date);
         }
         return LocalDate.parse(date, API_DATE_FORMATTER);
     }

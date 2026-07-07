@@ -24,6 +24,17 @@ public interface StockCurrentStatusService extends IService<StockCurrentStatus> 
     boolean ensureStatus(String stockCode);
 
     /**
+     * 确保指定股票存在当前状态记录。
+     * 处理逻辑：仅新增时使用传入融资融券默认值；已存在时不覆盖融资融券状态。
+     */
+    boolean ensureStatus(String stockCode, boolean marginTrading);
+
+    /**
+     * 关闭指定股票融资融券标识。
+     */
+    boolean disableMarginTrading(String stockCode);
+
+    /**
      * 查询全部当前状态股票代码。
      */
     List<String> listAllStockCodes();

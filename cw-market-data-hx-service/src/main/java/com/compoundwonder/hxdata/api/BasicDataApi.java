@@ -21,6 +21,7 @@ import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
 import com.compoundwonder.hxdata.entity.StockSyncTask;
 import com.compoundwonder.hxdata.service.StockConvertibleBondHistoryService;
 import com.compoundwonder.hxdata.service.StockCurrentStatusService;
+import com.compoundwonder.hxdata.service.StockDailyUpdateTaskService;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockFreeFloatShareHistoryService;
 import com.compoundwonder.hxdata.service.StockPreviousNameHistoryService;
@@ -99,6 +100,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     private final StockTradeCalendarService stockTradeCalendarService;
     private final StockCurrentStatusService stockCurrentStatusService;
     private final StockConvertibleBondHistoryService stockConvertibleBondHistoryService;
+    private final StockDailyUpdateTaskService stockDailyUpdateTaskService;
     private final StockDailyService stockDailyService;
     private final StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService;
     private final StockPreviousNameHistoryService stockPreviousNameHistoryService;
@@ -108,9 +110,13 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     private final AtomicBoolean stockDailyTaskRunning = new AtomicBoolean(false);
     private final AtomicBoolean convertibleBondDescriptionTaskRunning = new AtomicBoolean(false);
     private final AtomicBoolean regionInfoTaskRunning = new AtomicBoolean(false);
+    private final AtomicBoolean preOpenTaskRunning = new AtomicBoolean(false);
+    private final AtomicBoolean postCloseTaskRunning = new AtomicBoolean(false);
     private final Queue<String> regionInfoTaskQueue = new ConcurrentLinkedQueue<>();
     private volatile int regionInfoTaskTotal;
     private volatile int regionInfoTaskSuccess;
+    private volatile LocalDate preOpenTaskDate;
+    private volatile LocalDate postCloseTaskDate;
     private final CountDownLatch loginReadyLatch = new CountDownLatch(1);
     private final Map<Integer, ShareCalendarRequestContext> shareCalendarRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, FreeFloatSharesRequestContext> freeFloatSharesRequestContextMap = new ConcurrentHashMap<>();
@@ -125,10 +131,11 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 创建基础数据 API 组件。
      * 作用：注入交易日历服务，供异步回调收到数据后直接落库。
      */
-    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockCurrentStatusService stockCurrentStatusService, StockConvertibleBondHistoryService stockConvertibleBondHistoryService, StockDailyService stockDailyService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockPreviousNameHistoryService stockPreviousNameHistoryService, StockSyncTaskService stockSyncTaskService) {
+    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockCurrentStatusService stockCurrentStatusService, StockConvertibleBondHistoryService stockConvertibleBondHistoryService, StockDailyUpdateTaskService stockDailyUpdateTaskService, StockDailyService stockDailyService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockPreviousNameHistoryService stockPreviousNameHistoryService, StockSyncTaskService stockSyncTaskService) {
         this.stockTradeCalendarService = stockTradeCalendarService;
         this.stockCurrentStatusService = stockCurrentStatusService;
         this.stockConvertibleBondHistoryService = stockConvertibleBondHistoryService;
+        this.stockDailyUpdateTaskService = stockDailyUpdateTaskService;
         this.stockDailyService = stockDailyService;
         this.stockFreeFloatShareHistoryService = stockFreeFloatShareHistoryService;
         this.stockPreviousNameHistoryService = stockPreviousNameHistoryService;
@@ -190,6 +197,60 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     }
 
     /**
+     * 启动盘前每日更新任务。
+     * 处理逻辑：先判断是否交易日；交易日按曾用名、新股、自由流通股、可转债、地域、融资融券标识顺序串行执行。
+     */
+    public void startPreOpenUpdate(LocalDate taskDate) {
+        if (!isLoginReady("盘前每日更新")) {
+            return;
+        }
+
+        boolean tradeDay = stockTradeCalendarService.isTradeDay(taskDate);
+        stockDailyUpdateTaskService.ensureTask(taskDate, tradeDay);
+        if (!tradeDay) {
+            stockDailyUpdateTaskService.markPreOpenFinished(taskDate);
+            log.info("盘前每日更新跳过 taskDate={} reason=非交易日", taskDate);
+            return;
+        }
+
+        if (!preOpenTaskRunning.compareAndSet(false, true)) {
+            log.warn("盘前每日更新已在运行，本次启动请求忽略 taskDate={}", taskDate);
+            return;
+        }
+
+        preOpenTaskDate = taskDate;
+        log.info("盘前每日更新启动 taskDate={}", taskDate);
+        syncDailyPreviousNameChanges(taskDate, 1, true);
+    }
+
+    /**
+     * 启动盘后每日更新任务。
+     * 处理逻辑：先判断是否交易日；交易日启动日 K 同步任务，完成后更新每日任务记录。
+     */
+    public void startPostCloseUpdate(LocalDate taskDate) {
+        if (!isLoginReady("盘后每日更新")) {
+            return;
+        }
+
+        boolean tradeDay = stockTradeCalendarService.isTradeDay(taskDate);
+        stockDailyUpdateTaskService.ensureTask(taskDate, tradeDay);
+        if (!tradeDay) {
+            stockDailyUpdateTaskService.markPostCloseFinished(taskDate);
+            log.info("盘后每日更新跳过 taskDate={} reason=非交易日", taskDate);
+            return;
+        }
+
+        if (!postCloseTaskRunning.compareAndSet(false, true)) {
+            log.warn("盘后每日更新已在运行，本次启动请求忽略 taskDate={}", taskDate);
+            return;
+        }
+
+        postCloseTaskDate = taskDate;
+        log.info("盘后每日更新启动 taskDate={}", taskDate);
+        queryMarketStockDaily(taskDate, 1);
+    }
+
+    /**
      * 启动股票日 K 全量同步任务。
      * 处理逻辑：从任务表按股票代码升序取未完成任务，一只股票完成后自动继续下一只。
      */
@@ -227,6 +288,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         List<StockSyncTask> tasks = stockSyncTaskService.listPendingDailyKlineTasks(1);
         if (tasks.isEmpty()) {
             stockDailyTaskRunning.set(false);
+            finishPostCloseDailyKlineTaskIfNeeded();
             log.info("股票日K全量同步任务完成，已没有待同步股票");
             return;
         }
@@ -390,6 +452,18 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        discoverNewListedStocks(listDate, page, false);
+    }
+
+    /**
+     * 发现指定上市日期的新股。
+     * 处理逻辑：fromPreOpenTask 为 true 时，完成后标记每日任务并继续下一步。
+     */
+    private void discoverNewListedStocks(LocalDate listDate, int page, boolean fromPreOpenTask) {
+        if (!isLoginReady("新上市股票发现")) {
+            return;
+        }
+
         String queryDate = formatApiDate(listDate);
         CQCVDReqQryShareIssuanceField request = new CQCVDReqQryShareIssuanceField();
         request.setBegListDate(queryDate);
@@ -400,12 +474,15 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        shareIssuanceRequestContextMap.put(currentRequestId, new ShareIssuanceRequestContext(listDate, page));
+        shareIssuanceRequestContextMap.put(currentRequestId, new ShareIssuanceRequestContext(listDate, page, fromPreOpenTask));
         int ret = basicDataApi.ReqReqQryShareIssuance(request, currentRequestId);
         log.info("发起新上市股票发现 listDate={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
         if (ret != 0) {
             shareIssuanceRequestContextMap.remove(currentRequestId);
             log.warn("新上市股票发现发起失败 listDate={} page={} ret={}", queryDate, page, ret);
+            if (fromPreOpenTask) {
+                stopPreOpenTask("新上市股票发现发起失败");
+            }
         }
     }
 
@@ -418,6 +495,18 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 处理逻辑：只查 begin_date 等于指定日期的记录，收到后增量维护曾用名历史区间；新股首次出现时补充同步任务。
      */
     public void syncDailyPreviousNameChanges(LocalDate beginDate, int page) {
+        if (!isLoginReady("每日曾用名同步")) {
+            return;
+        }
+
+        syncDailyPreviousNameChanges(beginDate, page, false);
+    }
+
+    /**
+     * 同步指定日期生效的 A 股曾用名变化。
+     * 处理逻辑：fromPreOpenTask 为 true 时，完成后标记每日任务并继续下一步。
+     */
+    private void syncDailyPreviousNameChanges(LocalDate beginDate, int page, boolean fromPreOpenTask) {
         if (!isLoginReady("每日曾用名同步")) {
             return;
         }
@@ -435,12 +524,15 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        aSharePreviousNameRequestContextMap.put(currentRequestId, new ASharePreviousNameRequestContext(beginDate, page));
+        aSharePreviousNameRequestContextMap.put(currentRequestId, new ASharePreviousNameRequestContext(beginDate, page, fromPreOpenTask));
         int ret = basicDataApi.ReqQryASharePreviousName(request, currentRequestId);
         log.info("发起每日曾用名同步 beginDate={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
         if (ret != 0) {
             aSharePreviousNameRequestContextMap.remove(currentRequestId);
             log.warn("每日曾用名同步发起失败 beginDate={} page={} ret={}", queryDate, page, ret);
+            if (fromPreOpenTask) {
+                stopPreOpenTask("每日曾用名同步发起失败");
+            }
         }
     }
 
@@ -503,6 +595,18 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        syncConvertibleBondStatus(page, false);
+    }
+
+    /**
+     * 全量同步当前可转债标识。
+     * 处理逻辑：fromPreOpenTask 为 true 时，发行关系完成后继续补全基本资料，补全完成后再刷新当前状态。
+     */
+    private void syncConvertibleBondStatus(int page, boolean fromPreOpenTask) {
+        if (!isLoginReady("同步当前可转债标识")) {
+            return;
+        }
+
         CQCVDReqQryBondIssuanceField request = new CQCVDReqQryBondIssuanceField();
         request.setBegListDate("19900101");
         request.setEndListDate(today());
@@ -510,12 +614,15 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        bondIssuanceRequestContextMap.put(currentRequestId, new BondIssuanceRequestContext(page, false));
+        bondIssuanceRequestContextMap.put(currentRequestId, new BondIssuanceRequestContext(page, false, fromPreOpenTask));
         int ret = basicDataApi.ReqReqQryBondIssuance(request, currentRequestId);
         log.info("发起同步当前可转债标识 page={} requestId={} ret={}", page, currentRequestId, ret);
         if (ret != 0) {
             bondIssuanceRequestContextMap.remove(currentRequestId);
             log.warn("同步当前可转债标识发起失败 page={} ret={}", page, ret);
+            if (fromPreOpenTask) {
+                stopPreOpenTask("同步当前可转债标识发起失败");
+            }
         }
     }
 
@@ -528,29 +635,49 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        startConvertibleBondDescriptionFillTasks(false);
+    }
+
+    /**
+     * 启动可转债基本资料历史补全任务。
+     * 处理逻辑：fromPreOpenTask 为 true 时，补全结束后标记每日任务并继续下一步。
+     */
+    private void startConvertibleBondDescriptionFillTasks(boolean fromPreOpenTask) {
+        if (!isLoginReady("可转债基本资料历史补全")) {
+            return;
+        }
+
         if (!convertibleBondDescriptionTaskRunning.compareAndSet(false, true)) {
             log.warn("可转债基本资料历史补全已在运行，本次启动请求忽略");
+            if (fromPreOpenTask) {
+                stopPreOpenTask("可转债基本资料历史补全已在运行");
+            }
             return;
         }
 
         log.info("可转债基本资料历史补全任务启动");
-        queryNextConvertibleBondDescriptionTask();
+        queryNextConvertibleBondDescriptionTask(fromPreOpenTask);
     }
 
     /**
      * 查询下一个待补全基本资料的转债代码。
      * 处理逻辑：一次只发起一个查询，等待回调结束后再继续下一只。
      */
-    private void queryNextConvertibleBondDescriptionTask() {
+    private void queryNextConvertibleBondDescriptionTask(boolean fromPreOpenTask) {
         List<String> bondCodes = stockConvertibleBondHistoryService.listPendingDescriptionBondCodes(1);
         if (bondCodes.isEmpty()) {
             convertibleBondDescriptionTaskRunning.set(false);
-            refreshConvertibleBondFlagsFromHistory("可转债基本资料历史补全完成");
+            LocalDate refreshDate = fromPreOpenTask ? preOpenTaskDate : LocalDate.now();
+            refreshConvertibleBondFlagsFromHistory("可转债基本资料历史补全完成", refreshDate);
             log.info("可转债基本资料历史补全任务完成，已没有待补全转债");
+            if (fromPreOpenTask) {
+                stockDailyUpdateTaskService.markConvertibleBondSynced(preOpenTaskDate);
+                startPreOpenRegionStep();
+            }
             return;
         }
 
-        queryCBondDescription(bondCodes.get(0), true);
+        queryCBondDescription(bondCodes.get(0), true, fromPreOpenTask);
     }
 
     /**
@@ -569,6 +696,14 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 处理逻辑：fromTask 为 true 时，当前转债查询完成后继续调度下一只。
      */
     private void queryCBondDescription(String bondCode, boolean fromTask) {
+        queryCBondDescription(bondCode, fromTask, false);
+    }
+
+    /**
+     * 查询指定转债基本资料。
+     * 处理逻辑：fromPreOpenTask 为 true 时，补全队列完成后继续盘前任务。
+     */
+    private void queryCBondDescription(String bondCode, boolean fromTask, boolean fromPreOpenTask) {
         if (!isLoginReady("查询可转债基本资料")) {
             return;
         }
@@ -579,7 +714,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(1);
 
         int currentRequestId = nextRequestId();
-        cBondDescriptionRequestContextMap.put(currentRequestId, new CBondDescriptionRequestContext(bondCode, fromTask));
+        cBondDescriptionRequestContextMap.put(currentRequestId, new CBondDescriptionRequestContext(bondCode, fromTask, fromPreOpenTask));
         int ret = basicDataApi.ReqQryCBondDescription(request, currentRequestId);
         log.info("发起查询可转债基本资料 bondCode={} requestId={} ret={}", bondCode, currentRequestId, ret);
         if (ret != 0) {
@@ -587,6 +722,9 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             log.warn("查询可转债基本资料发起失败 bondCode={} ret={}", bondCode, ret);
             if (fromTask) {
                 convertibleBondDescriptionTaskRunning.set(false);
+            }
+            if (fromPreOpenTask) {
+                stopPreOpenTask("查询可转债基本资料发起失败");
             }
         }
     }
@@ -637,8 +775,23 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        startAllRegionInfoSyncTasks(false);
+    }
+
+    /**
+     * 启动全部股票地域属性同步任务。
+     * 处理逻辑：fromPreOpenTask 为 true 时，完成后标记每日任务并结束盘前任务。
+     */
+    private void startAllRegionInfoSyncTasks(boolean fromPreOpenTask) {
+        if (!isLoginReady("同步全部地域属性")) {
+            return;
+        }
+
         if (!regionInfoTaskRunning.compareAndSet(false, true)) {
             log.warn("全部地域属性同步任务已在运行，本次启动请求忽略");
+            if (fromPreOpenTask) {
+                stopPreOpenTask("全部地域属性同步任务已在运行");
+            }
             return;
         }
 
@@ -648,22 +801,29 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         regionInfoTaskTotal = stockCodes.size();
         regionInfoTaskSuccess = 0;
         log.info("全部地域属性同步任务启动 total={}", regionInfoTaskTotal);
-        queryNextRegionInfoTask();
+        queryNextRegionInfoTask(fromPreOpenTask);
     }
 
     /**
      * 查询下一个待同步地域属性的股票代码。
      * 处理逻辑：一个请求完成后再发起下一只，直到队列为空。
      */
-    private void queryNextRegionInfoTask() {
+    private void queryNextRegionInfoTask(boolean fromPreOpenTask) {
         String stockCode = regionInfoTaskQueue.poll();
         if (stockCode == null) {
             regionInfoTaskRunning.set(false);
             log.info("全部地域属性同步任务完成 total={} success={}", regionInfoTaskTotal, regionInfoTaskSuccess);
+            if (fromPreOpenTask) {
+                stockDailyUpdateTaskService.markRegionSynced(preOpenTaskDate);
+                stockDailyUpdateTaskService.markMarginTradingSynced(preOpenTaskDate);
+                stockDailyUpdateTaskService.markPreOpenFinished(preOpenTaskDate);
+                preOpenTaskRunning.set(false);
+                log.info("盘前每日更新完成 taskDate={}", preOpenTaskDate);
+            }
             return;
         }
 
-        queryRegionInfo(stockCode, 1, true);
+        queryRegionInfo(stockCode, 1, true, fromPreOpenTask);
     }
 
     /**
@@ -671,6 +831,14 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 处理逻辑：fromTask 为 true 时，当前股票查询结束后继续调度下一只。
      */
     private void queryRegionInfo(String stockCode, int page, boolean fromTask) {
+        queryRegionInfo(stockCode, page, fromTask, false);
+    }
+
+    /**
+     * 查询指定股票地域属性。
+     * 处理逻辑：fromPreOpenTask 为 true 时，全量队列结束后完成盘前任务。
+     */
+    private void queryRegionInfo(String stockCode, int page, boolean fromTask, boolean fromPreOpenTask) {
         if (!isLoginReady("同步地域属性")) {
             return;
         }
@@ -681,14 +849,14 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        regionInfoRequestContextMap.put(currentRequestId, new RegionInfoRequestContext(stockCode, page, fromTask));
+        regionInfoRequestContextMap.put(currentRequestId, new RegionInfoRequestContext(stockCode, page, fromTask, fromPreOpenTask));
         int ret = basicDataApi.ReqQryRegionInfo(request, currentRequestId);
         log.info("发起同步地域属性 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
         if (ret != 0) {
             regionInfoRequestContextMap.remove(currentRequestId);
             log.warn("同步地域属性发起失败 stockCode={} page={} ret={}", stockCode, page, ret);
             if (fromTask) {
-                queryNextRegionInfoTask();
+                queryNextRegionInfoTask(fromPreOpenTask);
             }
         }
     }
@@ -770,20 +938,35 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        syncDailyFreeFloatShares(date, page, false);
+    }
+
+    /**
+     * 同步指定日期自由流通股本变化。
+     * 处理逻辑：fromPreOpenTask 为 true 时，完成后标记每日任务并继续下一步。
+     */
+    private void syncDailyFreeFloatShares(LocalDate date, int page, boolean fromPreOpenTask) {
+        if (!isLoginReady("每日自由流通股本同步")) {
+            return;
+        }
+
         String queryDate = formatApiDate(date);
         CQCVDQryFreeFloatSharesInfoField request = new CQCVDQryFreeFloatSharesInfoField();
         request.setBegDate(queryDate);
         request.setEndDate(queryDate);
-        request.setPageCount(5000);
+        request.setPageCount(1000);
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(null, page, false, true));
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(null, page, false, true, fromPreOpenTask, date));
         int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
-        log.info("发起每日自由流通股本同步 date={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
+        log.info("发起每日自由流通股本同步 date={} page={} requestId={} ret={} 说明=不设置SecurityID查询全市场", queryDate, page, currentRequestId, ret);
         if (ret != 0) {
             freeFloatSharesRequestContextMap.remove(currentRequestId);
             log.warn("每日自由流通股本同步发起失败 date={} page={} ret={}", queryDate, page, ret);
+            if (fromPreOpenTask) {
+                stopPreOpenTask("每日自由流通股本同步发起失败");
+            }
         }
     }
 
@@ -940,14 +1123,26 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             if (context.fromTask) {
                 freeFloatTaskRunning.set(false);
             }
+            if (context.fromPreOpenTask) {
+                stopPreOpenTask("自由流通股本同步失败");
+            } else if (context.dailyUpdate) {
+                log.warn("每日自由流通股本同步失败 page={}", context.page);
+            }
             return;
         }
 
         if (!totalLast) {
-            log.warn("自由流通股本入库返回未结束 stockCode={} page={} requestId={} rawRows={}，未落库也未标记完成，请调大 PageCount 或补充翻页逻辑",
-                    context.stockCode, context.page, requestId, context.points.size());
-            if (context.fromTask) {
-                freeFloatTaskRunning.set(false);
+            if (context.dailyUpdate) {
+                int changeCount = stockFreeFloatShareHistoryService.mergeChangePoints(context.points);
+                log.info("每日自由流通股本同步完成一页 page={} requestId={} rawRows={} changeRows={} totalLast={}",
+                        context.page, requestId, context.points.size(), changeCount, totalLast);
+                syncDailyFreeFloatShares(context.queryDate, context.page + 1, context.fromPreOpenTask);
+            } else {
+                log.warn("自由流通股本入库返回未结束 stockCode={} page={} requestId={} rawRows={}，未落库也未标记完成，请调大 PageCount 或补充翻页逻辑",
+                        context.stockCode, context.page, requestId, context.points.size());
+                if (context.fromTask) {
+                    freeFloatTaskRunning.set(false);
+                }
             }
             return;
         }
@@ -960,6 +1155,14 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             } catch (RuntimeException e) {
                 log.error("每日自由流通股本同步异常 page={} requestId={} rawRows={}",
                         context.page, requestId, context.points.size(), e);
+                if (context.fromPreOpenTask) {
+                    stopPreOpenTask("每日自由流通股本同步异常");
+                }
+                return;
+            }
+            if (context.fromPreOpenTask) {
+                stockDailyUpdateTaskService.markFreeFloatSynced(preOpenTaskDate);
+                syncConvertibleBondStatus(1, true);
             }
             return;
         }
@@ -982,6 +1185,30 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
 
         if (context.fromTask) {
             queryNextFreeFloatShareTask();
+        }
+    }
+
+    /**
+     * 查询指定交易日全市场日 K。
+     * 处理逻辑：不设置 SecurityID，只按日期和页码查询全市场日 K，PageCount 固定 1000。
+     */
+    private void queryMarketStockDaily(LocalDate tradeDate, int page) {
+        CQCVDReqQryStockDayQuotationField request = new CQCVDReqQryStockDayQuotationField();
+        String queryDate = formatApiDate(tradeDate);
+        request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
+        request.setBegDate(queryDate);
+        request.setEndDate(queryDate);
+        request.setPageCount(1000);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        stockDayQuotationRequestContextMap.put(currentRequestId, StockDayQuotationRequestContext.marketDaily(tradeDate, page));
+        int ret = basicDataApi.ReqReqQryStockDayQuotation(request, currentRequestId);
+        log.info("发起盘后全市场日K查询 tradeDate={} page={} requestId={} ret={} 说明=不设置SecurityID查询全市场", queryDate, page, currentRequestId, ret);
+        if (ret != 0) {
+            stockDayQuotationRequestContextMap.remove(currentRequestId);
+            postCloseTaskRunning.set(false);
+            log.warn("盘后全市场日K查询发起失败 tradeDate={} page={} ret={}", queryDate, page, ret);
         }
     }
 
@@ -1014,6 +1241,29 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
                     context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
             if (context.fromTask) {
                 stockDailyTaskRunning.set(false);
+            }
+            if (context.marketDaily) {
+                postCloseTaskRunning.set(false);
+            }
+            return;
+        }
+
+        if (context.marketDaily) {
+            try {
+                int saveCount = stockDailyService.saveMarketDaily(context.tradeDate, context.quotations);
+                log.info("盘后全市场日K入库完成 tradeDate={} page={} requestId={} rawRows={} saveRows={} totalLast={}",
+                        context.tradeDate, context.page, requestId, context.quotations.size(), saveCount, totalLast);
+            } catch (RuntimeException e) {
+                postCloseTaskRunning.set(false);
+                log.error("盘后全市场日K入库异常 tradeDate={} page={} requestId={} rows={}",
+                        context.tradeDate, context.page, requestId, context.quotations.size(), e);
+                return;
+            }
+
+            if (totalLast) {
+                finishPostCloseDailyKlineTaskIfNeeded();
+            } else {
+                queryMarketStockDaily(context.tradeDate, context.page + 1);
             }
             return;
         }
@@ -1086,14 +1336,25 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (rspInfo != null && rspInfo.getErrorID() != 0) {
             log.warn("新上市股票发现失败 listDate={} page={} requestId={} ErrorID={} ErrorMsg={}",
                     context.listDate, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromPreOpenTask) {
+                stopPreOpenTask("新上市股票发现失败");
+            }
             return;
         }
 
         int newTaskCount = 0;
+        ArrayList<ASharePreviousNamePoint> newNamePoints = new ArrayList<>();
         for (ShareIssuancePoint point : context.points) {
             if (point.getStockCode() == null || point.getStockCode().isBlank()) {
                 continue;
             }
+            boolean marginTrading = !isStName(point.getStockName());
+            stockCurrentStatusService.ensureStatus(point.getStockCode(), marginTrading);
+            ASharePreviousNamePoint namePoint = new ASharePreviousNamePoint();
+            namePoint.setStockCode(point.getStockCode());
+            namePoint.setStockName(point.getStockName());
+            namePoint.setStartDate(point.getListDate());
+            newNamePoints.add(namePoint);
             boolean created = stockSyncTaskService.ensureTask(point.getStockCode(), false, false);
             if (created) {
                 newTaskCount++;
@@ -1101,12 +1362,17 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
                         point.getStockCode(), point.getStockName(), point.getListDate(), point.getListBoardName());
             }
         }
+        int newNameCount = stockPreviousNameHistoryService.mergeDailyNameChanges(newNamePoints);
 
-        log.info("新上市股票发现完成 listDate={} page={} requestId={} rows={} newTasks={} totalLast={}",
-                context.listDate, context.page, requestId, context.points.size(), newTaskCount, totalLast);
+        log.info("新上市股票发现完成 listDate={} page={} requestId={} rows={} newTasks={} newNames={} totalLast={}",
+                context.listDate, context.page, requestId, context.points.size(), newTaskCount, newNameCount, totalLast);
         if (!totalLast) {
             log.warn("新上市股票发现返回未结束 listDate={} page={} requestId={}，请检查 PageCount={} 是否不足",
                     context.listDate, context.page, requestId, PAGE_COUNT);
+        }
+        if (context.fromPreOpenTask) {
+            stockDailyUpdateTaskService.markNewListingSynced(context.listDate);
+            syncDailyFreeFloatShares(context.listDate, 1, true);
         }
     }
 
@@ -1150,15 +1416,32 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (rspInfo != null && rspInfo.getErrorID() != 0) {
             log.warn("每日曾用名同步失败 beginDate={} page={} requestId={} ErrorID={} ErrorMsg={}",
                     context.beginDate, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromPreOpenTask) {
+                stopPreOpenTask("每日曾用名同步失败");
+            }
             return;
         }
 
         int insertCount = stockPreviousNameHistoryService.mergeDailyNameChanges(context.points);
+        int disableMarginCount = 0;
+        for (ASharePreviousNamePoint point : context.points) {
+            if (isStName(point.getStockName())) {
+                if (stockCurrentStatusService.disableMarginTrading(point.getStockCode())) {
+                    disableMarginCount++;
+                }
+            }
+        }
         log.info("每日曾用名同步完成 beginDate={} page={} requestId={} rows={} inserts={} totalLast={}",
                 context.beginDate, context.page, requestId, context.points.size(), insertCount, totalLast);
+        log.info("每日曾用名融资融券标识维护完成 beginDate={} disableMarginCount={} 说明=戴帽关闭，摘帽不恢复",
+                context.beginDate, disableMarginCount);
         if (!totalLast) {
             log.warn("每日曾用名同步返回未结束 beginDate={} page={} requestId={}，请检查 PageCount={} 是否不足",
                     context.beginDate, context.page, requestId, PAGE_COUNT);
+        }
+        if (context.fromPreOpenTask) {
+            stockDailyUpdateTaskService.markPreviousNameSynced(context.beginDate);
+            discoverNewListedStocks(context.beginDate, 1, true);
         }
     }
 
@@ -1201,6 +1484,9 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (rspInfo != null && rspInfo.getErrorID() != 0) {
             log.warn("同步当前可转债标识失败 page={} requestId={} ErrorID={} ErrorMsg={}",
                     context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromPreOpenTask) {
+                stopPreOpenTask("同步当前可转债标识失败");
+            }
             return;
         }
 
@@ -1212,6 +1498,9 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         } else {
             log.info("同步可转债发行关系完成 page={} requestId={} savedRelations={} totalLast={} 说明=当前状态将在基本资料补全完成后刷新",
                     context.page, requestId, context.savedRelations, totalLast);
+            if (context.fromPreOpenTask) {
+                startConvertibleBondDescriptionFillTasks(true);
+            }
         }
         if (!totalLast) {
             log.warn("同步当前可转债标识返回未结束 page={} requestId={}，请检查 PageCount=5000 是否不足", context.page, requestId);
@@ -1246,13 +1535,16 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (rspInfo != null && rspInfo.getErrorID() != 0) {
             log.warn("查询可转债基本资料失败 bondCode={} requestId={} ErrorID={} ErrorMsg={}",
                     context.bondCode, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromPreOpenTask) {
+                stopPreOpenTask("查询可转债基本资料失败");
+            }
             return;
         }
 
         log.info("查询可转债基本资料完成 bondCode={} requestId={} rows={} last={}",
                 context.bondCode, requestId, context.rows, last);
         if (context.fromTask) {
-            queryNextConvertibleBondDescriptionTask();
+            queryNextConvertibleBondDescriptionTask(context.fromPreOpenTask);
         }
     }
 
@@ -1290,7 +1582,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             log.warn("同步地域属性失败 stockCode={} page={} requestId={} ErrorID={} ErrorMsg={}",
                     context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
             if (context.fromTask) {
-                queryNextRegionInfoTask();
+                queryNextRegionInfoTask(context.fromPreOpenTask);
             }
             return;
         }
@@ -1299,7 +1591,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             log.warn("同步地域属性完成但未收到地域名称 stockCode={} page={} requestId={} totalLast={}",
                     context.stockCode, context.page, requestId, totalLast);
             if (context.fromTask) {
-                queryNextRegionInfoTask();
+                queryNextRegionInfoTask(context.fromPreOpenTask);
             }
             return;
         }
@@ -1311,7 +1603,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         log.info("同步地域属性完成 stockCode={} regionName={} page={} requestId={} updated={} totalLast={}",
                 context.stockCode, context.regionName, context.page, requestId, updated, totalLast);
         if (context.fromTask) {
-            queryNextRegionInfoTask();
+            queryNextRegionInfoTask(context.fromPreOpenTask);
         }
     }
 
@@ -1380,12 +1672,50 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 作用：只把已经上市且尚未退市的转债正股设置为有转债，未上市转债不计入当前状态。
      */
     private int refreshConvertibleBondFlagsFromHistory(String scene) {
-        LocalDate today = LocalDate.now();
-        Set<String> tradableStockCodes = stockConvertibleBondHistoryService.listTradableStockCodes(today);
+        return refreshConvertibleBondFlagsFromHistory(scene, LocalDate.now());
+    }
+
+    /**
+     * 从可转债历史表刷新当前可交易转债标识。
+     * 作用：按指定日期判断转债是否已经上市且尚未退市。
+     */
+    private int refreshConvertibleBondFlagsFromHistory(String scene, LocalDate tradeDate) {
+        Set<String> tradableStockCodes = stockConvertibleBondHistoryService.listTradableStockCodes(tradeDate);
         int updateCount = stockCurrentStatusService.refreshConvertibleBondFlags(tradableStockCodes);
         log.info("{} 刷新可交易转债标识 tradeDate={} tradableStockCount={} updateCount={}",
-                scene, today, tradableStockCodes.size(), updateCount);
+                scene, tradeDate, tradableStockCodes.size(), updateCount);
         return updateCount;
+    }
+
+    /**
+     * 启动盘前地域信息同步步骤。
+     * 作用：可转债状态刷新完成后，继续同步地域信息。
+     */
+    private void startPreOpenRegionStep() {
+        startAllRegionInfoSyncTasks(true);
+    }
+
+    /**
+     * 停止盘前每日任务。
+     * 作用：某个关键步骤失败时释放运行标识，后续可手动补跑。
+     */
+    private void stopPreOpenTask(String reason) {
+        preOpenTaskRunning.set(false);
+        log.warn("盘前每日更新停止 taskDate={} reason={}", preOpenTaskDate, reason);
+    }
+
+    /**
+     * 完成盘后日 K 任务记录。
+     * 作用：日 K 队列全部完成后，更新每日任务表标识。
+     */
+    private void finishPostCloseDailyKlineTaskIfNeeded() {
+        if (!postCloseTaskRunning.get()) {
+            return;
+        }
+        stockDailyUpdateTaskService.markDailyKlineSynced(postCloseTaskDate);
+        stockDailyUpdateTaskService.markPostCloseFinished(postCloseTaskDate);
+        postCloseTaskRunning.set(false);
+        log.info("盘后每日更新完成 taskDate={}", postCloseTaskDate);
     }
 
     /**
@@ -1454,10 +1784,13 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 入参格式：yyyyMMdd；解析失败时返回 null 并记录警告日志。
      */
     private LocalDate parseApiDate(String apiDate) {
+        if (apiDate == null || apiDate.isBlank()) {
+            return null;
+        }
         try {
             return LocalDate.parse(apiDate, API_DATE_FORMATTER);
         } catch (DateTimeParseException e) {
-            log.warn("解析交易日历日期失败 apiDate={}", apiDate, e);
+            log.warn("解析华鑫接口日期失败 apiDate={}", apiDate);
             return null;
         }
     }
@@ -1471,6 +1804,14 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return null;
         }
         return parseApiDate(apiDate);
+    }
+
+    /**
+     * 判断股票名称是否为 ST 名称。
+     * 作用：盘前维护融资融券标识时，戴帽关闭融资融券，摘帽不自动恢复。
+     */
+    private boolean isStName(String stockName) {
+        return stockName != null && stockName.toUpperCase().contains("ST");
     }
 
     /**
@@ -1547,6 +1888,16 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean dailyUpdate;
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
+         * 每日同步查询日期。
+         */
+        private final LocalDate queryDate;
+
+        /**
          * 当前页自由流通股本原始点缓存。
          */
         private final ArrayList<FreeFloatSharePoint> points = new ArrayList<>();
@@ -1555,10 +1906,26 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
          * 创建自由流通股本查询上下文。
          */
         private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask, boolean dailyUpdate) {
+            this(stockCode, page, fromTask, dailyUpdate, false, null);
+        }
+
+        /**
+         * 创建自由流通股本查询上下文。
+         */
+        private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask, boolean dailyUpdate, boolean fromPreOpenTask) {
+            this(stockCode, page, fromTask, dailyUpdate, fromPreOpenTask, null);
+        }
+
+        /**
+         * 创建自由流通股本查询上下文。
+         */
+        private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask, boolean dailyUpdate, boolean fromPreOpenTask, LocalDate queryDate) {
             this.stockCode = stockCode;
             this.page = page;
             this.fromTask = fromTask;
             this.dailyUpdate = dailyUpdate;
+            this.fromPreOpenTask = fromPreOpenTask;
+            this.queryDate = queryDate;
         }
     }
 
@@ -1584,11 +1951,24 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final ArrayList<ShareIssuancePoint> points = new ArrayList<>();
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
          * 创建新上市股票发现上下文。
          */
         private ShareIssuanceRequestContext(LocalDate listDate, int page) {
+            this(listDate, page, false);
+        }
+
+        /**
+         * 创建新上市股票发现上下文。
+         */
+        private ShareIssuanceRequestContext(LocalDate listDate, int page, boolean fromPreOpenTask) {
             this.listDate = listDate;
             this.page = page;
+            this.fromPreOpenTask = fromPreOpenTask;
         }
     }
 
@@ -1614,11 +1994,24 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final ArrayList<ASharePreviousNamePoint> points = new ArrayList<>();
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
          * 创建 A 股曾用名每日同步上下文。
          */
         private ASharePreviousNameRequestContext(LocalDate beginDate, int page) {
+            this(beginDate, page, false);
+        }
+
+        /**
+         * 创建 A 股曾用名每日同步上下文。
+         */
+        private ASharePreviousNameRequestContext(LocalDate beginDate, int page, boolean fromPreOpenTask) {
             this.beginDate = beginDate;
             this.page = page;
+            this.fromPreOpenTask = fromPreOpenTask;
         }
     }
 
@@ -1639,6 +2032,11 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean queryDescriptionAfterEnd;
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
          * 已保存的转债和正股关系数量。
          */
         private int savedRelations;
@@ -1652,8 +2050,16 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
          * 创建可转债发行信息同步上下文。
          */
         private BondIssuanceRequestContext(int page, boolean queryDescriptionAfterEnd) {
+            this(page, queryDescriptionAfterEnd, false);
+        }
+
+        /**
+         * 创建可转债发行信息同步上下文。
+         */
+        private BondIssuanceRequestContext(int page, boolean queryDescriptionAfterEnd, boolean fromPreOpenTask) {
             this.page = page;
             this.queryDescriptionAfterEnd = queryDescriptionAfterEnd;
+            this.fromPreOpenTask = fromPreOpenTask;
         }
     }
 
@@ -1674,6 +2080,11 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean fromTask;
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
          * 收到的记录数。
          */
         private int rows;
@@ -1682,8 +2093,16 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
          * 创建可转债基本资料查询上下文。
          */
         private CBondDescriptionRequestContext(String bondCode, boolean fromTask) {
+            this(bondCode, fromTask, false);
+        }
+
+        /**
+         * 创建可转债基本资料查询上下文。
+         */
+        private CBondDescriptionRequestContext(String bondCode, boolean fromTask, boolean fromPreOpenTask) {
             this.bondCode = bondCode;
             this.fromTask = fromTask;
+            this.fromPreOpenTask = fromPreOpenTask;
         }
     }
 
@@ -1714,19 +2133,32 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean fromTask;
 
         /**
+         * 是否来自盘前每日任务。
+         */
+        private final boolean fromPreOpenTask;
+
+        /**
          * 创建地域属性同步上下文。
          */
         private RegionInfoRequestContext(String stockCode, int page) {
-            this(stockCode, page, false);
+            this(stockCode, page, false, false);
         }
 
         /**
          * 创建地域属性同步上下文。
          */
         private RegionInfoRequestContext(String stockCode, int page, boolean fromTask) {
+            this(stockCode, page, fromTask, false);
+        }
+
+        /**
+         * 创建地域属性同步上下文。
+         */
+        private RegionInfoRequestContext(String stockCode, int page, boolean fromTask, boolean fromPreOpenTask) {
             this.stockCode = stockCode;
             this.page = page;
             this.fromTask = fromTask;
+            this.fromPreOpenTask = fromPreOpenTask;
         }
     }
 
@@ -1752,6 +2184,16 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean fromTask;
 
         /**
+         * 是否为盘后全市场每日更新。
+         */
+        private final boolean marketDaily;
+
+        /**
+         * 每日更新交易日期。
+         */
+        private final LocalDate tradeDate;
+
+        /**
          * 当前页股票日 K 原始数据缓存。
          */
         private final ArrayList<StockDayQuotationPoint> quotations = new ArrayList<>();
@@ -1763,6 +2205,26 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             this.stockCode = stockCode;
             this.page = page;
             this.fromTask = fromTask;
+            this.marketDaily = false;
+            this.tradeDate = null;
+        }
+
+        /**
+         * 创建盘后全市场每日更新上下文。
+         */
+        private static StockDayQuotationRequestContext marketDaily(LocalDate tradeDate, int page) {
+            return new StockDayQuotationRequestContext(tradeDate, page);
+        }
+
+        /**
+         * 创建盘后全市场每日更新上下文。
+         */
+        private StockDayQuotationRequestContext(LocalDate tradeDate, int page) {
+            this.stockCode = null;
+            this.page = page;
+            this.fromTask = false;
+            this.marketDaily = true;
+            this.tradeDate = tradeDate;
         }
     }
 

@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 股票日 K 服务实现。
@@ -74,6 +75,68 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
                 .eq(StockDailyEntity::getStockCode, stockCode));
         saveBatch(stockDailyList, 1000);
         return stockDailyList.size();
+    }
+
+    /**
+     * 保存指定交易日的全市场日 K。
+     * 实现逻辑：接口按日期分页返回全市场数据，每页落库时按 stock_code + trade_date 覆盖当天记录。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int saveMarketDaily(LocalDate tradeDate, List<StockDayQuotationPoint> quotations) {
+        List<StockDayQuotationPoint> filteredQuotations = quotations.stream()
+                .filter(quotation -> quotation.getStockCode() != null && !quotation.getStockCode().isBlank())
+                .filter(quotation -> tradeDate.equals(parseTradeDate(quotation)))
+                .toList();
+        if (filteredQuotations.isEmpty()) {
+            return 0;
+        }
+
+        List<String> stockCodes = filteredQuotations.stream()
+                .map(StockDayQuotationPoint::getStockCode)
+                .distinct()
+                .toList();
+        List<StockDailyEntity> stockDailyList = filteredQuotations.stream()
+                .map(quotation -> buildSingleDayStockDaily(quotation, tradeDate))
+                .filter(Objects::nonNull)
+                .toList();
+        if (stockDailyList.isEmpty()) {
+            return 0;
+        }
+
+        remove(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getTradeDate, tradeDate)
+                .in(StockDailyEntity::getStockCode, stockCodes));
+        saveBatch(stockDailyList, 1000);
+        return stockDailyList.size();
+    }
+
+    /**
+     * 构建单日股票日 K。
+     * 作用：每日更新只处理一个交易日，名称、流通股和前一日连板状态按单日查询补齐。
+     */
+    private StockDailyEntity buildSingleDayStockDaily(StockDayQuotationPoint quotation, LocalDate tradeDate) {
+        List<StockPreviousNameHistory> nameHistories = stockPreviousNameHistoryService.findNamesByDateRange(quotation.getStockCode(), tradeDate, tradeDate);
+        List<StockFreeFloatShareHistory> freeFloatHistories = stockFreeFloatShareHistoryService.findByDateRange(quotation.getStockCode(), tradeDate, tradeDate);
+        int previousLimitUpDays = findPreviousLimitUpDays(quotation.getStockCode(), tradeDate);
+        return buildStockDaily(quotation, previousLimitUpDays, nameHistories, freeFloatHistories);
+    }
+
+    /**
+     * 查询上一条有效日 K 的连板状态。
+     * 作用：每日新增一条日 K 时，用上一交易记录延续连板或计算断板高度。
+     */
+    private int findPreviousLimitUpDays(String stockCode, LocalDate tradeDate) {
+        StockDailyEntity previous = getOne(Wrappers.<StockDailyEntity>lambdaQuery()
+                .select(StockDailyEntity::getConsecutiveLimitUpDays)
+                .eq(StockDailyEntity::getStockCode, stockCode)
+                .lt(StockDailyEntity::getTradeDate, tradeDate)
+                .orderByDesc(StockDailyEntity::getTradeDate)
+                .last("LIMIT 1"));
+        if (previous == null || previous.getConsecutiveLimitUpDays() == null || previous.getConsecutiveLimitUpDays() <= 0) {
+            return 0;
+        }
+        return previous.getConsecutiveLimitUpDays();
     }
 
     /**

@@ -75,13 +75,38 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean ensureStatus(String stockCode) {
+        return ensureStatus(stockCode, true);
+    }
+
+    /**
+     * 确保指定股票存在当前状态记录。
+     * 实现逻辑：已存在时不处理；不存在时按传入融资融券默认值新增记录。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean ensureStatus(String stockCode, boolean marginTrading) {
         long exists = count(Wrappers.<StockCurrentStatus>lambdaQuery()
                 .eq(StockCurrentStatus::getStockCode, stockCode));
         if (exists > 0) {
             return false;
         }
 
-        return save(createDefaultStatus(stockCode));
+        StockCurrentStatus status = createDefaultStatus(stockCode);
+        status.setMarginTrading(marginTrading);
+        return save(status);
+    }
+
+    /**
+     * 关闭指定股票融资融券标识。
+     * 实现逻辑：戴帽时关闭融资融券；摘帽不调用本方法，因此不会自动恢复。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean disableMarginTrading(String stockCode) {
+        ensureStatus(stockCode, true);
+        return update(Wrappers.<StockCurrentStatus>lambdaUpdate()
+                .eq(StockCurrentStatus::getStockCode, stockCode)
+                .set(StockCurrentStatus::getMarginTrading, false));
     }
 
     /**
@@ -93,7 +118,6 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
         return list(Wrappers.<StockCurrentStatus>lambdaQuery()
                 .select(StockCurrentStatus::getStockCode)
                 .isNotNull(StockCurrentStatus::getStockCode)
-                .isNull(StockCurrentStatus::getRegionName)
                 .orderByAsc(StockCurrentStatus::getStockCode))
                 .stream()
                 .map(StockCurrentStatus::getStockCode)

@@ -17,4 +17,9 @@ public interface StockTradeCalendarService extends IService<StockTradeCalendar> 
      * 表里存在的日期会刷新更新时间，不存在的日期会新增。
      */
     int saveTradeDates(Collection<LocalDate> tradeDates);
+
+    /**
+     * 判断指定日期是否为交易日。
+     */
+    boolean isTradeDay(LocalDate tradeDate);
 }

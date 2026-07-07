@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -17,4 +18,10 @@ public interface StockDailyService extends IService<StockDailyEntity> {
      * 处理逻辑：先删除该股票旧日 K，再按交易日期升序计算衍生字段并批量保存。
      */
     int replaceStockDaily(String stockCode, List<StockDayQuotationPoint> quotations);
+
+    /**
+     * 保存指定交易日的全市场日 K。
+     * 处理逻辑：按股票代码和交易日期覆盖当天数据，并基于前一条日 K 计算连板/断板。
+     */
+    int saveMarketDaily(LocalDate tradeDate, List<StockDayQuotationPoint> quotations);
 }

@@ -62,4 +62,14 @@ public class StockTradeCalendarServiceImpl extends ServiceImpl<StockTradeCalenda
         }
         return distinctTradeDates.size();
     }
+
+    /**
+     * 判断指定日期是否为交易日。
+     * 实现逻辑：交易日历表中存在该日期即视为交易日。
+     */
+    @Override
+    public boolean isTradeDay(LocalDate tradeDate) {
+        return count(Wrappers.<StockTradeCalendar>lambdaQuery()
+                .eq(StockTradeCalendar::getTradeDate, tradeDate)) > 0;
+    }
 }
