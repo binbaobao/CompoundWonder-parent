@@ -1,6 +1,7 @@
 package com.compoundwonder.hxdata.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.compoundwonder.hxdata.dto.ASharePreviousNamePoint;
 import com.compoundwonder.hxdata.entity.StockPreviousNameHistory;
 
 import java.time.LocalDate;
@@ -30,4 +31,10 @@ public interface StockPreviousNameHistoryService extends IService<StockPreviousN
      * 判断规则：名称使用区间和查询区间存在交集即返回。
      */
     List<StockPreviousNameHistory> findNamesByDateRange(String stockCode, LocalDate startDate, LocalDate endDate);
+
+    /**
+     * 合并每日曾用名变更点。
+     * 处理逻辑：已有相同股票、名称、开始日期时跳过；否则关闭旧 open 区间并插入新记录。
+     */
+    int mergeDailyNameChanges(List<ASharePreviousNamePoint> points);
 }

@@ -35,6 +35,52 @@ CREATE TABLE IF NOT EXISTS stock_free_float_share_history (
     KEY idx_current (stock_code, end_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票自由流通股本历史区间表';
 
+CREATE TABLE IF NOT EXISTS stock_previous_name_history (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    stock_code VARCHAR(6) DEFAULT NULL COMMENT '股票代码',
+    stock_name VARCHAR(20) NOT NULL COMMENT '股票名称',
+    start_date DATE NOT NULL COMMENT '名称开始使用日期',
+    end_date DATE DEFAULT NULL COMMENT '名称结束使用日期；NULL表示当前仍然有效',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_stock_start_date (stock_code, start_date),
+    KEY idx_stock_date_range (stock_code, start_date, end_date),
+    KEY idx_current (stock_code, end_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票曾用名历史表';
+
+CREATE TABLE IF NOT EXISTS stock_current_status (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    stock_code VARCHAR(6) NOT NULL COMMENT '股票代码',
+    margin_trading TINYINT NOT NULL DEFAULT 1 COMMENT '是否融资融券：0=否，1=是',
+    convertible_bond TINYINT NOT NULL DEFAULT 0 COMMENT '是否有可转债：0=否，1=是',
+    region_name VARCHAR(50) DEFAULT NULL COMMENT '地域名称',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_stock_code (stock_code),
+    KEY idx_margin_trading (margin_trading),
+    KEY idx_convertible_bond (convertible_bond),
+    KEY idx_region_name (region_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票当前状态表';
+
+CREATE TABLE IF NOT EXISTS stock_convertible_bond_history (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    stock_code VARCHAR(6) NOT NULL COMMENT '正股代码',
+    bond_code VARCHAR(6) NOT NULL COMMENT '转债代码',
+    market VARCHAR(10) NOT NULL COMMENT '转债市场',
+    bond_name VARCHAR(50) DEFAULT NULL COMMENT '转债名称',
+    start_date DATE DEFAULT NULL COMMENT '上市日期',
+    end_date DATE DEFAULT NULL COMMENT '退市或到期日期',
+    maturity_date DATE DEFAULT NULL COMMENT '到期日期',
+    failure INT DEFAULT NULL COMMENT '是否失效',
+    outstanding_balance DOUBLE DEFAULT NULL COMMENT '存续余额',
+    created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_bond_market (bond_code, market),
+    KEY idx_stock_code (stock_code),
+    KEY idx_stock_date_range (stock_code, start_date, end_date),
+    KEY idx_bond_code (bond_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票可转债历史表';
+
 CREATE TABLE IF NOT EXISTS stock_daily (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
     stock_code VARCHAR(6) NOT NULL COMMENT '股票代码',

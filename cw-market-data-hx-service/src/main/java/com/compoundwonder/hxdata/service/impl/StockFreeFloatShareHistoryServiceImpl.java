@@ -12,9 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -73,6 +75,79 @@ public class StockFreeFloatShareHistoryServiceImpl extends ServiceImpl<StockFree
                         .or()
                         .ge(StockFreeFloatShareHistory::getEndDate, startDate))
                 .orderByAsc(StockFreeFloatShareHistory::getStartDate));
+    }
+
+    /**
+     * 增量合并自由流通股本变化点。
+     * 实现逻辑：按股票和日期升序处理；股本不变时跳过，股本变化时关闭当前开区间并新增新区间。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int mergeChangePoints(List<FreeFloatSharePoint> points) {
+        List<FreeFloatSharePoint> sortedPoints = points.stream()
+                .filter(point -> point.getStockCode() != null && !point.getStockCode().isBlank())
+                .filter(point -> point.getChangeDate() != null)
+                .filter(point -> point.getFreeSharesTenThousand() != null)
+                .sorted(Comparator.comparing(FreeFloatSharePoint::getStockCode)
+                        .thenComparing(FreeFloatSharePoint::getChangeDate))
+                .toList();
+        if (sortedPoints.isEmpty()) {
+            return 0;
+        }
+
+        Map<String, StockFreeFloatShareHistory> currentHistoryCache = new LinkedHashMap<>();
+        int changeCount = 0;
+        for (FreeFloatSharePoint point : sortedPoints) {
+            StockFreeFloatShareHistory current = currentHistoryCache.computeIfAbsent(point.getStockCode(), this::findCurrentHistory);
+            Long freeShares = toShares(point.getFreeSharesTenThousand());
+
+            if (current == null) {
+                StockFreeFloatShareHistory created = createHistory(point.getStockCode(), freeShares, point);
+                save(created);
+                currentHistoryCache.put(point.getStockCode(), created);
+                changeCount++;
+                continue;
+            }
+
+            if (point.getChangeDate().isBefore(current.getStartDate())) {
+                continue;
+            }
+
+            if (point.getChangeDate().isEqual(current.getStartDate())) {
+                if (!Objects.equals(current.getFreeShares(), freeShares)) {
+                    current.setFreeShares(freeShares);
+                    current.setAnnouncementDate(point.getAnnouncementDate());
+                    updateById(current);
+                    changeCount++;
+                }
+                continue;
+            }
+
+            if (Objects.equals(current.getFreeShares(), freeShares)) {
+                continue;
+            }
+
+            current.setEndDate(point.getChangeDate().minusDays(1));
+            updateById(current);
+
+            StockFreeFloatShareHistory created = createHistory(point.getStockCode(), freeShares, point);
+            save(created);
+            currentHistoryCache.put(point.getStockCode(), created);
+            changeCount++;
+        }
+
+        return changeCount;
+    }
+
+    /**
+     * 查询当前仍有效的自由流通股本区间。
+     */
+    private StockFreeFloatShareHistory findCurrentHistory(String stockCode) {
+        return getOne(Wrappers.<StockFreeFloatShareHistory>lambdaQuery()
+                .eq(StockFreeFloatShareHistory::getStockCode, stockCode)
+                .isNull(StockFreeFloatShareHistory::getEndDate)
+                .orderByDesc(StockFreeFloatShareHistory::getStartDate)
+                .last("LIMIT 1"));
     }
 
     /**

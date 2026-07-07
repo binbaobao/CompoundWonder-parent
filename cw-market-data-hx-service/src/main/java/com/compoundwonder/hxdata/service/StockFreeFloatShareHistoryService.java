@@ -30,4 +30,9 @@ public interface StockFreeFloatShareHistoryService extends IService<StockFreeFlo
      * 判断规则：自由流通股区间和查询区间存在交集即返回。
      */
     List<StockFreeFloatShareHistory> findByDateRange(String stockCode, LocalDate startDate, LocalDate endDate);
+
+    /**
+     * 增量合并自由流通股本变化点。
+     */
+    int mergeChangePoints(List<FreeFloatSharePoint> points);
 }

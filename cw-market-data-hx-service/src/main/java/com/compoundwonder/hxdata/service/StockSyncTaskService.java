@@ -36,4 +36,9 @@ public interface StockSyncTaskService extends IService<StockSyncTask> {
      * 标记指定股票已完成日 K 同步。
      */
     boolean markDailyKlineSynced(String stockCode);
+
+    /**
+     * 确保指定股票存在同步任务。
+     */
+    boolean ensureTask(String stockCode, boolean freeFloatSynced, boolean dailyKlineSynced);
 }

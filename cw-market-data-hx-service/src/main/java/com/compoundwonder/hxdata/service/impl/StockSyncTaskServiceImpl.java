@@ -115,6 +115,26 @@ public class StockSyncTaskServiceImpl extends ServiceImpl<StockSyncTaskMapper, S
     }
 
     /**
+     * 确保指定股票存在同步任务。
+     * 实现逻辑：已存在时不处理；不存在时按传入状态新增任务。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean ensureTask(String stockCode, boolean freeFloatSynced, boolean dailyKlineSynced) {
+        long exists = count(Wrappers.<StockSyncTask>lambdaQuery()
+                .eq(StockSyncTask::getStockCode, stockCode));
+        if (exists > 0) {
+            return false;
+        }
+
+        StockSyncTask task = new StockSyncTask();
+        task.setStockCode(stockCode);
+        task.setFreeFloatSynced(freeFloatSynced);
+        task.setDailyKlineSynced(dailyKlineSynced);
+        return save(task);
+    }
+
+    /**
      * 创建初始化任务对象。
      * 默认状态：自由流通股未同步，日 K 未同步。
      */

@@ -4,25 +4,46 @@ package com.compoundwonder.hxdata.api;
 
 import cn.hutool.core.date.LocalDateTimeUtil;
 
+import com.compoundwonder.hxdata.callback.ASharePreviousNameResponseHandler;
+import com.compoundwonder.hxdata.callback.BondIssuanceResponseHandler;
+import com.compoundwonder.hxdata.callback.CBondDescriptionResponseHandler;
 import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
+import com.compoundwonder.hxdata.callback.RegionInfoResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
+import com.compoundwonder.hxdata.callback.ShareIssuanceResponseHandler;
 import com.compoundwonder.hxdata.callback.StockDayQuotationResponseHandler;
+import com.compoundwonder.hxdata.dto.ASharePreviousNamePoint;
+import com.compoundwonder.hxdata.dto.ConvertibleBondDescriptionPoint;
+import com.compoundwonder.hxdata.dto.ConvertibleBondIssuancePoint;
 import com.compoundwonder.hxdata.dto.FreeFloatSharePoint;
+import com.compoundwonder.hxdata.dto.ShareIssuancePoint;
 import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
 import com.compoundwonder.hxdata.entity.StockSyncTask;
+import com.compoundwonder.hxdata.service.StockConvertibleBondHistoryService;
+import com.compoundwonder.hxdata.service.StockCurrentStatusService;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockFreeFloatShareHistoryService;
+import com.compoundwonder.hxdata.service.StockPreviousNameHistoryService;
 import com.compoundwonder.hxdata.service.StockSyncTaskService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.hxdata.spi.SimpleQrySpi;
+import com.qcvalueaddproapi.CQCVDASharePreviousNameField;
+import com.qcvalueaddproapi.CQCVDBondIssuanceField;
+import com.qcvalueaddproapi.CQCVDCBondDescriptionField;
 import com.qcvalueaddproapi.CQCVDFreeFloatSharesDataField;
+import com.qcvalueaddproapi.CQCVDRegionDataField;
 import com.qcvalueaddproapi.CQCVDRspInfoField;
 import com.qcvalueaddproapi.CQCVDQryFreeFloatSharesInfoField;
+import com.qcvalueaddproapi.CQCVDQryRegionInfoField;
+import com.qcvalueaddproapi.CQCVDReqQryASharePreviousNameField;
+import com.qcvalueaddproapi.CQCVDReqQryBondIssuanceField;
+import com.qcvalueaddproapi.CQCVDQryCBondDescriptionField;
 import com.qcvalueaddproapi.CQCVDReqQryShareCalendarField;
 import com.qcvalueaddproapi.CQCVDReqQryShareDescriptionField;
 import com.qcvalueaddproapi.CQCVDReqQryShareIssuanceField;
 import com.qcvalueaddproapi.CQCVDReqQryStockDayQuotationField;
 import com.qcvalueaddproapi.CQCVDShareCalendarField;
+import com.qcvalueaddproapi.CQCVDShareIssuanceField;
 import com.qcvalueaddproapi.CQCVDStockDayQuotationField;
 import com.qcvalueaddproapi.CQCValueAddProApi;
 import com.qcvalueaddproapi.qcvalueaddproapiConstants;
@@ -36,9 +57,13 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,7 +72,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 基础数据API提供
  */
 @Component
-public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatSharesResponseHandler, StockDayQuotationResponseHandler {
+public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatSharesResponseHandler, StockDayQuotationResponseHandler, ShareIssuanceResponseHandler, ASharePreviousNameResponseHandler, BondIssuanceResponseHandler, CBondDescriptionResponseHandler, RegionInfoResponseHandler {
 
     private static final Logger log = LoggerFactory.getLogger(BasicDataApi.class);
     private static final int PAGE_COUNT = 1200;
@@ -72,25 +97,41 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
 
     private SimpleQrySpi simpleQrySpi = null;
     private final StockTradeCalendarService stockTradeCalendarService;
+    private final StockCurrentStatusService stockCurrentStatusService;
+    private final StockConvertibleBondHistoryService stockConvertibleBondHistoryService;
     private final StockDailyService stockDailyService;
     private final StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService;
+    private final StockPreviousNameHistoryService stockPreviousNameHistoryService;
     private final StockSyncTaskService stockSyncTaskService;
     private final AtomicBoolean loginReady = new AtomicBoolean(false);
     private final AtomicBoolean freeFloatTaskRunning = new AtomicBoolean(false);
     private final AtomicBoolean stockDailyTaskRunning = new AtomicBoolean(false);
+    private final AtomicBoolean convertibleBondDescriptionTaskRunning = new AtomicBoolean(false);
+    private final AtomicBoolean regionInfoTaskRunning = new AtomicBoolean(false);
+    private final Queue<String> regionInfoTaskQueue = new ConcurrentLinkedQueue<>();
+    private volatile int regionInfoTaskTotal;
+    private volatile int regionInfoTaskSuccess;
     private final CountDownLatch loginReadyLatch = new CountDownLatch(1);
     private final Map<Integer, ShareCalendarRequestContext> shareCalendarRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, FreeFloatSharesRequestContext> freeFloatSharesRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, StockDayQuotationRequestContext> stockDayQuotationRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, ShareIssuanceRequestContext> shareIssuanceRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, ASharePreviousNameRequestContext> aSharePreviousNameRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, BondIssuanceRequestContext> bondIssuanceRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, CBondDescriptionRequestContext> cBondDescriptionRequestContextMap = new ConcurrentHashMap<>();
+    private final Map<Integer, RegionInfoRequestContext> regionInfoRequestContextMap = new ConcurrentHashMap<>();
 
     /**
      * 创建基础数据 API 组件。
      * 作用：注入交易日历服务，供异步回调收到数据后直接落库。
      */
-    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockDailyService stockDailyService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockSyncTaskService stockSyncTaskService) {
+    public BasicDataApi(StockTradeCalendarService stockTradeCalendarService, StockCurrentStatusService stockCurrentStatusService, StockConvertibleBondHistoryService stockConvertibleBondHistoryService, StockDailyService stockDailyService, StockFreeFloatShareHistoryService stockFreeFloatShareHistoryService, StockPreviousNameHistoryService stockPreviousNameHistoryService, StockSyncTaskService stockSyncTaskService) {
         this.stockTradeCalendarService = stockTradeCalendarService;
+        this.stockCurrentStatusService = stockCurrentStatusService;
+        this.stockConvertibleBondHistoryService = stockConvertibleBondHistoryService;
         this.stockDailyService = stockDailyService;
         this.stockFreeFloatShareHistoryService = stockFreeFloatShareHistoryService;
+        this.stockPreviousNameHistoryService = stockPreviousNameHistoryService;
         this.stockSyncTaskService = stockSyncTaskService;
     }
 
@@ -115,7 +156,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         try {
             basicDataApi = CQCValueAddProApi.CreateInfoQryApi();
             basicDataApi.RegisterFront(ADDRESS, PORT);
-            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this, this, this);
+            simpleQrySpi = new SimpleQrySpi(basicDataApi, this::markLoginReady, this, this, this, this, this, this, this, this);
             basicDataApi.RegisterSpi(simpleQrySpi);
             basicDataApi.Run();
         } catch (Throwable e) {
@@ -341,6 +382,318 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     }
 
     /**
+     * 发现指定上市日期的新股。
+     * 处理逻辑：查询发行信息中的上市日期，发现任务表不存在的股票后新增同步任务；曾用名后续单独处理。
+     */
+    public void discoverNewListedStocks(LocalDate listDate, int page) {
+        if (!isLoginReady("新上市股票发现")) {
+            return;
+        }
+
+        String queryDate = formatApiDate(listDate);
+        CQCVDReqQryShareIssuanceField request = new CQCVDReqQryShareIssuanceField();
+        request.setBegListDate(queryDate);
+        request.setEndListDate(queryDate);
+        request.setIsFailure('0');
+        request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
+        request.setPageCount(PAGE_COUNT);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        shareIssuanceRequestContextMap.put(currentRequestId, new ShareIssuanceRequestContext(listDate, page));
+        int ret = basicDataApi.ReqReqQryShareIssuance(request, currentRequestId);
+        log.info("发起新上市股票发现 listDate={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
+        if (ret != 0) {
+            shareIssuanceRequestContextMap.remove(currentRequestId);
+            log.warn("新上市股票发现发起失败 listDate={} page={} ret={}", queryDate, page, ret);
+        }
+    }
+
+    /**
+     * 同步指定日期生效的 A 股曾用名变化。
+     * 请求接口：ReqQryASharePreviousName。
+     * 请求数据域：CQCVDReqQryASharePreviousNameField。
+     * 回调接口：OnRspQryASharePreviousName。
+     * 应答数据域：CQCVDASharePreviousNameField。
+     * 处理逻辑：只查 begin_date 等于指定日期的记录，收到后增量维护曾用名历史区间；新股首次出现时补充同步任务。
+     */
+    public void syncDailyPreviousNameChanges(LocalDate beginDate, int page) {
+        if (!isLoginReady("每日曾用名同步")) {
+            return;
+        }
+
+        String queryDate = formatApiDate(beginDate);
+        CQCVDReqQryASharePreviousNameField request = new CQCVDReqQryASharePreviousNameField();
+        request.setBeginDateQryBeginDay(queryDate);
+        request.setBeginDateQryEndDay(queryDate);
+        request.setEndDateQryBeginDay("19900901");
+        request.setEndDateQryEndDay(queryDate);
+        request.setANNDateQryBeginDay("19900901");
+        request.setANNDateQryEndDay(queryDate);
+        request.setOrderType(qcvalueaddproapiConstants.QCVD_ORDST_ASC);
+        request.setPageCount(PAGE_COUNT);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        aSharePreviousNameRequestContextMap.put(currentRequestId, new ASharePreviousNameRequestContext(beginDate, page));
+        int ret = basicDataApi.ReqQryASharePreviousName(request, currentRequestId);
+        log.info("发起每日曾用名同步 beginDate={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
+        if (ret != 0) {
+            aSharePreviousNameRequestContextMap.remove(currentRequestId);
+            log.warn("每日曾用名同步发起失败 beginDate={} page={} ret={}", queryDate, page, ret);
+        }
+    }
+
+    /**
+     * 调试 000301 可转债发行信息。
+     * 请求接口：ReqReqQryBondIssuance。
+     * 处理逻辑：按正股代码 000301 查询发行信息，分页结束后用返回的转债代码继续查询可转债基本资料。
+     */
+    public void debugBondIssuanceFor000301(int page) {
+        if (!isLoginReady("调试000301可转债发行信息")) {
+            return;
+        }
+
+        CQCVDReqQryBondIssuanceField request = new CQCVDReqQryBondIssuanceField();
+        request.setSecurityID("127030");
+        request.setBegListDate("19900101");
+        request.setEndListDate(today());
+        request.setPageCount(5);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        bondIssuanceRequestContextMap.put(currentRequestId, new BondIssuanceRequestContext(page, true));
+        int ret = basicDataApi.ReqReqQryBondIssuance(request, currentRequestId);
+        log.info("发起调试000301可转债发行信息 stockCode=000301 page={} requestId={} ret={} 说明=结束后会按转债代码继续查询基本资料", page, currentRequestId, ret);
+        if (ret != 0) {
+            bondIssuanceRequestContextMap.remove(currentRequestId);
+        }
+    }
+
+    /**
+     * 调试指定转债发行信息。
+     * 请求接口：ReqReqQryBondIssuance、ReqQryCBondDescription。
+     * 处理逻辑：先按转债代码查询发行信息，再查询同一转债代码的基本资料，用日志观察是否发行失败或缺少上市日期。
+     */
+    public void debugBondIssuanceByBondCode(String bondCode, int page) {
+        if (!isLoginReady("调试指定转债发行信息")) {
+            return;
+        }
+
+        CQCVDReqQryBondIssuanceField request = new CQCVDReqQryBondIssuanceField();
+        request.setSecurityID(bondCode);
+        request.setBegListDate("19900101");
+        request.setEndListDate(today());
+        request.setPageCount(100);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        int ret = basicDataApi.ReqReqQryBondIssuance(request, currentRequestId);
+        log.info("发起调试指定转债发行信息 bondCode={} page={} requestId={} ret={} 说明=同时查询基本资料观察上市日期", bondCode, page, currentRequestId, ret);
+        queryCBondDescription(bondCode);
+    }
+
+    /**
+     * 全量同步当前可转债标识。
+     * 请求接口：ReqReqQryBondIssuance。
+     * 处理逻辑：查询历史可转债发行信息，只把已有正股且已有上市日期的发行关系落库；当前状态等基本资料补全后刷新。
+     */
+    public void syncConvertibleBondStatus(int page) {
+        if (!isLoginReady("同步当前可转债标识")) {
+            return;
+        }
+
+        CQCVDReqQryBondIssuanceField request = new CQCVDReqQryBondIssuanceField();
+        request.setBegListDate("19900101");
+        request.setEndListDate(today());
+        request.setPageCount(5000);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        bondIssuanceRequestContextMap.put(currentRequestId, new BondIssuanceRequestContext(page, false));
+        int ret = basicDataApi.ReqReqQryBondIssuance(request, currentRequestId);
+        log.info("发起同步当前可转债标识 page={} requestId={} ret={}", page, currentRequestId, ret);
+        if (ret != 0) {
+            bondIssuanceRequestContextMap.remove(currentRequestId);
+            log.warn("同步当前可转债标识发起失败 page={} ret={}", page, ret);
+        }
+    }
+
+    /**
+     * 启动可转债基本资料历史补全任务。
+     * 处理逻辑：从已落库的发行关系中查找生命周期字段缺失的转债代码，逐个查询基本资料并补全日期。
+     */
+    public void startConvertibleBondDescriptionFillTasks() {
+        if (!isLoginReady("可转债基本资料历史补全")) {
+            return;
+        }
+
+        if (!convertibleBondDescriptionTaskRunning.compareAndSet(false, true)) {
+            log.warn("可转债基本资料历史补全已在运行，本次启动请求忽略");
+            return;
+        }
+
+        log.info("可转债基本资料历史补全任务启动");
+        queryNextConvertibleBondDescriptionTask();
+    }
+
+    /**
+     * 查询下一个待补全基本资料的转债代码。
+     * 处理逻辑：一次只发起一个查询，等待回调结束后再继续下一只。
+     */
+    private void queryNextConvertibleBondDescriptionTask() {
+        List<String> bondCodes = stockConvertibleBondHistoryService.listPendingDescriptionBondCodes(1);
+        if (bondCodes.isEmpty()) {
+            convertibleBondDescriptionTaskRunning.set(false);
+            refreshConvertibleBondFlagsFromHistory("可转债基本资料历史补全完成");
+            log.info("可转债基本资料历史补全任务完成，已没有待补全转债");
+            return;
+        }
+
+        queryCBondDescription(bondCodes.get(0), true);
+    }
+
+    /**
+     * 查询指定转债基本资料。
+     * 请求接口：ReqQryCBondDescription。
+     * 请求数据域：CQCVDQryCBondDescriptionField。
+     * 回调接口：OnRspQryCBondDescription。
+     * 应答数据域：CQCVDCBondDescriptionField。
+     */
+    public void queryCBondDescription(String bondCode) {
+        queryCBondDescription(bondCode, false);
+    }
+
+    /**
+     * 查询指定转债基本资料。
+     * 处理逻辑：fromTask 为 true 时，当前转债查询完成后继续调度下一只。
+     */
+    private void queryCBondDescription(String bondCode, boolean fromTask) {
+        if (!isLoginReady("查询可转债基本资料")) {
+            return;
+        }
+
+        CQCVDQryCBondDescriptionField request = new CQCVDQryCBondDescriptionField();
+        request.setSecurityID(bondCode);
+        request.setPageCount(100);
+        request.setPageLocate(1);
+
+        int currentRequestId = nextRequestId();
+        cBondDescriptionRequestContextMap.put(currentRequestId, new CBondDescriptionRequestContext(bondCode, fromTask));
+        int ret = basicDataApi.ReqQryCBondDescription(request, currentRequestId);
+        log.info("发起查询可转债基本资料 bondCode={} requestId={} ret={}", bondCode, currentRequestId, ret);
+        if (ret != 0) {
+            cBondDescriptionRequestContextMap.remove(currentRequestId);
+            log.warn("查询可转债基本资料发起失败 bondCode={} ret={}", bondCode, ret);
+            if (fromTask) {
+                convertibleBondDescriptionTaskRunning.set(false);
+            }
+        }
+    }
+
+    /**
+     * 调试 000301 地域属性。
+     * 请求接口：ReqQryRegionInfo。
+     * 处理逻辑：直接按证券代码 000301 查询地域属性，回调中打印收到的完整字段。
+     */
+    public void debugRegionInfoFor000301(int page) {
+        if (!isLoginReady("调试000301地域属性")) {
+            return;
+        }
+
+        CQCVDQryRegionInfoField request = new CQCVDQryRegionInfoField();
+        request.setSecurityID("000301");
+        request.setPageCount(100);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        regionInfoRequestContextMap.put(currentRequestId, new RegionInfoRequestContext("000301", page));
+        int ret = basicDataApi.ReqQryRegionInfo(request, currentRequestId);
+        log.info("发起调试000301地域属性 page={} requestId={} ret={}", page, currentRequestId, ret);
+        if (ret != 0) {
+            regionInfoRequestContextMap.remove(currentRequestId);
+        }
+    }
+
+    /**
+     * 同步指定股票地域属性。
+     * 请求接口：ReqQryRegionInfo。
+     * 处理逻辑：按股票代码查询地域属性，回调收到后更新当前状态表 region_name。
+     */
+    public void syncRegionInfo(String stockCode, int page) {
+        if (!isLoginReady("同步地域属性")) {
+            return;
+        }
+
+        queryRegionInfo(stockCode, page, false);
+    }
+
+    /**
+     * 启动全部股票地域属性同步任务。
+     * 处理逻辑：从当前状态表取全部股票代码，按代码升序逐只查询地域属性，避免一次性发起大量异步请求。
+     */
+    public void startAllRegionInfoSyncTasks() {
+        if (!isLoginReady("同步全部地域属性")) {
+            return;
+        }
+
+        if (!regionInfoTaskRunning.compareAndSet(false, true)) {
+            log.warn("全部地域属性同步任务已在运行，本次启动请求忽略");
+            return;
+        }
+
+        List<String> stockCodes = stockCurrentStatusService.listAllStockCodes();
+        regionInfoTaskQueue.clear();
+        regionInfoTaskQueue.addAll(stockCodes);
+        regionInfoTaskTotal = stockCodes.size();
+        regionInfoTaskSuccess = 0;
+        log.info("全部地域属性同步任务启动 total={}", regionInfoTaskTotal);
+        queryNextRegionInfoTask();
+    }
+
+    /**
+     * 查询下一个待同步地域属性的股票代码。
+     * 处理逻辑：一个请求完成后再发起下一只，直到队列为空。
+     */
+    private void queryNextRegionInfoTask() {
+        String stockCode = regionInfoTaskQueue.poll();
+        if (stockCode == null) {
+            regionInfoTaskRunning.set(false);
+            log.info("全部地域属性同步任务完成 total={} success={}", regionInfoTaskTotal, regionInfoTaskSuccess);
+            return;
+        }
+
+        queryRegionInfo(stockCode, 1, true);
+    }
+
+    /**
+     * 查询指定股票地域属性。
+     * 处理逻辑：fromTask 为 true 时，当前股票查询结束后继续调度下一只。
+     */
+    private void queryRegionInfo(String stockCode, int page, boolean fromTask) {
+        if (!isLoginReady("同步地域属性")) {
+            return;
+        }
+
+        CQCVDQryRegionInfoField request = new CQCVDQryRegionInfoField();
+        request.setSecurityID(stockCode);
+        request.setPageCount(100);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        regionInfoRequestContextMap.put(currentRequestId, new RegionInfoRequestContext(stockCode, page, fromTask));
+        int ret = basicDataApi.ReqQryRegionInfo(request, currentRequestId);
+        log.info("发起同步地域属性 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
+        if (ret != 0) {
+            regionInfoRequestContextMap.remove(currentRequestId);
+            log.warn("同步地域属性发起失败 stockCode={} page={} ret={}", stockCode, page, ret);
+            if (fromTask) {
+                queryNextRegionInfoTask();
+            }
+        }
+    }
+
+    /**
      * 查询自由流通股本信息。
      * 请求接口：ReqQryFreeFloatSharesInfo。
      * 请求数据域：CQCVDQryFreeFloatSharesInfoField。
@@ -400,11 +753,37 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, false));
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, false, false));
         int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
         log.info("发起查询自由流通股本入库 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
         if (ret != 0) {
             freeFloatSharesRequestContextMap.remove(currentRequestId);
+        }
+    }
+
+    /**
+     * 同步指定日期自由流通股本变化。
+     * 处理逻辑：不传股票代码，按日期查询全市场变化点，并增量合并到自由流通股本历史区间。
+     */
+    public void syncDailyFreeFloatShares(LocalDate date, int page) {
+        if (!isLoginReady("每日自由流通股本同步")) {
+            return;
+        }
+
+        String queryDate = formatApiDate(date);
+        CQCVDQryFreeFloatSharesInfoField request = new CQCVDQryFreeFloatSharesInfoField();
+        request.setBegDate(queryDate);
+        request.setEndDate(queryDate);
+        request.setPageCount(5000);
+        request.setPageLocate(page);
+
+        int currentRequestId = nextRequestId();
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(null, page, false, true));
+        int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
+        log.info("发起每日自由流通股本同步 date={} page={} requestId={} ret={}", queryDate, page, currentRequestId, ret);
+        if (ret != 0) {
+            freeFloatSharesRequestContextMap.remove(currentRequestId);
+            log.warn("每日自由流通股本同步发起失败 date={} page={} ret={}", queryDate, page, ret);
         }
     }
 
@@ -437,7 +816,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         request.setPageLocate(page);
 
         int currentRequestId = nextRequestId();
-        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, true));
+        freeFloatSharesRequestContextMap.put(currentRequestId, new FreeFloatSharesRequestContext(stockCode, page, true, false));
         int ret = basicDataApi.ReqQryFreeFloatSharesInfo(request, currentRequestId);
         log.info("发起自由流通股本任务查询 stockCode={} page={} requestId={} ret={}", stockCode, page, currentRequestId, ret);
         if (ret != 0) {
@@ -573,6 +952,18 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return;
         }
 
+        if (context.dailyUpdate) {
+            try {
+                int changeCount = stockFreeFloatShareHistoryService.mergeChangePoints(context.points);
+                log.info("每日自由流通股本同步完成 page={} requestId={} rawRows={} changeRows={} totalLast={}",
+                        context.page, requestId, context.points.size(), changeCount, totalLast);
+            } catch (RuntimeException e) {
+                log.error("每日自由流通股本同步异常 page={} requestId={} rawRows={}",
+                        context.page, requestId, context.points.size(), e);
+            }
+            return;
+        }
+
         try {
             int saveCount = stockFreeFloatShareHistoryService.replaceStockHistory(context.stockCode, context.points);
             if (context.fromTask) {
@@ -658,6 +1049,273 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     }
 
     /**
+     * 接收单条 A 股发行信息。
+     * 处理逻辑：按请求 ID 找到查询上下文，暂存上市股票信息。
+     */
+    @Override
+    public void onShareIssuanceData(CQCVDShareIssuanceField shareIssuance, int requestId) {
+        ShareIssuanceRequestContext context = shareIssuanceRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+
+        LocalDate listDate = parseApiDate(shareIssuance.getListDate());
+        if (listDate == null || !listDate.equals(context.listDate)) {
+            return;
+        }
+
+        ShareIssuancePoint point = new ShareIssuancePoint();
+        point.setStockCode(shareIssuance.getSecurityID());
+        point.setStockName(shareIssuance.getSecurityName());
+        point.setListDate(listDate);
+        point.setListBoardName(shareIssuance.getListBoardName());
+        context.points.add(point);
+    }
+
+    /**
+     * 接收 A 股发行信息分页结束事件。
+     * 处理逻辑：把新上市股票补充到同步任务表；曾用名历史不在这里维护。
+     */
+    @Override
+    public void onShareIssuancePageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        ShareIssuanceRequestContext context = shareIssuanceRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("新上市股票发现失败 listDate={} page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.listDate, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            return;
+        }
+
+        int newTaskCount = 0;
+        for (ShareIssuancePoint point : context.points) {
+            if (point.getStockCode() == null || point.getStockCode().isBlank()) {
+                continue;
+            }
+            boolean created = stockSyncTaskService.ensureTask(point.getStockCode(), false, false);
+            if (created) {
+                newTaskCount++;
+                log.info("发现新上市股票 stockCode={} stockName={} listDate={} board={}",
+                        point.getStockCode(), point.getStockName(), point.getListDate(), point.getListBoardName());
+            }
+        }
+
+        log.info("新上市股票发现完成 listDate={} page={} requestId={} rows={} newTasks={} totalLast={}",
+                context.listDate, context.page, requestId, context.points.size(), newTaskCount, totalLast);
+        if (!totalLast) {
+            log.warn("新上市股票发现返回未结束 listDate={} page={} requestId={}，请检查 PageCount={} 是否不足",
+                    context.listDate, context.page, requestId, PAGE_COUNT);
+        }
+    }
+
+    /**
+     * 接收单条 A 股曾用名数据。
+     * 处理逻辑：按请求 ID 找到查询上下文，只缓存开始日期等于本次查询日期的记录。
+     */
+    @Override
+    public void onASharePreviousNameData(CQCVDASharePreviousNameField previousName, int requestId) {
+        ASharePreviousNameRequestContext context = aSharePreviousNameRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+
+        LocalDate startDate = parseApiDate(previousName.getBeginDate());
+        if (startDate == null || !startDate.equals(context.beginDate)) {
+            return;
+        }
+
+        ASharePreviousNamePoint point = new ASharePreviousNamePoint();
+        point.setStockCode(previousName.getSecurityID());
+        point.setStockName(previousName.getSecurityName());
+        point.setStartDate(startDate);
+        point.setSourceEndDate(parseNullableApiDate(previousName.getEndDate()));
+        point.setAnnouncementDate(parseNullableApiDate(previousName.getANNDate()));
+        point.setChangeReason(previousName.getChangeReason());
+        context.points.add(point);
+    }
+
+    /**
+     * 接收 A 股曾用名分页结束事件。
+     * 处理逻辑：把当日生效的新名称合并到曾用名历史表，并为首次出现的新股补充同步任务。
+     */
+    @Override
+    public void onASharePreviousNamePageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        ASharePreviousNameRequestContext context = aSharePreviousNameRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("每日曾用名同步失败 beginDate={} page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.beginDate, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            return;
+        }
+
+        int insertCount = stockPreviousNameHistoryService.mergeDailyNameChanges(context.points);
+        log.info("每日曾用名同步完成 beginDate={} page={} requestId={} rows={} inserts={} totalLast={}",
+                context.beginDate, context.page, requestId, context.points.size(), insertCount, totalLast);
+        if (!totalLast) {
+            log.warn("每日曾用名同步返回未结束 beginDate={} page={} requestId={}，请检查 PageCount={} 是否不足",
+                    context.beginDate, context.page, requestId, PAGE_COUNT);
+        }
+    }
+
+    /**
+     * 接收单条可转债发行信息。
+     * 处理逻辑：发行接口只保存正股和转债关系；当前是否有可交易转债，需要等基本资料补全上市日期后再按历史表刷新。
+     */
+    @Override
+    public void onBondIssuanceData(CQCVDBondIssuanceField bondIssuance, int requestId) {
+        BondIssuanceRequestContext context = bondIssuanceRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (bondIssuance.getStockID() == null || bondIssuance.getStockID().isBlank()) {
+            return;
+        }
+
+        ConvertibleBondIssuancePoint point = copyBondIssuance(bondIssuance);
+        if (stockConvertibleBondHistoryService.saveOrUpdateIssuance(point)) {
+            context.savedRelations++;
+        }
+
+        if (context.queryDescriptionAfterEnd && "000301".equals(bondIssuance.getStockID())) {
+            context.bondCodes.add(bondIssuance.getSecurityID());
+        }
+    }
+
+    /**
+     * 接收可转债发行信息分页结束事件。
+     * 处理逻辑：发行关系落库后，从历史表按已上市且未退市口径刷新当前状态表可转债标识。
+     */
+    @Override
+    public void onBondIssuancePageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        BondIssuanceRequestContext context = bondIssuanceRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("同步当前可转债标识失败 page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            return;
+        }
+
+        if (context.queryDescriptionAfterEnd) {
+            log.info("调试000301转债发行信息完成 requestId={} bondCodes={}", requestId, context.bondCodes);
+            for (String bondCode : context.bondCodes) {
+                queryCBondDescription(bondCode);
+            }
+        } else {
+            log.info("同步可转债发行关系完成 page={} requestId={} savedRelations={} totalLast={} 说明=当前状态将在基本资料补全完成后刷新",
+                    context.page, requestId, context.savedRelations, totalLast);
+        }
+        if (!totalLast) {
+            log.warn("同步当前可转债标识返回未结束 page={} requestId={}，请检查 PageCount=5000 是否不足", context.page, requestId);
+        }
+    }
+
+    /**
+     * 接收单条可转债基本资料。
+     * 处理逻辑：本阶段只观察日志，实际字段已经由 SPI 完整打印。
+     */
+    @Override
+    public void onCBondDescriptionData(CQCVDCBondDescriptionField description, int requestId) {
+        CBondDescriptionRequestContext context = cBondDescriptionRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+        context.rows++;
+        stockConvertibleBondHistoryService.fillDescription(copyCBondDescription(description));
+    }
+
+    /**
+     * 接收可转债基本资料查询结束事件。
+     * 处理逻辑：打印本次查询收到的记录数。
+     */
+    @Override
+    public void onCBondDescriptionEnd(CQCVDRspInfoField rspInfo, int requestId, boolean last) {
+        CBondDescriptionRequestContext context = cBondDescriptionRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("查询可转债基本资料失败 bondCode={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.bondCode, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            return;
+        }
+
+        log.info("查询可转债基本资料完成 bondCode={} requestId={} rows={} last={}",
+                context.bondCode, requestId, context.rows, last);
+        if (context.fromTask) {
+            queryNextConvertibleBondDescriptionTask();
+        }
+    }
+
+    /**
+     * 接收单条地域属性。
+     * 处理逻辑：保存地域名称到当前状态表，地域代码不入库。
+     */
+    @Override
+    public void onRegionInfoData(CQCVDRegionDataField regionData, int requestId) {
+        RegionInfoRequestContext context = regionInfoRequestContextMap.get(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (regionData.getSecurityID() == null || regionData.getIndustriesName() == null || regionData.getIndustriesName().isBlank()) {
+            return;
+        }
+
+        context.stockCode = regionData.getSecurityID();
+        context.regionName = regionData.getIndustriesName();
+    }
+
+    /**
+     * 接收地域属性分页结束事件。
+     * 处理逻辑：当前页拿到地域名称时更新当前状态表。
+     */
+    @Override
+    public void onRegionInfoPageEnd(CQCVDRspInfoField rspInfo, int requestId, boolean pageLast, boolean totalLast) {
+        RegionInfoRequestContext context = regionInfoRequestContextMap.remove(requestId);
+        if (context == null) {
+            return;
+        }
+
+        if (rspInfo != null && rspInfo.getErrorID() != 0) {
+            log.warn("同步地域属性失败 stockCode={} page={} requestId={} ErrorID={} ErrorMsg={}",
+                    context.stockCode, context.page, requestId, rspInfo.getErrorID(), rspInfo.getErrorMsg());
+            if (context.fromTask) {
+                queryNextRegionInfoTask();
+            }
+            return;
+        }
+
+        if (context.regionName == null || context.regionName.isBlank()) {
+            log.warn("同步地域属性完成但未收到地域名称 stockCode={} page={} requestId={} totalLast={}",
+                    context.stockCode, context.page, requestId, totalLast);
+            if (context.fromTask) {
+                queryNextRegionInfoTask();
+            }
+            return;
+        }
+
+        boolean updated = stockCurrentStatusService.updateRegionName(context.stockCode, context.regionName);
+        if (updated && context.fromTask) {
+            regionInfoTaskSuccess++;
+        }
+        log.info("同步地域属性完成 stockCode={} regionName={} page={} requestId={} updated={} totalLast={}",
+                context.stockCode, context.regionName, context.page, requestId, updated, totalLast);
+        if (context.fromTask) {
+            queryNextRegionInfoTask();
+        }
+    }
+
+    /**
      * 复制股票日 K 回调数据。
      * 作用：把 SDK 原生对象转换成普通 Java 对象，后续排序和落库不再依赖回调对象生命周期。
      */
@@ -682,6 +1340,66 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         point.setTurnover(stockDayQuotation.getTurnover());
         point.setPercentChange(stockDayQuotation.getPercentChange());
         return point;
+    }
+
+    /**
+     * 复制可转债发行关系数据。
+     * 作用：把发行接口中的正股、转债和市场关系转换为落库 DTO。
+     */
+    private ConvertibleBondIssuancePoint copyBondIssuance(CQCVDBondIssuanceField bondIssuance) {
+        ConvertibleBondIssuancePoint point = new ConvertibleBondIssuancePoint();
+        point.setStockCode(bondIssuance.getStockID());
+        point.setBondCode(bondIssuance.getSecurityID());
+        point.setMarket(convertExchangeIdToMarket(bondIssuance.getExchangeID()));
+        point.setBondName(bondIssuance.getSecurityName());
+        point.setListDate(parseNullableApiDate(bondIssuance.getListDate()));
+        return point;
+    }
+
+    /**
+     * 复制可转债基本资料数据。
+     * 作用：把基本资料接口中的上市、退市、到期和余额字段转换为落库 DTO。
+     */
+    private ConvertibleBondDescriptionPoint copyCBondDescription(CQCVDCBondDescriptionField description) {
+        ConvertibleBondDescriptionPoint point = new ConvertibleBondDescriptionPoint();
+        point.setBondCode(description.getSecurityID());
+        point.setMarket(description.getWndExchMarketID());
+        point.setBondName(description.getS_INFO_NAME());
+        LocalDate maturityDate = parseNullableApiDate(description.getB_INFO_MATURITYDATE());
+        LocalDate delistDate = parseNullableApiDate(description.getB_INFO_DELISTDATE());
+        point.setStartDate(parseNullableApiDate(description.getB_INFO_LISTDATE()));
+        point.setEndDate(delistDate != null ? delistDate : maturityDate);
+        point.setMaturityDate(maturityDate);
+        point.setFailure(description.getIS_FAILURE());
+        point.setOutstandingBalance(description.getOutstandingBalance());
+        return point;
+    }
+
+    /**
+     * 从可转债历史表刷新当前可交易转债标识。
+     * 作用：只把已经上市且尚未退市的转债正股设置为有转债，未上市转债不计入当前状态。
+     */
+    private int refreshConvertibleBondFlagsFromHistory(String scene) {
+        LocalDate today = LocalDate.now();
+        Set<String> tradableStockCodes = stockConvertibleBondHistoryService.listTradableStockCodes(today);
+        int updateCount = stockCurrentStatusService.refreshConvertibleBondFlags(tradableStockCodes);
+        log.info("{} 刷新可交易转债标识 tradeDate={} tradableStockCount={} updateCount={}",
+                scene, today, tradableStockCodes.size(), updateCount);
+        return updateCount;
+    }
+
+    /**
+     * 转换华鑫交易所编号为基本资料接口市场代码。
+     * 作用：用发行接口 ExchangeID 和基本资料接口 WndExchMarketID 建立同一市场口径。
+     */
+    private String convertExchangeIdToMarket(char exchangeId) {
+        if (exchangeId == '1') {
+            return "SSE";
+        }
+        if (exchangeId == '2') {
+            return "SZSE";
+        }
+        return String.valueOf(exchangeId);
     }
 
     /**
@@ -725,6 +1443,13 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     }
 
     /**
+     * 格式化华鑫接口日期。
+     */
+    private String formatApiDate(LocalDate date) {
+        return date.format(API_DATE_FORMATTER);
+    }
+
+    /**
      * 解析华鑫接口日期。
      * 入参格式：yyyyMMdd；解析失败时返回 null 并记录警告日志。
      */
@@ -746,6 +1471,23 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             return null;
         }
         return parseApiDate(apiDate);
+    }
+
+    /**
+     * 判断可转债发行记录当前是否有效。
+     * 规则：发行状态正常、正股代码存在、转债名称不包含退市。
+     */
+    private boolean isValidConvertibleBond(CQCVDBondIssuanceField bondIssuance) {
+        if (bondIssuance == null) {
+            return false;
+        }
+        if (bondIssuance.getIsFailure() != '0') {
+            return false;
+        }
+        if (bondIssuance.getStockID() == null || bondIssuance.getStockID().isBlank()) {
+            return false;
+        }
+        return bondIssuance.getSecurityName() == null || !bondIssuance.getSecurityName().contains("退市");
     }
 
     /**
@@ -800,6 +1542,11 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         private final boolean fromTask;
 
         /**
+         * 是否为每日增量同步。
+         */
+        private final boolean dailyUpdate;
+
+        /**
          * 当前页自由流通股本原始点缓存。
          */
         private final ArrayList<FreeFloatSharePoint> points = new ArrayList<>();
@@ -807,7 +1554,176 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         /**
          * 创建自由流通股本查询上下文。
          */
-        private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask) {
+        private FreeFloatSharesRequestContext(String stockCode, int page, boolean fromTask, boolean dailyUpdate) {
+            this.stockCode = stockCode;
+            this.page = page;
+            this.fromTask = fromTask;
+            this.dailyUpdate = dailyUpdate;
+        }
+    }
+
+    /**
+     * 新上市股票发现请求上下文。
+     * 作用：绑定请求 ID、上市日期、页码和当前页发行上市信息。
+     */
+    private static class ShareIssuanceRequestContext {
+
+        /**
+         * 查询上市日期。
+         */
+        private final LocalDate listDate;
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 当前页发行上市信息缓存。
+         */
+        private final ArrayList<ShareIssuancePoint> points = new ArrayList<>();
+
+        /**
+         * 创建新上市股票发现上下文。
+         */
+        private ShareIssuanceRequestContext(LocalDate listDate, int page) {
+            this.listDate = listDate;
+            this.page = page;
+        }
+    }
+
+    /**
+     * A 股曾用名每日同步请求上下文。
+     * 作用：绑定请求 ID、查询生效日期、页码和当前页曾用名变更点。
+     */
+    private static class ASharePreviousNameRequestContext {
+
+        /**
+         * 查询生效日期。
+         */
+        private final LocalDate beginDate;
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 当前页曾用名变更点缓存。
+         */
+        private final ArrayList<ASharePreviousNamePoint> points = new ArrayList<>();
+
+        /**
+         * 创建 A 股曾用名每日同步上下文。
+         */
+        private ASharePreviousNameRequestContext(LocalDate beginDate, int page) {
+            this.beginDate = beginDate;
+            this.page = page;
+        }
+    }
+
+    /**
+     * 可转债发行信息同步请求上下文。
+     * 作用：绑定请求 ID、页码和本页保存的可转债发行关系数量。
+     */
+    private static class BondIssuanceRequestContext {
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 是否在发行信息结束后继续查询可转债基本资料。
+         */
+        private final boolean queryDescriptionAfterEnd;
+
+        /**
+         * 已保存的转债和正股关系数量。
+         */
+        private int savedRelations;
+
+        /**
+         * 本次调试收集到的转债代码集合。
+         */
+        private final Set<String> bondCodes = new HashSet<>();
+
+        /**
+         * 创建可转债发行信息同步上下文。
+         */
+        private BondIssuanceRequestContext(int page, boolean queryDescriptionAfterEnd) {
+            this.page = page;
+            this.queryDescriptionAfterEnd = queryDescriptionAfterEnd;
+        }
+    }
+
+    /**
+     * 可转债基本资料查询上下文。
+     * 作用：绑定请求 ID、转债代码和收到的记录数。
+     */
+    private static class CBondDescriptionRequestContext {
+
+        /**
+         * 转债代码。
+         */
+        private final String bondCode;
+
+        /**
+         * 是否来自历史补全任务。
+         */
+        private final boolean fromTask;
+
+        /**
+         * 收到的记录数。
+         */
+        private int rows;
+
+        /**
+         * 创建可转债基本资料查询上下文。
+         */
+        private CBondDescriptionRequestContext(String bondCode, boolean fromTask) {
+            this.bondCode = bondCode;
+            this.fromTask = fromTask;
+        }
+    }
+
+    /**
+     * 地域属性同步请求上下文。
+     * 作用：绑定请求 ID、股票代码、页码和回调收到的地域名称。
+     */
+    private static class RegionInfoRequestContext {
+
+        /**
+         * 股票代码。
+         */
+        private String stockCode;
+
+        /**
+         * 查询页码。
+         */
+        private final int page;
+
+        /**
+         * 地域名称。
+         */
+        private String regionName;
+
+        /**
+         * 是否来自全量地域同步任务。
+         */
+        private final boolean fromTask;
+
+        /**
+         * 创建地域属性同步上下文。
+         */
+        private RegionInfoRequestContext(String stockCode, int page) {
+            this(stockCode, page, false);
+        }
+
+        /**
+         * 创建地域属性同步上下文。
+         */
+        private RegionInfoRequestContext(String stockCode, int page, boolean fromTask) {
             this.stockCode = stockCode;
             this.page = page;
             this.fromTask = fromTask;

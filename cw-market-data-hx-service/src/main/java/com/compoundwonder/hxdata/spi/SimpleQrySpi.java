@@ -1,7 +1,12 @@
 package com.compoundwonder.hxdata.spi;
 
+import com.compoundwonder.hxdata.callback.ASharePreviousNameResponseHandler;
+import com.compoundwonder.hxdata.callback.BondIssuanceResponseHandler;
+import com.compoundwonder.hxdata.callback.CBondDescriptionResponseHandler;
 import com.compoundwonder.hxdata.callback.FreeFloatSharesResponseHandler;
+import com.compoundwonder.hxdata.callback.RegionInfoResponseHandler;
 import com.compoundwonder.hxdata.callback.ShareCalendarResponseHandler;
+import com.compoundwonder.hxdata.callback.ShareIssuanceResponseHandler;
 import com.compoundwonder.hxdata.callback.StockDayQuotationResponseHandler;
 import com.qcvalueaddproapi.*;
 import org.slf4j.Logger;
@@ -18,18 +23,28 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     private ShareCalendarResponseHandler shareCalendarResponseHandler;
     private FreeFloatSharesResponseHandler freeFloatSharesResponseHandler;
     private StockDayQuotationResponseHandler stockDayQuotationResponseHandler;
+    private ShareIssuanceResponseHandler shareIssuanceResponseHandler;
+    private ASharePreviousNameResponseHandler aSharePreviousNameResponseHandler;
+    private BondIssuanceResponseHandler bondIssuanceResponseHandler;
+    private CBondDescriptionResponseHandler cBondDescriptionResponseHandler;
+    private RegionInfoResponseHandler regionInfoResponseHandler;
 
     public static final String TRADING_HALT = "停牌";
     /**
      * 创建华鑫查询 SPI。
      * 作用：保存 API 对象、登录成功回调和各业务回调处理器，供异步回调时使用。
      */
-    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler, FreeFloatSharesResponseHandler freeFloatSharesResponseHandler, StockDayQuotationResponseHandler stockDayQuotationResponseHandler) {
+    public SimpleQrySpi(CQCValueAddProApi api, Runnable loginSuccessCallback, ShareCalendarResponseHandler shareCalendarResponseHandler, FreeFloatSharesResponseHandler freeFloatSharesResponseHandler, StockDayQuotationResponseHandler stockDayQuotationResponseHandler, ShareIssuanceResponseHandler shareIssuanceResponseHandler, ASharePreviousNameResponseHandler aSharePreviousNameResponseHandler, BondIssuanceResponseHandler bondIssuanceResponseHandler, CBondDescriptionResponseHandler cBondDescriptionResponseHandler, RegionInfoResponseHandler regionInfoResponseHandler) {
         this.api = api;
         this.loginSuccessCallback = loginSuccessCallback;
         this.shareCalendarResponseHandler = shareCalendarResponseHandler;
         this.freeFloatSharesResponseHandler = freeFloatSharesResponseHandler;
         this.stockDayQuotationResponseHandler = stockDayQuotationResponseHandler;
+        this.shareIssuanceResponseHandler = shareIssuanceResponseHandler;
+        this.aSharePreviousNameResponseHandler = aSharePreviousNameResponseHandler;
+        this.bondIssuanceResponseHandler = bondIssuanceResponseHandler;
+        this.cBondDescriptionResponseHandler = cBondDescriptionResponseHandler;
+        this.regionInfoResponseHandler = regionInfoResponseHandler;
     }
 
     /**
@@ -63,7 +78,7 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
      */
     @Override
     public void OnRspInquiryStockDayQuotation(CQCVDStockDayQuotationField pStockDayQuotation, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
-        if (pStockDayQuotation == null && !TRADING_HALT.equals(pStockDayQuotation.getTradeStatus())) {
+        if (pStockDayQuotation == null) {
             logPageEnd("股票日K行情", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             stockDayQuotationResponseHandler.onStockDayQuotationPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;
@@ -149,6 +164,7 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
     public void OnRspInquiryShareIssuance(CQCVDShareIssuanceField pShareIssuance, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
         if (pShareIssuance == null) {
             logPageEnd("中国A股发行信息", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            shareIssuanceResponseHandler.onShareIssuancePageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;
         }
 
@@ -160,6 +176,7 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
                 pShareIssuance.getIsFailure(), pShareIssuance.getIndustriesName(), pShareIssuance.getInfoMainBusiness(),
                 pShareIssuance.getIPOAmount(), pShareIssuance.getIPOAmtByPlacing(), pShareIssuance.getPageLocate(),
                 pShareIssuance.getPageTotal());
+        shareIssuanceResponseHandler.onShareIssuanceData(pShareIssuance, nRequestID);
     }
 
     /**
@@ -177,6 +194,115 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
             return;
         }
         freeFloatSharesResponseHandler.onFreeFloatSharesData(pFreeFloatSharesData, nRequestID);
+    }
+
+    /**
+     * A 股曾用名查询应答。
+     * 请求接口：ReqQryASharePreviousName。
+     * 回调接口：OnRspQryASharePreviousName。
+     * 应答数据域：CQCVDASharePreviousNameField。
+     * 打印字段：交易所、证券代码、证券名称、开始日期、结束日期、公告日期、变动原因、页定位符。
+     */
+    @Override
+    public void OnRspQryASharePreviousName(CQCVDASharePreviousNameField pASharePreviousName, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
+        if (pASharePreviousName == null) {
+            logPageEnd("A股曾用名", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            aSharePreviousNameResponseHandler.onASharePreviousNamePageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            return;
+        }
+
+        log.info("A股曾用名 RequestID={} IsPageLast={} IsTotalLast={} ExchangeID={} SecurityID={} SecurityName={} BeginDate={} EndDate={} ANNDate={} ChangeReason={} PageLocate={} PageTotal={}",
+                nRequestID, bIsPageLast, bIsTotalLast, pASharePreviousName.getExchangeID(),
+                pASharePreviousName.getSecurityID(), pASharePreviousName.getSecurityName(),
+                pASharePreviousName.getBeginDate(), pASharePreviousName.getEndDate(), pASharePreviousName.getANNDate(),
+                pASharePreviousName.getChangeReason(), pASharePreviousName.getPageLocate(), pASharePreviousName.getPageTotal());
+        aSharePreviousNameResponseHandler.onASharePreviousNameData(pASharePreviousName, nRequestID);
+    }
+
+    /**
+     * 中国可转债发行信息查询应答。
+     * 请求接口：ReqReqQryBondIssuance。
+     * 回调接口：OnRspInquiryBondIssuance。
+     * 应答数据域：CQCVDBondIssuanceField。
+     * 调试规则：只打印正股代码为 000301 的转债记录。
+     */
+    @Override
+    public void OnRspInquiryBondIssuance(CQCVDBondIssuanceField pBondIssuance, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
+        if (pBondIssuance == null) {
+            logPageEnd("中国可转债发行信息", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            bondIssuanceResponseHandler.onBondIssuancePageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            return;
+        }
+
+        log.info("中国可转债发行信息 RequestID={} IsPageLast={} IsTotalLast={} ExchangeID={} SecurityID={} SecurityName={} OnlineDate={} OnlineCode={} OnlineName={} OnlinePrice={} PurchaseUpLimit={} RationDate={} RationCheckInDate={} RationPayDate={} RationCode={} RationName={} RationPrice={} RationRatioDenominator={} RationRatioMolecule={} ListDate={} AnnDate={} IsFailure={} PageLocate={} PageTotal={} StockID={} IssueQuantity={}",
+                nRequestID, bIsPageLast, bIsTotalLast, pBondIssuance.getExchangeID(), pBondIssuance.getSecurityID(),
+                pBondIssuance.getSecurityName(), pBondIssuance.getOnlineDate(), pBondIssuance.getOnlineCode(),
+                pBondIssuance.getOnlineName(), pBondIssuance.getOnlinePrice(), pBondIssuance.getPurchaseUpLimit(),
+                pBondIssuance.getRationDate(), pBondIssuance.getRationCheckInDate(), pBondIssuance.getRationPayDate(),
+                pBondIssuance.getRationCode(), pBondIssuance.getRationName(), pBondIssuance.getRationPrice(),
+                pBondIssuance.getRationRatioDenominator(), pBondIssuance.getRationRatioMolecule(), pBondIssuance.getListDate(),
+                pBondIssuance.getAnnDate(), pBondIssuance.getIsFailure(), pBondIssuance.getPageLocate(),
+                pBondIssuance.getPageTotal(), pBondIssuance.getStockID(), pBondIssuance.getIssueQuantity());
+        bondIssuanceResponseHandler.onBondIssuanceData(pBondIssuance, nRequestID);
+    }
+
+    /**
+     * 可转债基本资料查询应答。
+     * 请求接口：ReqQryCBondDescription。
+     * 回调接口：OnRspQryCBondDescription。
+     * 应答数据域：CQCVDCBondDescriptionField。
+     * 打印字段：转债代码、名称、发行日期、上市日期、退市日期、到期日期、是否失效、当前余额等。
+     */
+    @Override
+    public void OnRspQryCBondDescription(CQCVDCBondDescriptionField pCBondDescription, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsLast) {
+        if (pCBondDescription == null) {
+            logPageEnd("可转债基本资料", pRspInfo, nRequestID, bIsLast, bIsLast);
+            cBondDescriptionResponseHandler.onCBondDescriptionEnd(pRspInfo, nRequestID, bIsLast);
+            return;
+        }
+
+        log.info("可转债基本资料 RequestID={} IsLast={} SecurityID={} S_INFO_NAME={} WndExchMarketID={} B_ISSUE_ANNOUNCEMENT={} B_ISSUE_FIRSTISSUE={} B_ISSUE_LASTISSUE={} B_ISSUE_AMOUNTACT={} B_INFO_ISSUEPRICE={} B_INFO_PAR={} B_INFO_COUPONRATE={} B_INFO_CARRYDATE={} B_INFO_ENDDATE={} B_INFO_MATURITYDATE={} B_INFO_TERM_DAY={} B_INFO_PAYMENTDATE={} CRNCY_CODE={} B_INFO_LISTDATE={} S_DIV_RECORDDATE={} B_INFO_DELISTDATE={} IS_FAILURE={} LIST_ANN_DATE={} ANN_DATE={} OutstandingBalance={}",
+                nRequestID, bIsLast, pCBondDescription.getSecurityID(), pCBondDescription.getS_INFO_NAME(),
+                pCBondDescription.getWndExchMarketID(), pCBondDescription.getB_ISSUE_ANNOUNCEMENT(),
+                pCBondDescription.getB_ISSUE_FIRSTISSUE(), pCBondDescription.getB_ISSUE_LASTISSUE(),
+                pCBondDescription.getB_ISSUE_AMOUNTACT(), pCBondDescription.getB_INFO_ISSUEPRICE(),
+                pCBondDescription.getB_INFO_PAR(), pCBondDescription.getB_INFO_COUPONRATE(),
+                pCBondDescription.getB_INFO_CARRYDATE(), pCBondDescription.getB_INFO_ENDDATE(),
+                pCBondDescription.getB_INFO_MATURITYDATE(), pCBondDescription.getB_INFO_TERM_DAY(),
+                pCBondDescription.getB_INFO_PAYMENTDATE(), pCBondDescription.getCRNCY_CODE(),
+                pCBondDescription.getB_INFO_LISTDATE(), pCBondDescription.getS_DIV_RECORDDATE(),
+                pCBondDescription.getB_INFO_DELISTDATE(), pCBondDescription.getIS_FAILURE(),
+                pCBondDescription.getLIST_ANN_DATE(), pCBondDescription.getANN_DATE(),
+                pCBondDescription.getOutstandingBalance());
+        cBondDescriptionResponseHandler.onCBondDescriptionData(pCBondDescription, nRequestID);
+        if (bIsLast) {
+            cBondDescriptionResponseHandler.onCBondDescriptionEnd(pRspInfo, nRequestID, true);
+        }
+    }
+
+    /**
+     * 地域属性查询应答。
+     * 请求接口：ReqQryRegionInfo。
+     * 回调接口：OnRspInquiryRegionData。
+     * 应答数据域：CQCVDRegionDataField。
+     * 调试规则：只打印证券代码为 000301 的地域记录。
+     */
+    @Override
+    public void OnRspInquiryRegionData(CQCVDRegionDataField pRegionData, CQCVDRspInfoField pRspInfo, int nRequestID, boolean bIsPageLast, boolean bIsTotalLast) {
+        if (pRegionData == null) {
+            logPageEnd("地域属性", pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            regionInfoResponseHandler.onRegionInfoPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
+            return;
+        }
+
+        if ("000301".equals(pRegionData.getSecurityID())) {
+            log.info("地域属性-000301 RequestID={} IsPageLast={} IsTotalLast={} ExchangeID={} SecurityID={} IndustriesCode={} IndustriesName={} LevelNum={} Used={} IndustriesAlias={} Sequence={} Memo={} ChineseDfinition={} IndustriesNameEng={} PageLocate={}",
+                    nRequestID, bIsPageLast, bIsTotalLast, pRegionData.getExchangeID(), pRegionData.getSecurityID(),
+                    pRegionData.getIndustriesCode(), pRegionData.getIndustriesName(), pRegionData.getLevelNum(),
+                    pRegionData.getUsed(), pRegionData.getIndustriesAlias(), pRegionData.getSequence(), pRegionData.getMemo(),
+                    pRegionData.getChineseDfinition(), pRegionData.getIndustriesNameEng(), pRegionData.getPageLocate());
+        }
+        regionInfoResponseHandler.onRegionInfoData(pRegionData, nRequestID);
     }
 
     /**
