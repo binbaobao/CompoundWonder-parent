@@ -83,7 +83,9 @@ public class SimpleQrySpi extends CQCValueAddProSpi {
             stockDayQuotationResponseHandler.onStockDayQuotationPageEnd(pRspInfo, nRequestID, bIsPageLast, bIsTotalLast);
             return;
         }
-        stockDayQuotationResponseHandler.onStockDayQuotationData(pStockDayQuotation, nRequestID);
+        if (!TRADING_HALT.equals(pStockDayQuotation.getTradeStatus())) {
+            stockDayQuotationResponseHandler.onStockDayQuotationData(pStockDayQuotation, nRequestID);
+        }
     }
 
     /**
