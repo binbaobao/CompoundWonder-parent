@@ -31,6 +31,7 @@ public interface StockCurrentStatusService extends IService<StockCurrentStatus> 
 
     /**
      * 关闭指定股票融资融券标识。
+     * 处理逻辑：只更新已有当前状态记录，不存在时不新增。
      */
     boolean disableMarginTrading(String stockCode);
 
@@ -40,6 +41,11 @@ public interface StockCurrentStatusService extends IService<StockCurrentStatus> 
     List<String> listAllStockCodes();
 
     /**
+     * 查询地域名称为空的股票代码。
+     */
+    List<String> listMissingRegionStockCodes();
+
+    /**
      * 刷新可转债标识。
      * 处理逻辑：先把全表可转债标识置为否，再把存在有效可转债的股票置为是。
      */
@@ -47,6 +53,7 @@ public interface StockCurrentStatusService extends IService<StockCurrentStatus> 
 
     /**
      * 更新指定股票地域名称。
+     * 处理逻辑：只更新已有当前状态记录，不存在时不新增。
      */
     boolean updateRegionName(String stockCode, String regionName);
 }

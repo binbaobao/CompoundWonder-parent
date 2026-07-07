@@ -98,12 +98,11 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
 
     /**
      * 关闭指定股票融资融券标识。
-     * 实现逻辑：戴帽时关闭融资融券；摘帽不调用本方法，因此不会自动恢复。
+     * 实现逻辑：戴帽时只更新已有记录；摘帽不调用本方法，因此不会自动恢复。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean disableMarginTrading(String stockCode) {
-        ensureStatus(stockCode, true);
         return update(Wrappers.<StockCurrentStatus>lambdaUpdate()
                 .eq(StockCurrentStatus::getStockCode, stockCode)
                 .set(StockCurrentStatus::getMarginTrading, false));
@@ -118,6 +117,25 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
         return list(Wrappers.<StockCurrentStatus>lambdaQuery()
                 .select(StockCurrentStatus::getStockCode)
                 .isNotNull(StockCurrentStatus::getStockCode)
+                .orderByAsc(StockCurrentStatus::getStockCode))
+                .stream()
+                .map(StockCurrentStatus::getStockCode)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * 查询地域名称为空的股票代码。
+     * 实现逻辑：只返回还没有 region_name 的股票，避免地域属性每日重复全量更新。
+     */
+    @Override
+    public List<String> listMissingRegionStockCodes() {
+        return list(Wrappers.<StockCurrentStatus>lambdaQuery()
+                .select(StockCurrentStatus::getStockCode)
+                .isNotNull(StockCurrentStatus::getStockCode)
+                .and(wrapper -> wrapper.isNull(StockCurrentStatus::getRegionName)
+                        .or()
+                        .eq(StockCurrentStatus::getRegionName, ""))
                 .orderByAsc(StockCurrentStatus::getStockCode))
                 .stream()
                 .map(StockCurrentStatus::getStockCode)
@@ -152,12 +170,11 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
 
     /**
      * 更新指定股票地域名称。
-     * 实现逻辑：当前状态记录存在时直接更新；不存在时先创建默认记录再写入地域。
+     * 实现逻辑：只更新已有当前状态记录；不存在时不新增，新增只允许曾用名或新股入口完成。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean updateRegionName(String stockCode, String regionName) {
-        ensureStatus(stockCode);
         return update(Wrappers.<StockCurrentStatus>lambdaUpdate()
                 .eq(StockCurrentStatus::getStockCode, stockCode)
                 .set(StockCurrentStatus::getRegionName, regionName));

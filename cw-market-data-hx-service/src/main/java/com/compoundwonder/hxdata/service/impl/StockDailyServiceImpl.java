@@ -19,7 +19,9 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 股票日 K 服务实现。
@@ -96,8 +98,9 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
                 .map(StockDayQuotationPoint::getStockCode)
                 .distinct()
                 .toList();
+        Map<String, Integer> yesterdayLimitUpMap = findYesterdayLimitUpMap(tradeDate);
         List<StockDailyEntity> stockDailyList = filteredQuotations.stream()
-                .map(quotation -> buildSingleDayStockDaily(quotation, tradeDate))
+                .map(quotation -> buildSingleDayStockDaily(quotation, tradeDate, yesterdayLimitUpMap))
                 .filter(Objects::nonNull)
                 .toList();
         if (stockDailyList.isEmpty()) {
@@ -113,30 +116,47 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
 
     /**
      * 构建单日股票日 K。
-     * 作用：每日更新只处理一个交易日，名称、流通股和前一日连板状态按单日查询补齐。
+     * 作用：每日更新只处理一个交易日，名称、流通股按单日查询补齐，连板状态使用昨日涨停池计算。
      */
-    private StockDailyEntity buildSingleDayStockDaily(StockDayQuotationPoint quotation, LocalDate tradeDate) {
+    private StockDailyEntity buildSingleDayStockDaily(StockDayQuotationPoint quotation, LocalDate tradeDate, Map<String, Integer> yesterdayLimitUpMap) {
         List<StockPreviousNameHistory> nameHistories = stockPreviousNameHistoryService.findNamesByDateRange(quotation.getStockCode(), tradeDate, tradeDate);
         List<StockFreeFloatShareHistory> freeFloatHistories = stockFreeFloatShareHistoryService.findByDateRange(quotation.getStockCode(), tradeDate, tradeDate);
-        int previousLimitUpDays = findPreviousLimitUpDays(quotation.getStockCode(), tradeDate);
-        return buildStockDaily(quotation, previousLimitUpDays, nameHistories, freeFloatHistories);
+        return buildStockDaily(quotation, yesterdayLimitUpMap, nameHistories, freeFloatHistories);
     }
 
     /**
-     * 查询上一条有效日 K 的连板状态。
-     * 作用：每日新增一条日 K 时，用上一交易记录延续连板或计算断板高度。
+     * 查询上一交易日涨停股票映射。
+     * 作用：每日全市场更新前一次性查出昨日涨停池，用于计算今日连板和断板高度。
      */
-    private int findPreviousLimitUpDays(String stockCode, LocalDate tradeDate) {
+    private Map<String, Integer> findYesterdayLimitUpMap(LocalDate tradeDate) {
+        LocalDate previousTradeDate = findPreviousTradeDate(tradeDate);
+        if (previousTradeDate == null) {
+            return Map.of();
+        }
+
+        return list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .select(StockDailyEntity::getStockCode, StockDailyEntity::getConsecutiveLimitUpDays)
+                .eq(StockDailyEntity::getTradeDate, previousTradeDate)
+                .gt(StockDailyEntity::getChangeRate, 8)
+                .lt(StockDailyEntity::getChangeRate, 11)
+                .gt(StockDailyEntity::getKlineState, 0)
+                .lt(StockDailyEntity::getKlineState, 6))
+                .stream()
+                .filter(stockDaily -> stockDaily.getStockCode() != null)
+                .filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() != null && stockDaily.getConsecutiveLimitUpDays() > 0)
+                .collect(Collectors.toMap(StockDailyEntity::getStockCode, StockDailyEntity::getConsecutiveLimitUpDays, (left, right) -> left));
+    }
+
+    /**
+     * 查询当前交易日前最近一个已入库交易日。
+     */
+    private LocalDate findPreviousTradeDate(LocalDate tradeDate) {
         StockDailyEntity previous = getOne(Wrappers.<StockDailyEntity>lambdaQuery()
-                .select(StockDailyEntity::getConsecutiveLimitUpDays)
-                .eq(StockDailyEntity::getStockCode, stockCode)
+                .select(StockDailyEntity::getTradeDate)
                 .lt(StockDailyEntity::getTradeDate, tradeDate)
                 .orderByDesc(StockDailyEntity::getTradeDate)
                 .last("LIMIT 1"));
-        if (previous == null || previous.getConsecutiveLimitUpDays() == null || previous.getConsecutiveLimitUpDays() <= 0) {
-            return 0;
-        }
-        return previous.getConsecutiveLimitUpDays();
+        return previous == null ? null : previous.getTradeDate();
     }
 
     /**
@@ -177,6 +197,24 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
         stockDaily.setFloatShares(floatShares);
         stockDaily.setKlineState(klineState);
         stockDaily.setConsecutiveLimitUpDays(consecutiveLimitUpDays);
+        return stockDaily;
+    }
+
+    /**
+     * 构建单条每日股票日 K 记录。
+     * 处理逻辑：涨停时用昨日涨停池递增；昨日涨停但今日未涨停时记录负数断板高度。
+     */
+    private StockDailyEntity buildStockDaily(StockDayQuotationPoint stockDay, Map<String, Integer> yesterdayLimitUpMap, List<StockPreviousNameHistory> nameHistories, List<StockFreeFloatShareHistory> freeFloatHistories) {
+        StockDailyEntity stockDaily = buildStockDaily(stockDay, 0, nameHistories, freeFloatHistories);
+        String stockCode = stockDay.getStockCode();
+        Integer yesterdayLimitUpDays = yesterdayLimitUpMap.get(stockCode);
+        if (stockDaily.getKlineState() != null && stockDaily.getKlineState() >= 1 && stockDaily.getKlineState() <= 5) {
+            stockDaily.setConsecutiveLimitUpDays(yesterdayLimitUpDays == null ? 1 : yesterdayLimitUpDays + 1);
+        } else if (yesterdayLimitUpDays != null) {
+            stockDaily.setConsecutiveLimitUpDays(-yesterdayLimitUpDays);
+        } else {
+            stockDaily.setConsecutiveLimitUpDays(0);
+        }
         return stockDaily;
     }
 
