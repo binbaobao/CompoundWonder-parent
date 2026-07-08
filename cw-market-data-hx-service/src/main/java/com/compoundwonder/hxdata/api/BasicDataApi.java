@@ -48,7 +48,6 @@ import com.qcvalueaddproapi.CQCVDShareIssuanceField;
 import com.qcvalueaddproapi.CQCVDStockDayQuotationField;
 import com.qcvalueaddproapi.CQCValueAddProApi;
 import com.qcvalueaddproapi.qcvalueaddproapiConstants;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -106,6 +105,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     private final StockPreviousNameHistoryService stockPreviousNameHistoryService;
     private final StockSyncTaskService stockSyncTaskService;
     private final AtomicBoolean loginReady = new AtomicBoolean(false);
+    private final AtomicBoolean apiRunning = new AtomicBoolean(false);
     private final AtomicBoolean freeFloatTaskRunning = new AtomicBoolean(false);
     private final AtomicBoolean stockDailyTaskRunning = new AtomicBoolean(false);
     private final AtomicBoolean convertibleBondDescriptionTaskRunning = new AtomicBoolean(false);
@@ -122,7 +122,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     private volatile LocalDate dailyFreeFloatFallbackDate;
     private volatile LocalDate preOpenTaskDate;
     private volatile LocalDate postCloseTaskDate;
-    private final CountDownLatch loginReadyLatch = new CountDownLatch(1);
+    private volatile CountDownLatch loginReadyLatch = new CountDownLatch(1);
     private final Map<Integer, ShareCalendarRequestContext> shareCalendarRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, FreeFloatSharesRequestContext> freeFloatSharesRequestContextMap = new ConcurrentHashMap<>();
     private final Map<Integer, StockDayQuotationRequestContext> stockDayQuotationRequestContextMap = new ConcurrentHashMap<>();
@@ -148,23 +148,11 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     }
 
     /**
-     * 初始化华鑫增值服务 API。
-     * 注意：CQCValueAddProApi.Run() 会启动并等待 API 工作线程，不能阻塞 Spring Boot 主启动流程。
-     * 这里通过独立线程启动，保证 Web 容器和 TestController 可以正常完成注册。
-     */
-    @PostConstruct
-    public void basicDataApiInit() {
-        Thread apiThread = new Thread(this::runBasicDataApi, "hx-basic-data-api");
-        apiThread.setDaemon(false);
-        apiThread.start();
-    }
-
-    /**
      * 在线程中启动华鑫基础数据 API。
      * 作用：完成 API 创建、前置地址注册、SPI 注册，并进入 API 工作循环。
      */
     private void runBasicDataApi() {
-        log.info("basicDataApiInit");
+        log.info("华鑫增值服务 API 线程启动");
         try {
             basicDataApi = CQCValueAddProApi.CreateInfoQryApi();
             basicDataApi.RegisterFront(ADDRESS, PORT);
@@ -173,6 +161,10 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             basicDataApi.Run();
         } catch (Throwable e) {
             log.error("增值服务 API 初始化失败", e);
+        } finally {
+            loginReady.set(false);
+            apiRunning.set(false);
+            log.info("华鑫增值服务 API 线程结束");
         }
     }
 
@@ -206,7 +198,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 处理逻辑：先判断是否交易日；交易日按曾用名、新股、自由流通股、可转债、地域、融资融券标识顺序串行执行。
      */
     public void startPreOpenUpdate(LocalDate taskDate) {
-        if (!isLoginReady("盘前每日更新")) {
+        if (!startAndAwaitLogin("盘前每日更新", 30000)) {
             return;
         }
 
@@ -215,6 +207,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (!tradeDay) {
             stockDailyUpdateTaskService.markPreOpenFinished(taskDate);
             log.info("盘前每日更新跳过 taskDate={} reason=非交易日", taskDate);
+            releaseAfterDailyTask("盘前每日更新非交易日跳过");
             return;
         }
 
@@ -233,7 +226,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 处理逻辑：先判断是否交易日；交易日启动日 K 同步任务，完成后更新每日任务记录。
      */
     public void startPostCloseUpdate(LocalDate taskDate) {
-        if (!isLoginReady("盘后每日更新")) {
+        if (!startAndAwaitLogin("盘后每日更新", 30000)) {
             return;
         }
 
@@ -242,6 +235,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         if (!tradeDay) {
             stockDailyUpdateTaskService.markPostCloseFinished(taskDate);
             log.info("盘后每日更新跳过 taskDate={} reason=非交易日", taskDate);
+            releaseAfterDailyTask("盘后每日更新非交易日跳过");
             return;
         }
 
@@ -851,6 +845,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
                 stockDailyUpdateTaskService.markPreOpenFinished(preOpenTaskDate);
                 preOpenTaskRunning.set(false);
                 log.info("盘前每日更新完成 taskDate={}", preOpenTaskDate);
+                releaseAfterDailyTask("盘前每日更新完成");
             }
             return;
         }
@@ -1114,8 +1109,19 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 作用：服务关闭或手动销毁时释放底层 API 资源。
      */
     public void release() {
-        basicDataApi.Release();
+        if (basicDataApi == null) {
+            return;
+        }
+        try {
+            basicDataApi.Release();
+        } catch (RuntimeException e) {
+            log.warn("释放增值服务 API 异常", e);
+        }
+        basicDataApi = null;
         simpleQrySpi = null;
+        loginReady.set(false);
+        loginReadyLatch = new CountDownLatch(1);
+        apiRunning.set(false);
         log.info("增值服务 API 接口销毁");
     }
 
@@ -1124,6 +1130,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
      * 作用：给控制器或任务调度入口提供登录就绪判断，避免未登录时直接发起查询。
      */
     public boolean awaitLoginReady(long timeoutMillis) {
+        startApiIfNeeded();
         if (loginReady.get()) {
             return true;
         }
@@ -1135,6 +1142,48 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             log.warn("等待增值服务登录完成时被中断", e);
             return false;
         }
+    }
+
+    /**
+     * 启动华鑫 API 并等待登录完成。
+     * 作用：每日任务触发时临时登录，任务完成后释放，下次任务重新登录。
+     */
+    private boolean startAndAwaitLogin(String taskName, long timeoutMillis) {
+        if (awaitLoginReady(timeoutMillis)) {
+            return true;
+        }
+        log.warn("{} 未启动：等待增值服务登录超时 timeoutMillis={}", taskName, timeoutMillis);
+        releaseAfterDailyTask(taskName + "登录超时");
+        return false;
+    }
+
+    /**
+     * 按需启动华鑫基础数据 API。
+     * 作用：应用启动时不连接，只有任务或手动接口需要查询时才创建 API 并登录。
+     */
+    private void startApiIfNeeded() {
+        if (loginReady.get()) {
+            return;
+        }
+        if (!apiRunning.compareAndSet(false, true)) {
+            return;
+        }
+
+        loginReady.set(false);
+        loginReadyLatch = new CountDownLatch(1);
+        Thread apiThread = new Thread(this::runBasicDataApi, "hx-basic-data-api");
+        apiThread.setDaemon(false);
+        apiThread.start();
+        log.info("华鑫增值服务 API 已按需启动，等待登录");
+    }
+
+    /**
+     * 每日任务结束后释放华鑫 API。
+     * 作用：盘前、盘后任务各自独立登录和释放，避免长时间保持连接。
+     */
+    private void releaseAfterDailyTask(String scene) {
+        log.info("{}，准备释放华鑫增值服务 API", scene);
+        release();
     }
 
     /**
@@ -1328,6 +1377,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             stockDayQuotationRequestContextMap.remove(currentRequestId);
             postCloseTaskRunning.set(false);
             log.warn("盘后全市场日K查询发起失败 tradeDate={} page={} ret={}", queryDate, page, ret);
+            releaseAfterDailyTask("盘后全市场日K查询发起失败");
         }
     }
 
@@ -1363,6 +1413,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
             }
             if (context.marketDaily) {
                 postCloseTaskRunning.set(false);
+                releaseAfterDailyTask("盘后全市场日K查询失败");
             }
             return;
         }
@@ -1376,6 +1427,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
                 postCloseTaskRunning.set(false);
                 log.error("盘后全市场日K入库异常 tradeDate={} page={} requestId={} rows={}",
                         context.tradeDate, context.page, requestId, context.quotations.size(), e);
+                releaseAfterDailyTask("盘后全市场日K入库异常");
                 return;
             }
 
@@ -1826,6 +1878,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
     private void stopPreOpenTask(String reason) {
         preOpenTaskRunning.set(false);
         log.warn("盘前每日更新停止 taskDate={} reason={}", preOpenTaskDate, reason);
+        releaseAfterDailyTask("盘前每日更新停止");
     }
 
     /**
@@ -1840,6 +1893,7 @@ public class BasicDataApi implements ShareCalendarResponseHandler, FreeFloatShar
         stockDailyUpdateTaskService.markPostCloseFinished(postCloseTaskDate);
         postCloseTaskRunning.set(false);
         log.info("盘后每日更新完成 taskDate={}", postCloseTaskDate);
+        releaseAfterDailyTask("盘后每日更新完成");
     }
 
     /**
