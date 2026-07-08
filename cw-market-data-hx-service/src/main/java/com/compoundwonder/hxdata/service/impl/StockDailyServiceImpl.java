@@ -261,7 +261,7 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
      * 规则：当日名称包含 ST 即视为 ST。
      */
     private Boolean isStName(String stockName) {
-        return stockName != null && stockName.toUpperCase().contains("ST");
+        return stockName != null && stockName.toUpperCase().contains("ST") || stockName.contains("退");
     }
 
     /**
