@@ -18,7 +18,8 @@
     <packaging>pom</packaging>
     <modules>
         <module>cw-market-data-hx-service</module><!--市场基础数据主服务-->
-        <module>cw-core-oreder-book</module> <!-- 核心订单簿-->
+        <module>cw-core-oreder-book</module>
+        <module>cw-mysql-data</module> <!-- 核心订单簿-->
     </modules>
 
 
