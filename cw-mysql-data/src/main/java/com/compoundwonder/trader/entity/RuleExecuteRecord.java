@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -40,6 +41,11 @@ public class RuleExecuteRecord {
      * 证券名称。
      */
     private String symbolName;
+
+    /**
+     * 交易日期。
+     */
+    private LocalDate tradeDate;
 
     /**
      * 下单时间。
