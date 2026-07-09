@@ -19,7 +19,9 @@
     <modules>
         <module>cw-market-data-hx-service</module><!--市场基础数据主服务-->
         <module>cw-core-oreder-book</module>
-        <module>cw-mysql-data</module> <!-- 核心订单簿-->
+        <module>cw-mysql-data</module>
+        <module>cw-hx-trade-api</module>
+        <module>cw-hx-market-stream</module> <!-- 核心订单簿-->
     </modules>
 
 
@@ -28,6 +30,10 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <hutool.version>5.8.42</hutool.version>
+        <disruptor.version>4.0.0</disruptor.version>
+        <fastutil.version>8.5.18</fastutil.version>
+        <tora-api.version>1.0.1</tora-api.version>
+        <mybatis-plus.version>3.5.15</mybatis-plus.version>
     </properties>
 
     <dependencies>

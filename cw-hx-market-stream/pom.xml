@@ -9,7 +9,7 @@
         <version>1.0.0</version>
     </parent>
 
-    <artifactId>cw-mysql-data</artifactId>
+    <artifactId>cw-hx-market-stream</artifactId>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -19,9 +19,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
+            <groupId>com.tora.lev2mdapi</groupId>
+            <artifactId>lev2mdapi</artifactId>
+            <version>${tora-api.version}</version>
         </dependency>
     </dependencies>
 </project>
