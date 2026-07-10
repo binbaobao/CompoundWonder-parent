@@ -28,5 +28,10 @@
             <artifactId>fastutil</artifactId>
             <version>${fastutil.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
     </dependencies>
 </project>

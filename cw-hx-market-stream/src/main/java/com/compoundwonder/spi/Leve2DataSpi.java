@@ -1,11 +1,7 @@
 package com.compoundwonder.spi;
 
-import com.cbacb.compoundWonder.trader.constant.ToraConstants;
-import com.cbacb.compoundWonder.trader.hxctp.api.Lev2DataApi;
-import com.cbacb.compoundWonder.trader.processor.DisruptorManager;
-import com.cbacb.compoundWonder.trader.util.SymbolUtil;
-import com.cbacb.compoundWonder.trader.util.ThreadSafeIdGenerator;
-import com.tora.traderapi.traderapi;
+import com.compoundwonder.service.Lev2DataApi;
+import com.tora.lev2mdapi.*;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -17,7 +13,7 @@ public class Leve2DataSpi extends CTORATstpLev2MdSpi {
 
     private DisruptorManager disruptorManager;
 
-    public Leve2DataSpi(CTORATstpLev2MdApi api, DisruptorManager disruptorManager,Lev2DataApi lev2DataApi) {
+    public Leve2DataSpi(CTORATstpLev2MdApi api, DisruptorManager disruptorManager, Lev2DataApi lev2DataApi) {
         this.api = api;
         this.lev2DataApi = lev2DataApi;
         this.disruptorManager = disruptorManager;
@@ -27,7 +23,7 @@ public class Leve2DataSpi extends CTORATstpLev2MdSpi {
         CTORATstpReqUserLoginField ctoraTstpReqUserLoginField = new CTORATstpReqUserLoginField();
 
         ctoraTstpReqUserLoginField.setLogInAccount("15810892100");
-        ctoraTstpReqUserLoginField.setLogInAccountType(traderapi.getTORA_TSTP_LACT_UserID());
+        ctoraTstpReqUserLoginField.setLogInAccountType(lev2mdapi.getTORA_TSTP_LACT_UserID());
         ctoraTstpReqUserLoginField.setPassword("guo0606BIN");
         ctoraTstpReqUserLoginField.setUserProductInfo("HX5VNYKBY4");
         ctoraTstpReqUserLoginField.setDynamicPassword("eIODpsBc");

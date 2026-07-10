@@ -2,17 +2,14 @@ package com.compoundwonder.core.service;
 
 
 
-import com.compoundwonder.core.type.OrderBook;
-import com.compoundwonder.core.type.TickData;
+import com.compoundwonder.core.engine.OrderBook;
+import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.util.SymbolUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -95,17 +92,4 @@ public class CacheService {
     public void clearCacheMap() {
         orderBookMap.clear();
     }
-
-
-    public static LocalDate parseDate(String dateStr) {
-        if (dateStr == null || dateStr.isBlank()) {
-            return null;
-        }
-
-        return LocalDate.parse(
-                dateStr.trim(),
-                DateTimeFormatter.BASIC_ISO_DATE
-        );
-    }
-
 }

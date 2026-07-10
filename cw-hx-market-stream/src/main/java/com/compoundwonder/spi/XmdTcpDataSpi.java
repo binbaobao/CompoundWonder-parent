@@ -1,11 +1,6 @@
 package com.compoundwonder.spi;
 
-import com.cbacb.compoundWonder.trader.constant.ConstantUtil;
-import com.cbacb.compoundWonder.trader.hxctp.api.XmdTcpDataApi;
-import com.cbacb.compoundWonder.trader.processor.DisruptorManager;
-import com.cbacb.compoundWonder.trader.util.SymbolUtil;
-import com.cbacb.compoundWonder.trader.util.ThreadSafeIdGenerator;
-import com.tora.traderapi.traderapi;
+import com.compoundwonder.service.XmdTcpDataApi;
 import com.tora.xmdapi.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -13,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 public class XmdTcpDataSpi extends CTORATstpXMdSpi {
 
     private CTORATstpXMdApi api;
-    private XmdTcpDataApi  xmdDataApi;
+    private XmdTcpDataApi xmdDataApi;
     private DisruptorManager disruptorManager;
 
     public XmdTcpDataSpi(CTORATstpXMdApi api, DisruptorManager disruptorManager, XmdTcpDataApi xmdDataApi) {

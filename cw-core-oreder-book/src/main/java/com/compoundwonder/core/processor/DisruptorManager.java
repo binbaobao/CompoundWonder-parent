@@ -1,7 +1,7 @@
 package com.compoundwonder.core.processor;
 
 import com.compoundwonder.core.service.CacheService;
-import com.compoundwonder.core.type.TickData;
+import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.util.SymbolUtil;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;

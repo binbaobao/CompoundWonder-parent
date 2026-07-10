@@ -19,6 +19,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.tora.xmdapi</groupId>
+            <artifactId>xmdapi</artifactId>
+            <version>${tora-api.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.tora.lev2mdapi</groupId>
             <artifactId>lev2mdapi</artifactId>
             <version>${tora-api.version}</version>

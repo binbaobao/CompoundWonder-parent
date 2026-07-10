@@ -1,7 +1,7 @@
 package com.compoundwonder.core.config;
 
 import com.compoundwonder.core.processor.TickEventFactory;
-import com.compoundwonder.core.type.TickData;
+import com.compoundwonder.core.engine.TickData;
 import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
