@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.compoundwonder</groupId>
         <artifactId>CompoundWonder-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>cw-hx-real-trade</artifactId>
@@ -26,7 +26,7 @@
         <dependency>
             <groupId>com.compoundwonder</groupId>
             <artifactId>cw-common</artifactId>
-            <version>1.0.0</version>
+            <version>1.0.0-SNAPSHOT</version>
         </dependency>
     </dependencies>
 </project>
