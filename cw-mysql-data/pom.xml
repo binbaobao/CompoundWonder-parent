@@ -24,6 +24,11 @@
             <version>${mybatis-plus.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.compoundwonder</groupId>
             <artifactId>cw-common</artifactId>
             <version>1.0.0-SNAPSHOT</version>

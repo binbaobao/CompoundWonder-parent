@@ -11,4 +11,5 @@ public interface OrderBookService {
      * @return
      */
     Set<String> getOrderBookCodes();
+    void updateOrderBookInfo(String securityID,double closePrice, double limitUpPrice, double limitDownPrice, String securityName) ;
 }

@@ -2,7 +2,7 @@ package com.compoundwonder.spi;
 
 import com.compoundwonder.constant.ToraConstants;
 import com.compoundwonder.service.DisruptorService;
-import com.compoundwonder.service.Lev2DataApi;
+import com.compoundwonder.api.Level2DataApi;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.tora.lev2mdapi.*;
@@ -13,11 +13,11 @@ public class Leve2DataSpi extends CTORATstpLev2MdSpi {
 
     private CTORATstpLev2MdApi api;
 
-    private Lev2DataApi lev2DataApi;
+    private Level2DataApi lev2DataApi;
 
     private DisruptorService disruptorManager;
 
-    public Leve2DataSpi(CTORATstpLev2MdApi api, DisruptorService disruptorManager, Lev2DataApi lev2DataApi) {
+    public Leve2DataSpi(CTORATstpLev2MdApi api, DisruptorService disruptorManager, Level2DataApi lev2DataApi) {
         this.api = api;
         this.lev2DataApi = lev2DataApi;
         this.disruptorManager = disruptorManager;

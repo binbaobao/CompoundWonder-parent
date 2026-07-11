@@ -22,12 +22,10 @@ import java.util.stream.Collectors;
 @Component
 public class CacheService {
 
-
     /**
      * 股票订单簿
      */
     private final Int2ObjectOpenHashMap<OrderBook> orderBookMap = new Int2ObjectOpenHashMap<>();
-
 
     public final List<TickData> orderList = new ArrayList<>();
 

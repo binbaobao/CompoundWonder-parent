@@ -22,7 +22,9 @@
         <module>cw-core-oreder-book</module> <!-- 核心订单簿-->
         <module>cw-mysql-data</module>  <!-- myslq 查询-->
         <module>cw-hx-real-trade</module><!-- 交易下单 服务  -->
-        <module>cw-hx-market-stream</module><!-- 华鑫实时行情数据 -->
+        <module>cw-hx-market-stream</module>
+        <module>cw-app-live</module>
+        <module>cw-app-backtest</module><!-- 华鑫实时行情数据 -->
     </modules>
 
 
@@ -39,19 +41,14 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.5.13</version>
         </dependency>
         <dependency>
             <groupId>cn.hutool</groupId>

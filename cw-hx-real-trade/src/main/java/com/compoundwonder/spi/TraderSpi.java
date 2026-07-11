@@ -3,7 +3,7 @@ package com.compoundwonder.spi;
 import com.compoundwonder.constant.ToraConstants;
 import com.compoundwonder.service.DisruptorService;
 import com.compoundwonder.service.TradeCacheService;
-import com.compoundwonder.service.TraderApi;
+import com.compoundwonder.service.impl.RealTradeServiceImpl;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.tora.traderapi.*;
@@ -17,7 +17,8 @@ public class TraderSpi extends CTORATstpTraderSpi {
     private DisruptorService disruptorManager;
 
     private TradeCacheService tradeCacheService;
-    private TraderApi traderApi;
+
+    private RealTradeServiceImpl realTradeService;
 
     /**
      * 请求 Req*** ReqUserLogin
@@ -27,9 +28,9 @@ public class TraderSpi extends CTORATstpTraderSpi {
      * 回报 OnRtn*** OnRtnOrder
      * 错误回报 OnErrRtn*** OnErrRtnOrderInsert
      */
-    public TraderSpi(CTORATstpTraderApi api, TradeCacheService tradeCacheService, DisruptorService disruptorManager, TraderApi traderApi) {
+    public TraderSpi(CTORATstpTraderApi api, TradeCacheService tradeCacheService, DisruptorService disruptorManager, RealTradeServiceImpl realTradeService) {
         this.api = api;
-        this.traderApi = traderApi;
+        this.realTradeService = realTradeService;
         this.disruptorManager = disruptorManager;
         this.tradeCacheService = tradeCacheService;
     }
@@ -226,7 +227,7 @@ public class TraderSpi extends CTORATstpTraderSpi {
      */
     public void OnRspQrySecurity(CTORATstpSecurityField pSecurity, CTORATstpRspInfoField pRspInfo, int nRequestID, boolean bIsLast) {
         if (pSecurity != null) {
-            traderApi.updateOrderBookInfo(pSecurity);
+            realTradeService.updateOrderBookInfo(pSecurity);
         }
     }
 }

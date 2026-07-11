@@ -1,12 +1,9 @@
 package com.compoundwonder.util;
 
-import lombok.extern.slf4j.Slf4j;
-
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-@Slf4j
 public class HighPrecisionClock {
     // 加上 volatile，保证校准后所有线程立即看到最新的基准
     private static volatile long baseNanos;
@@ -29,7 +26,7 @@ public class HighPrecisionClock {
         Instant now = Instant.now();
         baseEpochNano = now.getEpochSecond() * 1_000_000_000L + now.getNano();
         baseNanos = System.nanoTime();
-        log.info("[Clock] 基准点已校准: {}",LocalTime.now());
+//        log.info("[Clock] 基准点已校准: {}",LocalTime.now());
     }
 
     /**

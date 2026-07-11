@@ -3,17 +3,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
         <groupId>com.compoundwonder</groupId>
         <artifactId>CompoundWonder-parent</artifactId>
         <version>1.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <groupId>com.cbacb</groupId>
-    <artifactId>cw-market-data-hx-service</artifactId>
-    <version>1.0-SNAPSHOT</version>
-    <description>华鑫数据源更新基础数据</description>
+    <artifactId>cw-app-backtest</artifactId>
+
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
@@ -25,17 +23,8 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.qcvalueaddproapi</groupId>
-            <artifactId>qcvalueaddproapi</artifactId>
-            <version>${tora-api.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.compoundwonder</groupId>
-            <artifactId>cw-mysql-data</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-        </dependency>
     </dependencies>
+
 
     <build>
         <finalName>${project.artifactId}</finalName>

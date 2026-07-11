@@ -147,12 +147,6 @@ public class TradeCacheService {
         log.info(" 更新持仓记录 {} ", positionDto);
     }
 
-
-    public void testAdd(TstpPositionDto positionDto) {
-        positionRecords.put(positionDto.getSecurityID(), positionDto);
-    }
-
-
     /**
      * 根据 股票代码查询 持仓数量
      *

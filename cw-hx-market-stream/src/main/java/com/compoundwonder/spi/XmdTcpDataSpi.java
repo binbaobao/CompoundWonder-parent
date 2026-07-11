@@ -2,7 +2,7 @@ package com.compoundwonder.spi;
 
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.service.DisruptorService;
-import com.compoundwonder.service.XmdTcpDataApi;
+import com.compoundwonder.api.XmdTcpDataApi;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.tora.xmdapi.*;

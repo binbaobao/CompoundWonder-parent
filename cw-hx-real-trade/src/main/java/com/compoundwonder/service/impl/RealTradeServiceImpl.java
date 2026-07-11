@@ -1,8 +1,12 @@
-package com.compoundwonder.service;
+package com.compoundwonder.service.impl;
 
 
 import cn.hutool.core.util.StrUtil;
 
+import com.compoundwonder.service.DisruptorService;
+import com.compoundwonder.service.OrderBookService;
+import com.compoundwonder.service.RealTradeService;
+import com.compoundwonder.service.TradeCacheService;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.compoundwonder.util.TradeCalculator;
@@ -18,16 +22,14 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Component
-public class TraderApi {
+public class RealTradeServiceImpl implements RealTradeService {
 
     static {
         String property = System.getProperties().getProperty("os.name");
@@ -38,29 +40,15 @@ public class TraderApi {
 
     private final ReentrantLock globalLock = new ReentrantLock();
 
-    @Autowired
-    private CacheService cacheService;
-
-    @Autowired
-    private EmotionCycleInfoDao emotionCycleInfoDao;
 
     @Autowired
     private DisruptorService disruptorManager;
 
     @Autowired
-    private StockDailyDao stockDailyDao;
-
-    @Autowired
-    private StockWatchingTaskDao stockWatchingTaskDao;
+    private OrderBookService orderBookService;
 
     @Autowired
     private TradeCacheService tradeCacheService;
-
-    @Autowired
-    private StockDailyService stockDailyService;
-
-    @Autowired
-    private StockTransactionCalendarService stockTransactionCalendarService;
 
     private CTORATstpTraderApi ctoraTstpTraderApi;
 
@@ -105,14 +93,14 @@ public class TraderApi {
     }
 
     /**
-     * 提前挂隔夜单功能
+     * 提前挂隔夜单功能 TODO
      */
     @Scheduled(cron = "0 00 01 * * MON-FRI")
     public void preOpenOrderFeature() throws InterruptedException {
-        Boolean tradingDay = stockTransactionCalendarService.isTodayTradingDay();
-        if (!tradingDay) {
-            return;
-        }
+//        Boolean tradingDay = stockTransactionCalendarService.isTodayTradingDay();
+//        if (!tradingDay) {
+//            return;
+//        }
         log.info("提前挂隔夜单功能，开始初始化 交易接口");
 
         ctoraTstpTraderApi = CTORATstpTraderApi.CreateTstpTraderApi();
@@ -130,7 +118,7 @@ public class TraderApi {
         Thread.sleep(5000);
 
         // 提前挂隔夜单
-        preliminaryNocturnalOperation(LocalDate.now().toString());
+//        preliminaryNocturnalOperation(LocalDate.now().toString());
         Thread.sleep(5000);
         // 销毁
         ctoraTstpTraderApi.Release();
@@ -153,143 +141,150 @@ public class TraderApi {
         ctoraTstpTraderApi.ReqQryPosition(new CTORATstpQryPositionField(), ThreadSafeIdGenerator.generateId());
     }
 
+    @Override
+    public void clearCache() {
+
+    }
+
     /**
      * 每个交易日夜间提前操作
      * 隔夜单。买卖操作
+     * TODO 迁移到 实盘服务，回测不需要
      */
-    public void preliminaryNocturnalOperation(String date) {
-
-        // 判断是否挂了隔夜单，如果遇到紧急情况可能挂隔夜单，已经有隔夜单就不继续执行
-        TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
-        if (nocturnalRecords != null || LocalTime.now().isAfter(LocalTime.of(9, 15))) {
-            log.info("不用挂单直接退出！！！");
-            return;
-        }
-
-        String previousOneDate = stockTransactionCalendarService.findPreviousOne(date);
-        // 判断现在是否持仓中，持仓与空仓两套解决方案
-        if (tradeCacheService.getPositionCodes().isEmpty()) {
-            StockWatchingTaskEntity stockWatchingTaskEntity = stockWatchingTaskDao.queryPreOpenOrdersStocks(previousOneDate);
-            if (stockWatchingTaskEntity != null) {
-                // 隔夜单买入
-                int price = (int) Math.round(stockWatchingTaskEntity.getPrice() * 110);
-                log.info("提前挂单买入 -> 股票： {} , 挂单价格{} ", stockWatchingTaskEntity.getCode(), price);
-                this.buy(date, SymbolUtil.fastSymbolToInt(stockWatchingTaskEntity.getCode()), price, LocalTime.now().toSecondOfDay() * 1000);
-            }
-        } else {
-            // 如果是持仓状态就判断要不要挂隔夜卖单
-            for (String positionCode : tradeCacheService.getPositionCodes()) {
-                List<StockDailyEntity> recentStockDaily = stockDailyService.findRecentStockDaily(positionCode, 1, date);
-
-                StockDailyEntity stockDaily = recentStockDaily.get(0);
-                // 如果是非涨停状态，或者是在持仓并且有推荐但是持仓是没有推荐的切超过3板的票，这是中位票，也执行卖出
-                // || (!qinLongCodes.isEmpty() && !qinLongCodes.contains(positionCode) && stockDaily.getConsecutiveLimitUpDays() == 3)
-                // 或者持有的非节点
-                if ((stockDaily.getKlineState() > 5 || stockDaily.getKlineState() < 1)) {
-                    // 根据收盘价格计算明天跌停价，隔夜跌停价挂单
-                    int price = (int) Math.round(stockDaily.getClosePrice() * 90);
-                    // 隔夜单卖出
-                    this.sell(positionCode, price, price);
-                    log.info("隔夜单卖出 -> 卖出炸板持仓：{} , 挂单价格{} ", positionCode, price);
-                }
-            }
-        }
-    }
+//    public void preliminaryNocturnalOperation(String date) {
+//
+//        // 判断是否挂了隔夜单，如果遇到紧急情况可能挂隔夜单，已经有隔夜单就不继续执行
+//        TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
+//        if (nocturnalRecords != null || LocalTime.now().isAfter(LocalTime.of(9, 15))) {
+//            log.info("不用挂单直接退出！！！");
+//            return;
+//        }
+//
+//        String previousOneDate = stockTransactionCalendarService.findPreviousOne(date);
+//        // 判断现在是否持仓中，持仓与空仓两套解决方案
+//        if (tradeCacheService.getPositionCodes().isEmpty()) {
+//            StockWatchingTaskEntity stockWatchingTaskEntity = stockWatchingTaskDao.queryPreOpenOrdersStocks(previousOneDate);
+//            if (stockWatchingTaskEntity != null) {
+//                // 隔夜单买入
+//                int price = (int) Math.round(stockWatchingTaskEntity.getPrice() * 110);
+//                log.info("提前挂单买入 -> 股票： {} , 挂单价格{} ", stockWatchingTaskEntity.getCode(), price);
+//                this.buy(date, SymbolUtil.fastSymbolToInt(stockWatchingTaskEntity.getCode()), price, LocalTime.now().toSecondOfDay() * 1000);
+//            }
+//        } else {
+//            // 如果是持仓状态就判断要不要挂隔夜卖单
+//            for (String positionCode : tradeCacheService.getPositionCodes()) {
+//                List<StockDailyEntity> recentStockDaily = stockDailyService.findRecentStockDaily(positionCode, 1, date);
+//
+//                StockDailyEntity stockDaily = recentStockDaily.get(0);
+//                // 如果是非涨停状态，或者是在持仓并且有推荐但是持仓是没有推荐的切超过3板的票，这是中位票，也执行卖出
+//                // || (!qinLongCodes.isEmpty() && !qinLongCodes.contains(positionCode) && stockDaily.getConsecutiveLimitUpDays() == 3)
+//                // 或者持有的非节点
+//                if ((stockDaily.getKlineState() > 5 || stockDaily.getKlineState() < 1)) {
+//                    // 根据收盘价格计算明天跌停价，隔夜跌停价挂单
+//                    int price = (int) Math.round(stockDaily.getClosePrice() * 90);
+//                    // 隔夜单卖出
+//                    this.sell(positionCode, price, price);
+//                    log.info("隔夜单卖出 -> 卖出炸板持仓：{} , 挂单价格{} ", positionCode, price);
+//                }
+//            }
+//        }
+//    }
 
     /**
      * 初始化股票账户信息
      * 账户信息，持仓信息，隔夜单信息
+     * TODO 迁移到 订单簿，做一个大而全补全所有字段的盯盘初始化服务
      */
-    public void initStockAccountInfo(String date) {
-        // 判断现在是否持仓中，持仓与空仓两套解决方案
-        if (tradeCacheService.getPositionCodes().isEmpty()) {
-            log.info("初始化股票账户信息，无持仓");
-            // 如果是空仓状态，判断是否有已经挂了隔夜买单，竞价期间盯撤单
-            TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
-
-            // 如果有一个隔夜单，并且是买入状态的隔夜单，就把盯盘任务修改成 2，买入待撤单状态
-            if (nocturnalRecords != null && nocturnalRecords.getOrderStatus() == '0') {
-                log.info("初始化股票账户信息，无持仓 有隔夜买单，将这个股票设置为盯撤单情况：{}", nocturnalRecords);
-                // 设置已经挂单的状态为盯买入撤单状态
-                disruptorManager.publishTransInfoDataOne(nocturnalRecords.getSecurityID(), (byte) 2);
-            } else if (nocturnalRecords == null) {
-                // 如果是没有隔夜单，没有挂成功的情况下
-                log.info("初始化股票账户信息，无持仓 无隔夜单，将所有盯盘打开 ");
-                disruptorManager.publishTransInfoData(date, 4);
-            }
-        } else {
-            // 如果有持仓判断是有已经挂隔夜卖单
-            // 如果没有挂隔夜卖单，说明是涨停状态、连续竞价持仓待卖出状态 （-1）
-            // 初始化盯盘买入的任务都都是关闭的（0），如果挂了卖单等竞价结束资金会更新，盯盘任务也会更新到买入状态
-            TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
-            if (nocturnalRecords == null) {
-                // 查询上个交易日推荐的股票
-                String previousOne = stockTransactionCalendarService.findPreviousOne(date);
-                LocalDate parse = LocalDate.parse(date);
-                // 查询最近 半个月的平均高，制定格局点。
-                int averageLimitUpHeight = emotionCycleInfoDao.queryRecentAverageLimitUpHeight(parse.plusDays(-15), parse);
-                for (String positionCode : tradeCacheService.getPositionCodes()) {
-                    // 近 200交易日最大换手k线数据
-                    StockDailyEntity maxVolumeStockDaily = stockDailyDao.fandMaxVolume(positionCode, LocalDate.parse(previousOne));
-
-                    List<StockDailyEntity> recentStockDaily = stockDailyService.findRecentStockDaily(positionCode, 3, previousOne);
-                    // 大前天。前天。昨天 日 k 数据
-                    StockDailyEntity stockDaily0 = recentStockDaily.get(2);
-                    StockDailyEntity stockDaily1 = recentStockDaily.get(1);
-                    StockDailyEntity stockDaily = recentStockDaily.get(0);
-
-                    OrderBook orderBook = new OrderBook(positionCode, maxVolumeStockDaily.getFloatShares(), stockDaily.getClosePrice(), maxVolumeStockDaily.getVolume());
-                    orderBook.setTransactionStatus(-1);
-                    // 上个交易日收盘流通市值
-                    Double floatMarketCap = stockDaily.getFloatMarketCap();
-                    Integer consecutiveLimitUpDays = stockDaily.getConsecutiveLimitUpDays();
-                    // 流通市值
-                    double pow = Math.pow(1.1, consecutiveLimitUpDays);
-                    orderBook.setInitialMarketValue((int) (Math.round(floatMarketCap / pow * 100.0) / 100));
-                    orderBook.setLbcs(consecutiveLimitUpDays);
-                    long circulation = orderBook.getCirculation();
-
-                    // 三日换手率
-                    double threeDaysTurnover = (stockDaily1.getTurnoverRate() + stockDaily.getTurnoverRate() + stockDaily0.getTurnoverRate()) / 3;
-                    orderBook.setThreeDaysTurnover(threeDaysTurnover);
-                    orderBook.setAverageLimitUpHeight(averageLimitUpHeight);
-                    // 两日换手率
-                    double twoDaysTurnover = (stockDaily1.getTurnoverRate() + stockDaily.getTurnoverRate()) / 2;
-                    orderBook.setTwoDaysTurnover(twoDaysTurnover);
-                    // 昨日换手
-                    orderBook.setYesterdayTurnover(stockDaily.getTurnoverRate());
-                    // 判断前两天是不是一字板，只有前一天是一字板，才累加后一天
-                    Integer klineState = stockDaily.getKlineState();
-                    Integer klineState1 = stockDaily1.getKlineState();
-                    Integer klineState0 = stockDaily0.getKlineState();
-                    int oneWordLimitUp = 0;
-                    if (klineState == 3) {
-                        oneWordLimitUp = 1;
-                        if (klineState1 == 3) {
-                            oneWordLimitUp = 2;
-                            if (klineState0 == 3) {
-                                oneWordLimitUp = 3;
-                            }
-                        }
-                    }
-                    orderBook.setOneWordLimitUp(oneWordLimitUp);
-
-                    double maxHs = (double) orderBook.getMaxVolume() / circulation * 100.0;
-                    orderBook.setMaxHs(maxHs);
-                    // 计算本交易日到下一个交易日的 自然日, 如果碰到长假做一些避险操作
-                    String nextTradingDay = stockTransactionCalendarService.findNextTradingDay(date);
-                    LocalDate nextTradingDayDate = LocalDate.parse(nextTradingDay);
-                    LocalDate nowDate = LocalDate.parse(date);
-                    long days = ChronoUnit.DAYS.between(nowDate, nextTradingDayDate) - 1;
-                    orderBook.setNextTradingDay((int) days);
-                    orderBook.setDate(date);
-                    int symbolToInt = SymbolUtil.fastSymbolToInt(positionCode);
-                    log.info("盯盘卖出：{}", orderBook);
-                    cacheService.putOrderBook(symbolToInt, orderBook);
-                }
-            }
-        }
-    }
+//    public void initStockAccountInfo(String date) {
+//        // 判断现在是否持仓中，持仓与空仓两套解决方案
+//        if (tradeCacheService.getPositionCodes().isEmpty()) {
+//            log.info("初始化股票账户信息，无持仓");
+//            // 如果是空仓状态，判断是否有已经挂了隔夜买单，竞价期间盯撤单
+//            TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
+//
+//            // 如果有一个隔夜单，并且是买入状态的隔夜单，就把盯盘任务修改成 2，买入待撤单状态
+//            if (nocturnalRecords != null && nocturnalRecords.getOrderStatus() == '0') {
+//                log.info("初始化股票账户信息，无持仓 有隔夜买单，将这个股票设置为盯撤单情况：{}", nocturnalRecords);
+//                // 设置已经挂单的状态为盯买入撤单状态
+//                disruptorManager.publishTransInfoDataOne(nocturnalRecords.getSecurityID(), (byte) 2);
+//            } else if (nocturnalRecords == null) {
+//                // 如果是没有隔夜单，没有挂成功的情况下
+//                log.info("初始化股票账户信息，无持仓 无隔夜单，将所有盯盘打开 ");
+//                disruptorManager.publishTransInfoData(date, 4);
+//            }
+//        } else {
+//            // 如果有持仓判断是有已经挂隔夜卖单
+//            // 如果没有挂隔夜卖单，说明是涨停状态、连续竞价持仓待卖出状态 （-1）
+//            // 初始化盯盘买入的任务都都是关闭的（0），如果挂了卖单等竞价结束资金会更新，盯盘任务也会更新到买入状态
+//            TstpOrderDto nocturnalRecords = tradeCacheService.findNocturnalRecords();
+//            if (nocturnalRecords == null) {
+//                // 查询上个交易日推荐的股票
+//                String previousOne = stockTransactionCalendarService.findPreviousOne(date);
+//                LocalDate parse = LocalDate.parse(date);
+//                // 查询最近 半个月的平均高，制定格局点。
+//                int averageLimitUpHeight = emotionCycleInfoDao.queryRecentAverageLimitUpHeight(parse.plusDays(-15), parse);
+//                for (String positionCode : tradeCacheService.getPositionCodes()) {
+//                    // 近 200交易日最大换手k线数据
+//                    StockDailyEntity maxVolumeStockDaily = stockDailyDao.fandMaxVolume(positionCode, LocalDate.parse(previousOne));
+//
+//                    List<StockDailyEntity> recentStockDaily = stockDailyService.findRecentStockDaily(positionCode, 3, previousOne);
+//                    // 大前天。前天。昨天 日 k 数据
+//                    StockDailyEntity stockDaily0 = recentStockDaily.get(2);
+//                    StockDailyEntity stockDaily1 = recentStockDaily.get(1);
+//                    StockDailyEntity stockDaily = recentStockDaily.get(0);
+//
+//                    OrderBook orderBook = new OrderBook(positionCode, maxVolumeStockDaily.getFloatShares(), stockDaily.getClosePrice(), maxVolumeStockDaily.getVolume());
+//                    orderBook.setTransactionStatus(-1);
+//                    // 上个交易日收盘流通市值
+//                    Double floatMarketCap = stockDaily.getFloatMarketCap();
+//                    Integer consecutiveLimitUpDays = stockDaily.getConsecutiveLimitUpDays();
+//                    // 流通市值
+//                    double pow = Math.pow(1.1, consecutiveLimitUpDays);
+//                    orderBook.setInitialMarketValue((int) (Math.round(floatMarketCap / pow * 100.0) / 100));
+//                    orderBook.setLbcs(consecutiveLimitUpDays);
+//                    long circulation = orderBook.getCirculation();
+//
+//                    // 三日换手率
+//                    double threeDaysTurnover = (stockDaily1.getTurnoverRate() + stockDaily.getTurnoverRate() + stockDaily0.getTurnoverRate()) / 3;
+//                    orderBook.setThreeDaysTurnover(threeDaysTurnover);
+//                    orderBook.setAverageLimitUpHeight(averageLimitUpHeight);
+//                    // 两日换手率
+//                    double twoDaysTurnover = (stockDaily1.getTurnoverRate() + stockDaily.getTurnoverRate()) / 2;
+//                    orderBook.setTwoDaysTurnover(twoDaysTurnover);
+//                    // 昨日换手
+//                    orderBook.setYesterdayTurnover(stockDaily.getTurnoverRate());
+//                    // 判断前两天是不是一字板，只有前一天是一字板，才累加后一天
+//                    Integer klineState = stockDaily.getKlineState();
+//                    Integer klineState1 = stockDaily1.getKlineState();
+//                    Integer klineState0 = stockDaily0.getKlineState();
+//                    int oneWordLimitUp = 0;
+//                    if (klineState == 3) {
+//                        oneWordLimitUp = 1;
+//                        if (klineState1 == 3) {
+//                            oneWordLimitUp = 2;
+//                            if (klineState0 == 3) {
+//                                oneWordLimitUp = 3;
+//                            }
+//                        }
+//                    }
+//                    orderBook.setOneWordLimitUp(oneWordLimitUp);
+//
+//                    double maxHs = (double) orderBook.getMaxVolume() / circulation * 100.0;
+//                    orderBook.setMaxHs(maxHs);
+//                    // 计算本交易日到下一个交易日的 自然日, 如果碰到长假做一些避险操作
+//                    String nextTradingDay = stockTransactionCalendarService.findNextTradingDay(date);
+//                    LocalDate nextTradingDayDate = LocalDate.parse(nextTradingDay);
+//                    LocalDate nowDate = LocalDate.parse(date);
+//                    long days = ChronoUnit.DAYS.between(nowDate, nextTradingDayDate) - 1;
+//                    orderBook.setNextTradingDay((int) days);
+//                    orderBook.setDate(date);
+//                    int symbolToInt = SymbolUtil.fastSymbolToInt(positionCode);
+//                    log.info("盯盘卖出：{}", orderBook);
+//                    cacheService.putOrderBook(symbolToInt, orderBook);
+//                }
+//            }
+//        }
+//    }
 
     /**
      * 擒龙捉妖模式极速下跌的时候，及时发送消息开启首板模式
@@ -322,10 +317,8 @@ public class TraderApi {
      * @param pSecurity
      */
     public void updateOrderBookInfo(CTORATstpSecurityField pSecurity) {
-        int symbolInt = SymbolUtil.fastSymbolToInt(pSecurity.getSecurityID());
-        OrderBook orderBook = cacheService.getOrderBook(symbolInt);
         log.info("更新 {}({}) 订单簿信息: 昨收盘价:{},今涨停价:{}，今跌停价:{},总股本:{}, 流通股本:{}", pSecurity.getSecurityName(), pSecurity.getSecurityID(), pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getTotalEquity(), pSecurity.getCirculationEquity());
-        orderBook.updateOrderBookInfo(pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getSecurityName());
+        orderBookService.updateOrderBookInfo(pSecurity.getSecurityID(),pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getSecurityName());
     }
 
 
