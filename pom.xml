@@ -37,6 +37,7 @@
         <tora-api.version>1.0.1</tora-api.version>
         <mybatis-plus.version>3.5.15</mybatis-plus.version>
         <lombok.version>1.18.42</lombok.version>
+        <duckdb.version>1.3.2.0</duckdb.version>
     </properties>
 
     <dependencies>
