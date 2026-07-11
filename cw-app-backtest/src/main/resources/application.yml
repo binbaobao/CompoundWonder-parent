@@ -18,9 +18,6 @@ spring:
           username: cw_backtest_user
           password: "@9nhJ%Urx%kUeA9"
           driver-class-name: com.mysql.cj.jdbc.Driver
-  sql:
-    init:
-      mode: always
 
 mybatis-plus:
   global-config:

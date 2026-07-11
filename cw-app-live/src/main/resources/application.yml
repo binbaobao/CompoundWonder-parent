@@ -18,9 +18,7 @@ spring:
           username: cw_prod_user
           password: "w6YbweQhCBj6586kQMgD"
           driver-class-name: com.mysql.cj.jdbc.Driver
-  sql:
-    init:
-      mode: always
+
 
 mybatis-plus:
   global-config:

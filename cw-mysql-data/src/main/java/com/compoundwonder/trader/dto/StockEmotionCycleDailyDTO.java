@@ -1,27 +1,16 @@
-package com.compoundwonder.trader.entity;
+package com.compoundwonder.trader.dto;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 /**
- * 股票情绪周期每日记录。
- * 作用：记录全市场每日涨跌停、连板、涨跌家数及周期占领标的。
+ * 股票情绪周期每日聚合结果。
+ * 作用：承接 stock_daily 按交易日聚合后写入 stock_emotion_cycle_daily 所需字段。
  */
 @Data
-@TableName("stock_emotion_cycle_daily")
-public class StockEmotionCycleDaily {
-
-    /**
-     * 主键 ID。
-     */
-    @TableId(type = IdType.AUTO)
-    private Long id;
+public class StockEmotionCycleDailyDTO {
 
     /**
      * 交易日期。
@@ -82,9 +71,4 @@ public class StockEmotionCycleDaily {
      * 全市场成交金额，单位：亿元。
      */
     private BigDecimal allMarketTurnoverAmount;
-
-    /**
-     * 创建时间。
-     */
-    private LocalDateTime createdTime;
 }

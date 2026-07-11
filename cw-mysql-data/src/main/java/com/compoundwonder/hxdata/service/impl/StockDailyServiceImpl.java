@@ -11,6 +11,7 @@ import com.compoundwonder.hxdata.mapper.StockDailyMapper;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockFreeFloatShareHistoryService;
 import com.compoundwonder.hxdata.service.StockPreviousNameHistoryService;
+import com.compoundwonder.trader.dto.StockEmotionCycleDailyDTO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -114,6 +115,91 @@ public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDa
                 .in(StockDailyEntity::getStockCode, stockCodes));
         saveBatch(stockDailyList, 1000);
         return stockDailyList.size();
+    }
+
+    /**
+     * 按交易日期聚合情绪周期每日记录所需字段。
+     */
+    @Override
+    public StockEmotionCycleDailyDTO buildEmotionCycleDaily(LocalDate tradeDate) {
+        List<StockDailyEntity> stockDailyList = list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .select(StockDailyEntity::getTradeDate,
+                        StockDailyEntity::getIsSt,
+                        StockDailyEntity::getKlineState,
+                        StockDailyEntity::getConsecutiveLimitUpDays,
+                        StockDailyEntity::getChangeRate,
+                        StockDailyEntity::getTurnover)
+                .eq(StockDailyEntity::getTradeDate, tradeDate));
+
+        StockEmotionCycleDailyDTO dto = new StockEmotionCycleDailyDTO();
+        dto.setTradeDate(tradeDate);
+        dto.setLimitUpCount(countByKlineStateRange(stockDailyList, 1, 5));
+        dto.setLimitDownCount(countByKlineStateRange(stockDailyList, -5, -1));
+        dto.setConsecutiveLimitUpCount((int) stockDailyList.stream()
+                .filter(this::isNonStStock)
+                .filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() != null && stockDaily.getConsecutiveLimitUpDays() >= 2)
+                .count());
+        dto.setHighestConsecutiveLimitUpDays(stockDailyList.stream()
+                .filter(this::isNonStStock)
+                .map(StockDailyEntity::getConsecutiveLimitUpDays)
+                .filter(Objects::nonNull)
+                .filter(days -> days > 0)
+                .max(Integer::compareTo)
+                .orElse(0));
+        dto.setLimitUpBrokenCount((int) stockDailyList.stream()
+                .filter(this::isNonStStock)
+                .filter(this::isLimitUpBroken)
+                .count());
+        dto.setDownLimitCount(dto.getLimitDownCount());
+        dto.setDominantCycleStockCode(null);
+        dto.setDominantCycleStockName(null);
+        dto.setRisingCount((int) stockDailyList.stream()
+                .filter(stockDaily -> stockDaily.getChangeRate() != null && stockDaily.getChangeRate() > 0)
+                .count());
+        dto.setFallingCount((int) stockDailyList.stream()
+                .filter(stockDaily -> stockDaily.getChangeRate() != null && stockDaily.getChangeRate() < 0)
+                .count());
+        dto.setAllMarketTurnoverAmount(calculateAllMarketTurnoverAmount(stockDailyList));
+        return dto;
+    }
+
+    /**
+     * 统计 K 线状态落在指定闭区间内的股票数量。
+     */
+    private int countByKlineStateRange(List<StockDailyEntity> stockDailyList, int minState, int maxState) {
+        return (int) stockDailyList.stream()
+                .filter(this::isNonStStock)
+                .filter(stockDaily -> stockDaily.getKlineState() != null)
+                .filter(stockDaily -> stockDaily.getKlineState() >= minState && stockDaily.getKlineState() <= maxState)
+                .count();
+    }
+
+    /**
+     * 判断是否为非 ST 股票。
+     * 作用：涨跌停、连板、炸板、最高板等涨跌停相关统计均排除 ST。
+     */
+    private boolean isNonStStock(StockDailyEntity stockDaily) {
+        return !Boolean.TRUE.equals(stockDaily.getIsSt());
+    }
+
+    /**
+     * 判断是否为涨停炸板状态。
+     */
+    private boolean isLimitUpBroken(StockDailyEntity stockDaily) {
+        Integer klineState = stockDaily.getKlineState();
+        return klineState != null && klineState >= 11 && klineState <= 13;
+    }
+
+    /**
+     * 计算全市场成交金额，stock_daily.turnover 单位为万元，结果单位为亿元。
+     */
+    private BigDecimal calculateAllMarketTurnoverAmount(List<StockDailyEntity> stockDailyList) {
+        BigDecimal totalTurnover = stockDailyList.stream()
+                .map(StockDailyEntity::getTurnover)
+                .filter(Objects::nonNull)
+                .map(BigDecimal::valueOf)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return totalTurnover.divide(BigDecimal.valueOf(10000), 2, RoundingMode.HALF_UP);
     }
 
     /**

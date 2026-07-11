@@ -9,9 +9,6 @@ spring:
           username: cw_market_user
           password: "uDEc3&P8KiKS_BL"
           driver-class-name: com.mysql.cj.jdbc.Driver
-  sql:
-    init:
-      mode: always
 
 mybatis-plus:
   global-config:

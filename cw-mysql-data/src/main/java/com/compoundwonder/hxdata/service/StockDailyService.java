@@ -3,6 +3,7 @@ package com.compoundwonder.hxdata.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
+import com.compoundwonder.trader.dto.StockEmotionCycleDailyDTO;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -24,4 +25,9 @@ public interface StockDailyService extends IService<StockDailyEntity> {
      * 处理逻辑：按股票代码和交易日期覆盖当天数据，并基于前一条日 K 计算连板/断板。
      */
     int saveMarketDaily(LocalDate tradeDate, List<StockDayQuotationPoint> quotations);
+
+    /**
+     * 按交易日期聚合情绪周期每日记录所需字段。
+     */
+    StockEmotionCycleDailyDTO buildEmotionCycleDaily(LocalDate tradeDate);
 }

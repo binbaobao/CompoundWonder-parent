@@ -1,0 +1,44 @@
+CREATE TABLE `rule_execute_record`
+(
+    `id`              bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `action_type`     int               DEFAULT NULL COMMENT '操作类型：BUY / SELL / CANCEL / REBUY',
+    `rule_code`       int               DEFAULT NULL COMMENT '规则编码',
+    `symbol`          varchar(20)       DEFAULT NULL COMMENT '证券代码',
+    `symbol_name`     varchar(50)       DEFAULT NULL COMMENT '证券名称',
+    `trade_date`      date              DEFAULT NULL COMMENT '交易日期',
+    `time`            int               DEFAULT NULL COMMENT '下单时间',
+    `last_order_time` int               DEFAULT NULL COMMENT '最后委托时间',
+    `price`           int               DEFAULT NULL COMMENT '下单价格',
+    `increase` double DEFAULT NULL COMMENT '涨幅',
+    `remark`          varchar(500)      DEFAULT NULL COMMENT '交易说明',
+    `created_time`    datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY               `idx_symbol` (`symbol`),
+    KEY               `idx_rule_code` (`rule_code`),
+    KEY               `idx_action_type` (`action_type`),
+    KEY               `idx_time` (`time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表'
+
+CREATE TABLE `stock_emotion_cycle_daily`
+(
+    `id`                                bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `trade_date`                        date     NOT NULL COMMENT '交易日期',
+    `limit_up_count`                    int      NOT NULL DEFAULT '0' COMMENT '涨停家数',
+    `limit_down_count`                  int      NOT NULL DEFAULT '0' COMMENT '跌停家数',
+    `consecutive_limit_up_count`        int      NOT NULL DEFAULT '0' COMMENT '连板数',
+    `highest_consecutive_limit_up_days` int               DEFAULT '0' COMMENT '最高连板',
+    `limit_up_broken_count`             int               DEFAULT '0' COMMENT '炸板数量',
+    `down_limit_count`                  int      NOT NULL DEFAULT '0' COMMENT '跌停数',
+    `dominant_cycle_stock_code`         varchar(6)        DEFAULT NULL COMMENT '占领周期股票代码',
+    `dominant_cycle_stock_name`         varchar(20)       DEFAULT NULL COMMENT '占领周期股票名称',
+    `rising_count`                      int      NOT NULL DEFAULT '0' COMMENT '涨家数',
+    `falling_count`                     int      NOT NULL DEFAULT '0' COMMENT '跌家数',
+    `all_market_turnover_amount`        decimal(20, 2)    DEFAULT NULL COMMENT '全市场成交金额，单位：亿元',
+    `created_time`                      datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_trade_date` (`trade_date`),
+    KEY                                 `idx_dominant_cycle_stock_code` (`dominant_cycle_stock_code`),
+    KEY                                 `idx_limit_up_count` (`limit_up_count`),
+    KEY                                 `idx_consecutive_limit_up_count` (`consecutive_limit_up_count`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表'
+
