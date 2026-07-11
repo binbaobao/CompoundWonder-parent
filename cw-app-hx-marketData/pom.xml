@@ -10,9 +10,7 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <groupId>com.cbacb</groupId>
     <artifactId>cw-app-hx-marketData</artifactId>
-    <version>1.0-SNAPSHOT</version>
     <description>华鑫数据源更新基础数据</description>
     <properties>
         <maven.compiler.source>17</maven.compiler.source>

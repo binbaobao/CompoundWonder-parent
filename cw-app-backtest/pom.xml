@@ -23,6 +23,25 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-mysql-data</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-core-oreder-book</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+        </dependency>
     </dependencies>
 
 
@@ -52,7 +71,7 @@
                         <manifest>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>com.compoundwonder.hxdata.CWHxDataApplication</mainClass>
+                            <mainClass>com.compoundwonder.backtest.BacktestAppApplication</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

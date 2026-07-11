@@ -51,7 +51,7 @@
                         <manifest>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>com.compoundwonder.hxdata.CWHxDataApplication</mainClass>
+                            <mainClass>com.compoundwonder.live.LiveAppApplication</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

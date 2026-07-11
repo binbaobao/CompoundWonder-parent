@@ -1,3 +1,7 @@
+server:
+  port: 18818
+  servlet:
+    context-path: /cw
 spring:
   datasource:
     dynamic:
