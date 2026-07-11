@@ -18,7 +18,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>cw-common</module><!-- 底层基础 -->
-        <module>cw-market-data-hx-service</module><!--市场基础数据主服务-->
+        <module>cw-app-hx-marketData</module><!--市场基础数据主服务-->
         <module>cw-core-oreder-book</module> <!-- 核心订单簿-->
         <module>cw-mysql-data</module>  <!-- myslq 查询-->
         <module>cw-hx-real-trade</module><!-- 交易下单 服务  -->
