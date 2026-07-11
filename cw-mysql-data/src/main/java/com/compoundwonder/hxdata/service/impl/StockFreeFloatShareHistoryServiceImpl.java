@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.dto.FreeFloatSharePoint;
@@ -25,6 +26,7 @@ import java.util.Optional;
  * 作用：把每天一条的接口数据按股本变化压缩成区间数据。
  */
 @Service
+@DS("market")
 public class StockFreeFloatShareHistoryServiceImpl extends ServiceImpl<StockFreeFloatShareHistoryMapper, StockFreeFloatShareHistory> implements StockFreeFloatShareHistoryService {
 
     private static final BigDecimal TEN_THOUSAND = new BigDecimal("10000");

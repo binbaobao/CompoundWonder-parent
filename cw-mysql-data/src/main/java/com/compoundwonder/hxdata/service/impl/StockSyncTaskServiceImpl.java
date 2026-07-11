@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.entity.StockPreviousNameHistory;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
  * 作用：以曾用名历史表中的股票代码为基准，生成和维护历史数据同步进度。
  */
 @Service
+@DS("market")
 public class StockSyncTaskServiceImpl extends ServiceImpl<StockSyncTaskMapper, StockSyncTask> implements StockSyncTaskService {
 
     private final StockPreviousNameHistoryService stockPreviousNameHistoryService;
@@ -50,8 +52,8 @@ public class StockSyncTaskServiceImpl extends ServiceImpl<StockSyncTaskMapper, S
         }
 
         Set<String> existsStockCodes = list(Wrappers.<StockSyncTask>lambdaQuery()
-                        .select(StockSyncTask::getStockCode)
-                        .in(StockSyncTask::getStockCode, stockCodes))
+                .select(StockSyncTask::getStockCode)
+                .in(StockSyncTask::getStockCode, stockCodes))
                 .stream()
                 .map(StockSyncTask::getStockCode)
                 .collect(Collectors.toSet());

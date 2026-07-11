@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.entity.StockTradeCalendar;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
  * 作用：把华鑫接口返回的交易日期转换成数据库记录并批量落库。
  */
 @Service
+@DS("market")
 public class StockTradeCalendarServiceImpl extends ServiceImpl<StockTradeCalendarMapper, StockTradeCalendar> implements StockTradeCalendarService {
 
     /**

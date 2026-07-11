@@ -6,8 +6,13 @@ spring:
       datasource:
         market:
           url: jdbc:mysql://rm-uf6segs9b0026tny3ho.mysql.rds.aliyuncs.com:3306/cw_market_data?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&nullCatalogMeansCurrent=true
-          username: cw_market_user
-          password: "uDEc3&P8KiKS_BL"
+          username: cw_market_read
+          password: "&r_S4G8K#4+!i7H"
+          driver-class-name: com.mysql.cj.jdbc.Driver
+        trade:
+          url: jdbc:mysql://rm-uf6segs9b0026tny3ho.mysql.rds.aliyuncs.com:3306/cw_live_trade?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&nullCatalogMeansCurrent=true
+          username: cw_prod_user
+          password: "w6YbweQhCBj6586kQMgD"
           driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:

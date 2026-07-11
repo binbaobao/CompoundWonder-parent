@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.dto.StockDayQuotationPoint;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
  * 作用：把华鑫日 K 数据转换为 stock_daily，并补充名称、ST、流通股、换手率、市值和连板状态。
  */
 @Service
+@DS("market")
 public class StockDailyServiceImpl extends ServiceImpl<StockDailyMapper, StockDailyEntity> implements StockDailyService {
 
     private static final DateTimeFormatter API_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");

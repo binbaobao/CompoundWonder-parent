@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.dto.ConvertibleBondDescriptionPoint;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
  * 作用：按 bond_code + market 唯一维护转债和正股对应关系，并逐步补全生命周期字段。
  */
 @Service
+@DS("market")
 public class StockConvertibleBondHistoryServiceImpl extends ServiceImpl<StockConvertibleBondHistoryMapper, StockConvertibleBondHistory> implements StockConvertibleBondHistoryService {
 
     /**

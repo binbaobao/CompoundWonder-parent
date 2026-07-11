@@ -25,8 +25,8 @@
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
+            <artifactId>dynamic-datasource-spring-boot4-starter</artifactId>
+            <version>4.5.0</version>
         </dependency>
         <dependency>
             <groupId>com.compoundwonder</groupId>

@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.entity.StockCurrentStatus;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
  * 作用：以曾用名历史表中的股票代码为基础，维护一只股票一条当前状态记录。
  */
 @Service
+@DS("market")
 public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatusMapper, StockCurrentStatus> implements StockCurrentStatusService {
 
     private final StockPreviousNameHistoryService stockPreviousNameHistoryService;
@@ -50,8 +52,8 @@ public class StockCurrentStatusServiceImpl extends ServiceImpl<StockCurrentStatu
         }
 
         Set<String> existsStockCodes = list(Wrappers.<StockCurrentStatus>lambdaQuery()
-                        .select(StockCurrentStatus::getStockCode)
-                        .in(StockCurrentStatus::getStockCode, stockCodes))
+                .select(StockCurrentStatus::getStockCode)
+                .in(StockCurrentStatus::getStockCode, stockCodes))
                 .stream()
                 .map(StockCurrentStatus::getStockCode)
                 .collect(Collectors.toSet());

@@ -1,5 +1,6 @@
 package com.compoundwonder.hxdata.service.impl;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.dto.ASharePreviousNamePoint;
@@ -19,6 +20,7 @@ import java.util.Optional;
  * 作用：封装当前名、指定日期名称、时间区间名称历史的查询规则。
  */
 @Service
+@DS("market")
 public class StockPreviousNameHistoryServiceImpl extends ServiceImpl<StockPreviousNameHistoryMapper, StockPreviousNameHistory> implements StockPreviousNameHistoryService {
 
     /**
@@ -59,7 +61,7 @@ public class StockPreviousNameHistoryServiceImpl extends ServiceImpl<StockPrevio
                 .le(StockPreviousNameHistory::getStartDate, endDate)
                 .and(wrapper -> wrapper.isNull(StockPreviousNameHistory::getEndDate)
                         .or()
-                .ge(StockPreviousNameHistory::getEndDate, startDate))
+                        .ge(StockPreviousNameHistory::getEndDate, startDate))
                 .orderByAsc(StockPreviousNameHistory::getStartDate));
     }
 
