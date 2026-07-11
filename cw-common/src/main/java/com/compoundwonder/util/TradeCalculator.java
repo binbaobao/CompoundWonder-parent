@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 public class TradeCalculator {
 

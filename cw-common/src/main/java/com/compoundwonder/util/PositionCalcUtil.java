@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 /**
  * 仓位计算工具类（极简版：基于满仓组合判断）

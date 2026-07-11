@@ -4,7 +4,7 @@ package com.compoundwonder.core.service;
 
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
-import com.compoundwonder.core.util.SymbolUtil;
+import com.compoundwonder.util.SymbolUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import lombok.extern.slf4j.Slf4j;

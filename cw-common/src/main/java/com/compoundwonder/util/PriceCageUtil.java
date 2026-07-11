@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 /**
  * 价格笼子计算

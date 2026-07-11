@@ -3,8 +3,8 @@ package com.compoundwonder.core.processor;
 
 import cn.hutool.core.util.StrUtil;
 
-import com.compoundwonder.core.constant.ConstantUtil;
-import com.compoundwonder.core.constant.RuleConstant;
+import com.compoundwonder.constant.ConstantUtil;
+import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.RuleRecordBuffer;
 import com.compoundwonder.core.engine.TickNode;
@@ -14,7 +14,7 @@ import com.compoundwonder.core.processor.evaluator.ConditionEvaluatorSell;
 import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
-import com.compoundwonder.core.util.CompactTimeUtil;
+import com.compoundwonder.util.CompactTimeUtil;
 import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 

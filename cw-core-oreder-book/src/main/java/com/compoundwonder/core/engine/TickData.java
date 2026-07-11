@@ -1,7 +1,7 @@
 package com.compoundwonder.core.engine;
 
 
-import com.compoundwonder.core.util.HighPrecisionClock;
+import com.compoundwonder.util.HighPrecisionClock;
 
 /**
  * 逐笔数据

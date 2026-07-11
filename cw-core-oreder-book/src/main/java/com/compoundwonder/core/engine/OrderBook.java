@@ -1,6 +1,6 @@
 package com.compoundwonder.core.engine;
 
-import com.compoundwonder.core.constant.MarketEnum;
+import com.compoundwonder.constant.MarketEnum;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import lombok.Data;
 import lombok.EqualsAndHashCode;

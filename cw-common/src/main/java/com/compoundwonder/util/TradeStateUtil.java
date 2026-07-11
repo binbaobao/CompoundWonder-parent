@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 /**
  * 交易状态工具类（Bit Flag 设计）

@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 import lombok.extern.slf4j.Slf4j;
 

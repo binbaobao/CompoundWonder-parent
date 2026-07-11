@@ -1,8 +1,8 @@
 package com.compoundwonder.core.processor.evaluator;
 
 import cn.hutool.core.util.StrUtil;
-import com.compoundwonder.core.constant.ConstantUtil;
-import com.compoundwonder.core.constant.RuleConstant;
+import com.compoundwonder.constant.ConstantUtil;
+import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.OrderBook;
 import lombok.extern.slf4j.Slf4j;

@@ -1,4 +1,4 @@
-package com.compoundwonder.core.constant;
+package com.compoundwonder.constant;
 
 public class ToraConstants {
 

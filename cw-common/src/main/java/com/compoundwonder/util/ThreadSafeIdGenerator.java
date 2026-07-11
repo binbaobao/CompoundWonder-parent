@@ -1,4 +1,4 @@
-package com.compoundwonder.core.util;
+package com.compoundwonder.util;
 
 import java.time.LocalDate;
 import java.util.concurrent.atomic.AtomicInteger;
