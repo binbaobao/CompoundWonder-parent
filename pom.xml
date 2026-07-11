@@ -22,9 +22,9 @@
         <module>cw-core-oreder-book</module> <!-- 核心订单簿-->
         <module>cw-mysql-data</module>  <!-- myslq 查询-->
         <module>cw-hx-real-trade</module><!-- 交易下单 服务  -->
-        <module>cw-hx-market-stream</module>
-        <module>cw-app-live</module>
-        <module>cw-app-backtest</module><!-- 华鑫实时行情数据 -->
+        <module>cw-hx-market-stream</module> <!--华鑫实时数据流-->
+        <module>cw-app-live</module><!--实盘交易 app 服务-->
+        <module>cw-app-backtest</module><!-- 回测服务 app 服务 -->
     </modules>
 
 
