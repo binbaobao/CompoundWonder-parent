@@ -26,10 +26,12 @@ public class Lev2DataApi {
     private final int targetMinute = 2;
 
     @Autowired
-    private DisruptorManager disruptorManager;
+    private DisruptorService disruptorManager;
 
     @Autowired
-    private CacheService cacheService;
+    private OrderBookService orderBookService;
+
+
     //组播收行情 非缓存模式
     private CTORATstpLev2MdApi lev2MdApi;
 
@@ -68,7 +70,7 @@ public class Lev2DataApi {
      * lv2 订阅盯盘股票
      */
     public void subscribeMarketData() {
-        Set<String> list = cacheService.getOrderBookCodes();
+        Set<String> list = orderBookService.getOrderBookCodes();
         log.info("level 2 行情数据订阅股票代码:{}", list);
         if (list == null || list.isEmpty()) {
             return;

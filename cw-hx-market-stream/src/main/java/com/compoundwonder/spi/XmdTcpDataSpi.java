@@ -1,6 +1,10 @@
 package com.compoundwonder.spi;
 
+import com.compoundwonder.constant.ConstantUtil;
+import com.compoundwonder.service.DisruptorService;
 import com.compoundwonder.service.XmdTcpDataApi;
+import com.compoundwonder.util.SymbolUtil;
+import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.tora.xmdapi.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -9,9 +13,9 @@ public class XmdTcpDataSpi extends CTORATstpXMdSpi {
 
     private CTORATstpXMdApi api;
     private XmdTcpDataApi xmdDataApi;
-    private DisruptorManager disruptorManager;
+    private DisruptorService disruptorManager;
 
-    public XmdTcpDataSpi(CTORATstpXMdApi api, DisruptorManager disruptorManager, XmdTcpDataApi xmdDataApi) {
+    public XmdTcpDataSpi(CTORATstpXMdApi api, DisruptorService disruptorManager, XmdTcpDataApi xmdDataApi) {
         this.api = api;
         this.xmdDataApi = xmdDataApi;
         this.disruptorManager = disruptorManager;
@@ -22,7 +26,7 @@ public class XmdTcpDataSpi extends CTORATstpXMdSpi {
         // 连接成功，尝试登陆
         CTORATstpReqUserLoginField ctoraTstpReqUserLoginField = new CTORATstpReqUserLoginField();
         ctoraTstpReqUserLoginField.setLogInAccount("319000021663");
-        ctoraTstpReqUserLoginField.setLogInAccountType(traderapi.getTORA_TSTP_LACT_UserID());
+        ctoraTstpReqUserLoginField.setLogInAccountType(xmdapi.getTORA_TSTP_LACT_UserID());
         ctoraTstpReqUserLoginField.setPassword("920606");
         ctoraTstpReqUserLoginField.setUserProductInfo("HX5VNYKBY4");
         ctoraTstpReqUserLoginField.setDynamicPassword("eIODpsBc");

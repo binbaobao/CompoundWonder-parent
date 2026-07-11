@@ -28,10 +28,10 @@ public class XmdTcpDataApi {
     private volatile boolean status = false;
 
     @Autowired
-    private DisruptorManager disruptorManager;
+    private DisruptorService disruptorManager;
 
     @Autowired
-    private CacheService cacheService;
+    private OrderBookService orderBookService;
 
     private CTORATstpXMdApi xMdApi;
 
@@ -74,7 +74,7 @@ public class XmdTcpDataApi {
      * @throws InterruptedException
      */
     public void subscribeMarketData() {
-        Set<String> list = cacheService.getOrderBookCodes();
+        Set<String> list = orderBookService.getOrderBookCodes();
         log.info("tcp level 1普通行情数据订阅股票代码:{}", list);
         if (list == null || list.isEmpty()) {
             return;

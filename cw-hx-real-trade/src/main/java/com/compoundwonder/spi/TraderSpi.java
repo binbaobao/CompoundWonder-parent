@@ -1,11 +1,11 @@
 package com.compoundwonder.spi;
 
-import com.cbacb.compoundWonder.trader.constant.ToraConstants;
-import com.cbacb.compoundWonder.trader.hxctp.api.TraderApi;
-import com.cbacb.compoundWonder.trader.processor.DisruptorManager;
-import com.cbacb.compoundWonder.trader.service.TradeCacheService;
-import com.cbacb.compoundWonder.trader.util.SymbolUtil;
-import com.cbacb.compoundWonder.trader.util.ThreadSafeIdGenerator;
+import com.compoundwonder.constant.ToraConstants;
+import com.compoundwonder.service.DisruptorService;
+import com.compoundwonder.service.TradeCacheService;
+import com.compoundwonder.service.TraderApi;
+import com.compoundwonder.util.SymbolUtil;
+import com.compoundwonder.util.ThreadSafeIdGenerator;
 import com.tora.traderapi.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -14,7 +14,7 @@ public class TraderSpi extends CTORATstpTraderSpi {
 
     private CTORATstpTraderApi api;
 
-    private DisruptorManager disruptorManager;
+    private DisruptorService disruptorManager;
 
     private TradeCacheService tradeCacheService;
     private TraderApi traderApi;
@@ -27,7 +27,7 @@ public class TraderSpi extends CTORATstpTraderSpi {
      * 回报 OnRtn*** OnRtnOrder
      * 错误回报 OnErrRtn*** OnErrRtnOrderInsert
      */
-    public TraderSpi(CTORATstpTraderApi api, TradeCacheService tradeCacheService, DisruptorManager disruptorManager, TraderApi traderApi) {
+    public TraderSpi(CTORATstpTraderApi api, TradeCacheService tradeCacheService, DisruptorService disruptorManager, TraderApi traderApi) {
         this.api = api;
         this.traderApi = traderApi;
         this.disruptorManager = disruptorManager;

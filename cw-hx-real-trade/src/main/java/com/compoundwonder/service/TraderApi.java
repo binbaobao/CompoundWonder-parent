@@ -45,7 +45,7 @@ public class TraderApi {
     private EmotionCycleInfoDao emotionCycleInfoDao;
 
     @Autowired
-    private DisruptorManager disruptorManager;
+    private DisruptorService disruptorManager;
 
     @Autowired
     private StockDailyDao stockDailyDao;

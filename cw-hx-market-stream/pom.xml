@@ -28,5 +28,10 @@
             <artifactId>lev2mdapi</artifactId>
             <version>${tora-api.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
     </dependencies>
 </project>

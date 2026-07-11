@@ -12,6 +12,7 @@ import com.compoundwonder.core.processor.TickEventShenZhenHandler;
 import com.compoundwonder.constant.MarketEnum;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.dto.TstpOrderDto;
 import com.compoundwonder.util.HighPrecisionClock;
 import com.compoundwonder.util.SymbolUtil;

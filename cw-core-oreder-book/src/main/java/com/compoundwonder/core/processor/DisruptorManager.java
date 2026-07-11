@@ -2,6 +2,7 @@ package com.compoundwonder.core.processor;
 
 import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.service.DisruptorService;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -14,7 +15,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
-public class DisruptorManager {
+public class DisruptorManager implements DisruptorService {
 
 
     private final Disruptor<TickData>[] disruptorArray = new Disruptor[2];
