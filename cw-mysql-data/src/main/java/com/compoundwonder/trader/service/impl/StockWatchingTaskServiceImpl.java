@@ -190,16 +190,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                     assistList = buildSelectionAssistList(list);
                     for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
                         stockSelectionAssistDTO.setScore(calculateSelectionScore(stockSelectionAssistDTO));
+                       log.info("如果最高是 5 板执行特殊逻辑:交易日期:{},股名:{}",stockSelectionAssistDTO.getTradeDate(),stockSelectionAssistDTO.getStockName());
                     }
                     this.filterStocks(tradeDate, list, 4);// 如果 5 板很拉按照最高四板逻辑执行逻辑，其实就是一个卡位预判逻辑
                 }
             }
         }
         List<StockWatchingTask> tasks = new ArrayList<>();
-        if (ArrayUtil.isNotEmpty(assistList)) {
+        if (!assistList.isEmpty()) {
             tasks = assistList.stream()
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
-                    .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 30)
+                    .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 20)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
                     .limit(3)//只取前三个
                     .toList();
@@ -263,7 +264,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 按启动市值、历史最大换手、启动价格、地域板块、选股当日换手率计算基础分，
-     * 非正常状态次数超过 10 次后每次扣 1 分，最终分数不低于 0 分。
+     * 以 27 亿启动流通市值为基准动态计算非正常状态免扣次数，最终分数不低于 0 分。
      */
     private Integer calculateSelectionScore(StockSelectionAssistDTO assist) {
         int score = scoreStartMarketCap(assist.getStartMarketCap())
@@ -273,7 +274,20 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 + scoreCurrentTurnover(assist.getCurrentTurnoverRate())
                 + scoreConsecutiveLimitUpDays(assist.getConsecutiveLimitUpDays());
         int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
-        return Math.max(0, score - Math.max(0, abnormalCount - 10));
+        int noDeductionCount = calculateAbnormalNoDeductionCount(assist.getStartMarketCap());
+        return Math.max(0, score - Math.max(0, abnormalCount - noDeductionCount));
+    }
+
+    /**
+     * 根据启动流通市值计算非正常状态免扣次数：27 亿减去启动市值四舍五入后的亿数。
+     * 启动市值达到或超过 27 亿时免扣次数为 0，异常次数全部参与扣分。
+     */
+    private int calculateAbnormalNoDeductionCount(Double startMarketCap) {
+        if (startMarketCap == null) {
+            return 0;
+        }
+        int startMarketCapInYi = (int) Math.round(startMarketCap / 10000D);
+        return Math.max(0, 27 - startMarketCapInYi);
     }
 
     /**
@@ -366,6 +380,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     private List<StockSelectionAssistDTO> buildSelectionAssistList(List<StockDailyEntity> stockDailyList) {
         return stockDailyList.stream()
                 .map(stockDaily -> buildSelectionAssist(stockDaily))
+                .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < 35 && dto.getFiveDayChangeRate() < 30)
                 .toList();
     }
 
