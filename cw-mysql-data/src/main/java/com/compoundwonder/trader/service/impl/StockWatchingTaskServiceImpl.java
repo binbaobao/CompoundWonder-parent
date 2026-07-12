@@ -15,6 +15,7 @@ import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
 import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -28,6 +29,7 @@ import java.util.Objects;
 /**
  * 股票盯盘任务服务实现。
  */
+@Slf4j
 @Service
 @DS("trade")
 public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskMapper, StockWatchingTask> implements StockWatchingTaskService {
@@ -67,7 +69,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     @Override
     public List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate) {
         List<StockWatchingTask> tasks = new ArrayList<>();
-        tasks.addAll(createHighQualityFirstLimitUpTasks(tradeDate));
+//        tasks.addAll(createHighQualityFirstLimitUpTasks(tradeDate));
         tasks.addAll(createRelayLimitUpTasks(tradeDate));
         return tasks;
     }
@@ -87,7 +89,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
         List<StockWatchingTask> tasks = assistList.stream()
-                .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, assist.getConsecutiveLimitUpDays()))
+                .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .toList();
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
@@ -104,7 +106,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .between(StockDailyEntity::getKlineState, 1, 5)
-                .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 5));
+                .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 4));
 
         // 先查出 今天 昨天 前天 的最高板
         List<StockEmotionCycleDaily> entityList = stockEmotionCycleDailyService.list(Wrappers.<StockEmotionCycleDaily>lambdaQuery()
@@ -121,7 +123,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         StockEmotionCycleDaily yesterdayMaxLbc2 = entityList.get(2);
         int yesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc.getHighestConsecutiveLimitUpDays(), 0);
         int dayBeforeYesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc2.getHighestConsecutiveLimitUpDays(), 0);
-
+        List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyEntities);
+        for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
+            stockSelectionAssistDTO.setScore(calculateSelectionScore(stockSelectionAssistDTO));
+            log.info("stockSelectionAssistDTO={}", stockSelectionAssistDTO);
+        }
+        List<StockWatchingTask> tasks = assistList.stream()
+                .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
+                .toList();
+        replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
+        return tasks;
+        /*
         // 高度压制到 4 板以下就推荐
         //2.高度压制 2板，推荐2板股票
         //3.高度压制 3板，推荐2/3板股票
@@ -180,6 +192,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
         }
         return List.of();
+        */
     }
 
     private String findHighestLimitUp(LocalDate tradeDate, Integer highestLimitUp) {
@@ -227,11 +240,94 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 接力任务分数优先反映连板高度，空间龙额外加分，便于盯盘列表排序。
      */
     private Integer calculateRelayLimitUpScore(StockSelectionAssistDTO assist, StockEmotionCycleDaily emotionCycleDaily) {
-        int score = Objects.requireNonNullElse(assist.getConsecutiveLimitUpDays(), 0);
+        int score = calculateSelectionScore(assist);
         if (emotionCycleDaily != null && Objects.equals(assist.getStockCode(), emotionCycleDaily.getDominantCycleStockCode())) {
             score += 10;
         }
         return score;
+    }
+
+    /**
+     * 按启动市值、历史最大换手、启动价格、地域板块、选股当日换手率计算基础分，
+     * 非正常状态次数超过 10 次后每次扣 1 分，最终分数不低于 0 分。
+     */
+    private Integer calculateSelectionScore(StockSelectionAssistDTO assist) {
+        int score = scoreStartMarketCap(assist.getStartMarketCap())
+                + scoreMaxTurnover(assist.getMaxTurnoverRate())
+                + scoreStartPrice(assist.getStartPrice())
+                + scoreProvince(assist.getProvince())
+                + scoreCurrentTurnover(assist.getCurrentTurnoverRate())
+                + scoreConsecutiveLimitUpDays(assist.getConsecutiveLimitUpDays());
+        int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
+        return Math.max(0, score - Math.max(0, abnormalCount - 10));
+    }
+
+    /**
+     * 启动市值评分：单位为万元，8.1 亿以内 30 分，超过 20 亿 0 分，中间区间线性扣分。
+     */
+    private int scoreStartMarketCap(Double marketCap) {
+        if (marketCap == null || marketCap > 200000) return 0;
+        if (marketCap <= 81000) return 30;
+        if (marketCap <= 95000) return interpolate(marketCap, 81000, 95000, 30, 20);
+        if (marketCap <= 150000) return interpolate(marketCap, 95000, 150000, 20, 10);
+        return interpolate(marketCap, 150000, 200000, 10, 0);
+    }
+
+    /**
+     * 历史最大换手评分：15% 以内 25 分，超过 55% 0 分，中间区间按区间端点线性扣分。
+     */
+    private int scoreMaxTurnover(Double turnoverRate) {
+        if (turnoverRate == null || turnoverRate > 55) return 0;
+        if (turnoverRate <= 15) return 25;
+        if (turnoverRate <= 25) return interpolate(turnoverRate, 15, 25, 25, 20);
+        if (turnoverRate <= 37.5) return interpolate(turnoverRate, 25, 37.5, 20, 15);
+        return interpolate(turnoverRate, 37.5, 55, 15, 0);
+    }
+
+    /**
+     * 启动价格评分：低于 3 元 0 分，3 至 10 元 15 分，超过 19.5 元 0 分，中间区间线性扣分。
+     */
+    private int scoreStartPrice(Double price) {
+        if (price == null || price < 3 || price > 19.5) return 0;
+        if (price <= 10) return 15;
+        if (price <= 12.5) return interpolate(price, 10, 12.5, 15, 10);
+        if (price <= 15.5) return interpolate(price, 12.5, 15.5, 10, 7);
+        return interpolate(price, 15.5, 19.5, 7, 0);
+    }
+
+    /**
+     * 地域板块评分：江浙粤沪深 10 分，中部活跃省份 7 分，指定弱偏好省份 3 分，其余 0 分。
+     */
+    private int scoreProvince(String province) {
+        if (province == null) return 0;
+        if (List.of("江苏", "浙江", "广东", "上海", "深圳").contains(province)) return 10;
+        if (List.of("山东", "湖南", "湖北", "安徽").contains(province)) return 7;
+        if (List.of("吉林", "辽宁", "黑龙江", "四川").contains(province)) return 3;
+        return 0;
+    }
+
+    /**
+     * 选股当日换手率评分：17% 以内 10 分；较高换手按 7 至 2 分递减，超过 55% 视为爆量 0 分。
+     */
+    private int scoreCurrentTurnover(Double turnoverRate) {
+        if (turnoverRate == null || turnoverRate > 55) return 0;
+        if (turnoverRate <= 17) return 10;
+        if (turnoverRate <= 30) return 7;
+        return interpolate(turnoverRate, 30, 55, 7, 2);
+    }
+
+    /**
+     * 连板评分：首板 0 分，每增加 1 板增加 10 分。
+     */
+    private int scoreConsecutiveLimitUpDays(Integer consecutiveLimitUpDays) {
+        return Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 1) - 1) * 10;
+    }
+
+    /**
+     * 对一个连续指标按给定边界做线性插值，并将结果四舍五入为整数分。
+     */
+    private int interpolate(double value, double min, double max, int minScore, int maxScore) {
+        return (int) Math.round(minScore + (value - min) * (maxScore - minScore) / (max - min));
     }
 
     /**
@@ -275,10 +371,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setProvince(findProvince(stockDaily.getStockCode()));
         assist.setCurrentPrice(stockDaily.getClosePrice());
         assist.setStartMarketCap(findStartMarketCap(recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
+        StockDailyEntity startDaily = findStartDaily(recentDailyList, stockDaily.getConsecutiveLimitUpDays());
+        assist.setStartPrice(startDaily == null ? null : startDaily.getClosePrice());
+        assist.setCurrentTurnoverRate(stockDaily.getTurnoverRate());
         assist.setNonStMonthCount(calculateNonStMonthCount(stockDaily));
         assist.setMaxTurnoverRate(findMaxTurnoverRate(selectionWindowDailyList));
         assist.setHighestConsecutiveLimitUpDays(findHighestConsecutiveLimitUpDays(selectionWindowDailyList));
-        assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList));
+        assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setFiveDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 5));
         assist.setTenDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 10));
         return assist;
@@ -320,11 +419,16 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 本轮首板前一交易日的流通市值作为启动市值。
      */
     private Double findStartMarketCap(List<StockDailyEntity> recentDailyList, Integer consecutiveLimitUpDays) {
+        StockDailyEntity startDaily = findStartDaily(recentDailyList, consecutiveLimitUpDays);
+        return startDaily == null ? null : startDaily.getFloatMarketCap();
+    }
+
+    /**
+     * 定位本轮首板前一交易日，用于读取启动市值和启动价格。
+     */
+    private StockDailyEntity findStartDaily(List<StockDailyEntity> recentDailyList, Integer consecutiveLimitUpDays) {
         int offset = Objects.requireNonNullElse(consecutiveLimitUpDays, 1);
-        if (recentDailyList.size() <= offset) {
-            return null;
-        }
-        return recentDailyList.get(offset).getFloatMarketCap();
+        return recentDailyList.size() <= offset ? null : recentDailyList.get(offset);
     }
 
     /**
@@ -376,12 +480,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     /**
      * 统计选股窗口内非正常 K 线状态次数。
      */
-    private Integer countAbnormalKlineState(List<StockDailyEntity> recentDailyList) {
-        return Math.toIntExact(recentDailyList.stream()
+    /**
+     * 统计 18 个月窗口内的非正常状态次数，并减去本次连板数。
+     */
+    private Integer countAbnormalKlineState(List<StockDailyEntity> selectionWindowDailyList, Integer consecutiveLimitUpDays) {
+        int currentConsecutiveDays = Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 0));
+        long abnormalCount = selectionWindowDailyList.stream()
                 .map(StockDailyEntity::getKlineState)
                 .filter(Objects::nonNull)
                 .filter(klineState -> klineState != 0)
-                .count());
+                .count();
+        return Math.max(0, Math.toIntExact(abnormalCount) - currentConsecutiveDays);
     }
 
     /**

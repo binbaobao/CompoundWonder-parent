@@ -137,7 +137,7 @@ public class BacktestServiceImpl implements BacktestService {
     @DS("trade")
     public List<Level2StockPoolDTO> findWatchingTaskPool(LocalDate tradeDate, LocalDate taskDate, int limit) {
         List<StockWatchingTask> tasks = stockWatchingTaskMapper.selectList(Wrappers.<StockWatchingTask>lambdaQuery()
-                .eq(StockWatchingTask::getRecommendDate, taskDate)
+                .eq(StockWatchingTask::getTradeDate, taskDate)
                 .orderByDesc(StockWatchingTask::getConsecutiveLimitUpDays)
                 .orderByDesc(StockWatchingTask::getLimitUpScore)
                 .last("LIMIT " + safeLimit(limit)));

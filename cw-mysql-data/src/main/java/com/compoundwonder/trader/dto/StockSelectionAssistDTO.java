@@ -47,6 +47,16 @@ public class StockSelectionAssistDTO {
     private Double startMarketCap;
 
     /**
+     * 启动价格，本轮首板前一交易日收盘价。
+     */
+    private Double startPrice;
+
+    /**
+     * 选股当日换手率。
+     */
+    private Double currentTurnoverRate;
+
+    /**
      * 非 ST 月份数，上次摘帽或新上市至今的自然月数。
      */
     private Integer nonStMonthCount;
@@ -75,4 +85,9 @@ public class StockSelectionAssistDTO {
      * 10 日涨跌幅，使用复权收盘价计算。
      */
     private Double tenDayChangeRate;
+
+    /**
+     * 按选股评分公式计算的总分，基础满分 100 分，异常状态次数超出 10 次后扣分。
+     */
+    private Integer score;
 }

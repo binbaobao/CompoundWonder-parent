@@ -3,6 +3,7 @@ package com.compoundwonder.backtest.controller;
 
 import com.compoundwonder.backtest.service.BacktestService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
+import com.compoundwonder.backtest.service.StockSelectionBacktestService;
 import com.compoundwonder.dto.*;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,13 +23,16 @@ public class BacktestController {
 
     private final Level2MinuteBarService level2MinuteBarService;
 
+    private final StockSelectionBacktestService stockSelectionBacktestService;
+
     /**
      * 创建回测接口控制器。
      * 作用：注入回测查询服务和 Level2 分时查询服务。
      */
-    public BacktestController(BacktestService backtestService, Level2MinuteBarService level2MinuteBarService) {
+    public BacktestController(BacktestService backtestService, Level2MinuteBarService level2MinuteBarService, StockSelectionBacktestService stockSelectionBacktestService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
+        this.stockSelectionBacktestService = stockSelectionBacktestService;
     }
 
 
@@ -51,8 +55,7 @@ public class BacktestController {
                                                    @RequestParam(defaultValue = "200") Integer limit) {
         LocalDate tradeDate = backtestService.findRecentTradingDay(date);
         if ("recommend".equals(scope)) {
-            LocalDate taskDate = backtestService.findPreviousTradingDay(tradeDate);
-            return new Result<List<Level2StockPoolDTO>>().ok(backtestService.findWatchingTaskPool(tradeDate, taskDate, limit));
+            return new Result<List<Level2StockPoolDTO>>().ok(backtestService.findWatchingTaskPool(tradeDate, tradeDate, limit));
         }
         return new Result<List<Level2StockPoolDTO>>().ok(backtestService.findLevel2StockPool(tradeDate, scope, limit));
     }
@@ -99,6 +102,18 @@ public class BacktestController {
         LocalDate tradeDate = backtestService.findRecentTradingDay(date);
         return new Result<List<RuleRecordDTO>>().ok(backtestService.findHistoricalBacktest(stockCode, tradeDate, direction));
     }
+
+
+    /**
+     * 选股回测
+     *
+     */
+    @GetMapping("stock-selection-backtest")
+    public Result<String> stockSelectionBacktest(@RequestParam String date) {
+        stockSelectionBacktestService.stockSelectionBacktest(date);
+        return new Result<String>().ok("ss");
+    }
+
 
 
 }
