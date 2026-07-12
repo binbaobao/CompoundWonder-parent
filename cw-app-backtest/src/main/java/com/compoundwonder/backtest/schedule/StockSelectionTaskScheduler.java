@@ -26,7 +26,7 @@ public class StockSelectionTaskScheduler {
         this.stockWatchingTaskService = stockWatchingTaskService;
     }
 
-    @Scheduled(cron = "00 10 19 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "30 49 23 * * ?", zone = "Asia/Shanghai")
     public void schedule() {
         LocalDate now = LocalDate.now();
         LocalDate parse = LocalDate.parse("2023-08-01");
