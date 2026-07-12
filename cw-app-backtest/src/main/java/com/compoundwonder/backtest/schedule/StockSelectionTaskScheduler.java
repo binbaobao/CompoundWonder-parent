@@ -36,7 +36,7 @@ public class StockSelectionTaskScheduler {
             System.out.println(parse + " ----------------- " + tradeDay);
             if (tradeDay) {
                 StockEmotionCycleDaily stockEmotionCycleDaily = stockEmotionCycleDailyService.aggregateAndSave(parse);
-                int taskCount = stockWatchingTaskService.createPostCloseWatchingTasks(parse, stockEmotionCycleDaily).size();
+                int taskCount = stockWatchingTaskService.createPostCloseWatchingTasks(parse).size();
                 log.info("收盘后选股任务生成完成 tradeDate={} taskCount={}", parse, taskCount);
             }
             parse = parse.plusDays(1);

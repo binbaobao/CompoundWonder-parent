@@ -1,6 +1,8 @@
 package com.compoundwonder.trader.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.dynamic.datasource.annotation.DS;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.entity.StockCurrentStatus;
@@ -12,6 +14,7 @@ import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import com.compoundwonder.trader.entity.StockEmotionCycleDaily;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
+import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import org.springframework.stereotype.Service;
 
@@ -43,6 +46,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     private final StockDailyService stockDailyService;
     private final StockTradeCalendarService stockTradeCalendarService;
     private final StockCurrentStatusService stockCurrentStatusService;
+    private final StockEmotionCycleDailyService stockEmotionCycleDailyService;
 
     /**
      * 创建股票盯盘任务服务。
@@ -50,20 +54,22 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     public StockWatchingTaskServiceImpl(StockDailyService stockDailyService,
                                         StockTradeCalendarService stockTradeCalendarService,
-                                        StockCurrentStatusService stockCurrentStatusService) {
+                                        StockCurrentStatusService stockCurrentStatusService,
+                                        StockEmotionCycleDailyService stockEmotionCycleDailyService) {
         this.stockDailyService = stockDailyService;
         this.stockTradeCalendarService = stockTradeCalendarService;
         this.stockCurrentStatusService = stockCurrentStatusService;
+        this.stockEmotionCycleDailyService = stockEmotionCycleDailyService;
     }
 
     /**
      * 创建收盘后选股盯盘任务。
      */
     @Override
-    public List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate, StockEmotionCycleDaily emotionCycleDaily) {
+    public List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate) {
         List<StockWatchingTask> tasks = new ArrayList<>();
         tasks.addAll(createHighQualityFirstLimitUpTasks(tradeDate));
-        tasks.addAll(createRelayLimitUpTasks(tradeDate, emotionCycleDaily));
+        tasks.addAll(createRelayLimitUpTasks(tradeDate));
         return tasks;
     }
 
@@ -93,7 +99,100 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 实现逻辑：查询当天非 ST、涨幅小于 11、K 线为涨停、连续涨停天数为 2/3/4 的股票，批量插入任务表。
      */
     @Override
-    public List<StockWatchingTask> createRelayLimitUpTasks(LocalDate tradeDate, StockEmotionCycleDaily emotionCycleDaily) {
+    public List<StockWatchingTask> createRelayLimitUpTasks(LocalDate tradeDate) {
+
+        // 先查出 今天 昨天 前天 的最高板
+        List<StockEmotionCycleDaily> entityList = stockEmotionCycleDailyService.list(Wrappers.<StockEmotionCycleDaily>lambdaQuery()
+                .le(StockEmotionCycleDaily::getTradeDate, tradeDate)
+                .orderByDesc(StockEmotionCycleDaily::getTradeDate)
+                .last("LIMIT 3"));
+        StockEmotionCycleDaily todayEmotionCycleDaily = entityList.get(0);
+        StockEmotionCycleDaily yesterdayEmotionCycleDaily = entityList.get(0);
+        StockEmotionCycleDaily dayBeforeYesterdayEmotionCycleDaily = entityList.get(0);
+        int todayMaxLbc = todayEmotionCycleDaily.getHighestConsecutiveLimitUpDays();
+        // 高度压制到 4 板以下就推荐
+        //2.高度压制 2板，推荐2板股票
+        //3.高度压制 3板，推荐2/3板股票
+        //4.高度压制 4板，推荐4/3/2板
+        if (todayEmotionCycleDaily.getHighestConsecutiveLimitUpDays() <=4){
+
+        }
+
+
+//        // 先查出 今天 昨天 前天 的最高板
+//        QueryWrapper<EmotionCycleInfoEntity> wrapper1 = new QueryWrapper<>();
+//        wrapper1.le("date", date);
+//        wrapper1.orderByDesc("date");
+//        wrapper1.last("limit 3");
+//        List<EmotionCycleInfoEntity> entityList = emotionCycleInfoDao.selectList(wrapper1);
+//
+//        // 今天 昨天 前天 的最高板
+//        int todayMaxLbc = entityList.get(0).getHighestLimitUp();
+//        EmotionCycleInfoEntity yesterdayMaxLbc = entityList.get(1);
+//        EmotionCycleInfoEntity yesterdayMaxLbc2 = entityList.get(2);
+//
+//        // 高度压制到 4 板以下就推荐
+//        //2.高度压制 2板，推荐2板股票
+//        //3.高度压制 3板，推荐2/3板股票
+//        //4.高度压制 4板，推荐4/3/2板
+//        if (todayMaxLbc <= 4) {
+//            List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
+//            this.filterStocks(date, list, todayMaxLbc, shareInfoMap);
+//        } else if (yesterdayMaxLbc.getHighestLimitUp() <= yesterdayMaxLbc2.getHighestLimitUp()) {
+//            //5.连板高度 >=5 板，判断是否是龙头断板第二天，推荐昨天的2板票
+//            String yesterdayMaxLbc2Code = findHighestLimitUp(yesterdayMaxLbc2.getDate().toString(), yesterdayMaxLbc2.getHighestLimitUp());
+//            // 如果前天发生大退潮而且高度大于5板，推荐 3,4 班
+//            // 判断前天大退潮的时候高度有没有超过7板
+//            if (yesterdayMaxLbc2.getHighestLimitUp() < 7) {
+//                // 没有超过7板直接推荐三四班
+//                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 3 && stockDaily.getClosePrice() > 3 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
+//                this.filterStocks(date, list, todayMaxLbc, shareInfoMap);
+//            }
+//            if (StrUtil.isNotEmpty(yesterdayMaxLbc2.getCode()) && yesterdayMaxLbc2Code.equals(yesterdayMaxLbc2.getCode())) {
+//                // 超过7板，判断断板的股票是否是占领情绪周期的股票，如果是推荐三四班
+//                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 3 && stockDaily.getClosePrice() > 3 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
+//                this.filterStocks(date, list, todayMaxLbc, shareInfoMap);
+//            }
+//        } else if (todayMaxLbc <= yesterdayMaxLbc.getHighestLimitUp()) {
+//            String yesterdayMaxLbcCode = findHighestLimitUp(yesterdayMaxLbc.getDate().toString(), yesterdayMaxLbc.getHighestLimitUp());
+//            // 6.连板高度 >=5 板，判断是否是龙头断板，推荐今天的3,2板票
+//            // 如果今天发生退潮而且高度大于5板，推荐 2,3 班
+//            // 今日高度降低，判断昨日高度是否超过 7 板
+//            if (yesterdayMaxLbc.getHighestLimitUp() < 7) {
+//                // 如果昨日高度没有超过7板直接推荐 2,3 板
+//                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getClosePrice() > 3 && stockDaily.getConsecutiveLimitUpDays() <= 3).toList();
+//                this.filterStocks(date, list, todayMaxLbc, shareInfoMap);
+//            } else if (StrUtil.isNotEmpty(yesterdayMaxLbc.getCode()) && yesterdayMaxLbcCode.equals(yesterdayMaxLbc.getCode())) {
+//                // 如果昨日高度超过7板，判断是否占领情绪周期，如果占领情绪周期才推荐，为了避免一些高度较高的中位票
+//                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getClosePrice() > 3 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
+//                this.filterStocks(date, list, todayMaxLbc, shareInfoMap);
+//            }
+//        }
+//        // 如果最高是 5 板执行特殊逻辑
+//        if (todayMaxLbc == 5) {
+//            List<StockDailyEntity> dailyEntities = stockDailyDao.selectList(new QueryWrapper<StockDailyEntity>()
+//                    .eq("trade_date", date)
+//                    .gt("change_rate", 9)
+//                    .lt("change_rate", 11)
+//                    .eq("consecutive_limit_up_days", 5));
+//            QueryWrapper<StockWatchingTaskEntity> wrapper = new QueryWrapper<>();
+//            wrapper.eq("task_date", date);
+//            wrapper.eq("transaction_mode", 1);
+//            Long aLong = stockWatchingTaskDao.selectCount(wrapper);
+//            // 如果只有一个 5 板，而且前面没有推荐执行特殊逻辑
+//            if (dailyEntities.size() == 1 && aLong == 0) {
+//                StockDailyEntity stockDailyEntity = dailyEntities.get(0);
+//                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
+//                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
+//                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 2.5 || closePrice > 30) {
+//                    List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() == 2 && stockDaily.getConsecutiveLimitUpDays() <= 3).toList();
+//                    this.filterStocks(date, list, 4, shareInfoMap);// 如果 5 板很拉按照最高四板逻辑执行逻辑，其实就是一个卡位预判逻辑
+//                }
+//            }
+//        }
+
+
+
         List<StockDailyEntity> stockDailyList = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
