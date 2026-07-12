@@ -14,6 +14,10 @@ public class EmotionCycleSummaryDTO {
     private Integer explodeCount;
     private Integer limitDownCount;
     private Integer highestLimitUp;
+    private Integer downLimitCount;
+    private Integer risingCount;
+    private Integer fallingCount;
+    private java.math.BigDecimal allMarketTurnoverAmount;
     private Double consecutiveRate;
     private Double explodeRate;
     private String leaderCode;

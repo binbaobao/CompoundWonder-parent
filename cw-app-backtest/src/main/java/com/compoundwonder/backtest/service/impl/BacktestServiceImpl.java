@@ -151,17 +151,23 @@ public class BacktestServiceImpl implements BacktestService {
     }
 
     /**
-     * 查询单只股票的日 K 图表数据。
-     * 实现逻辑：按交易日倒序取最近 N 条，再恢复为升序方便前端时间轴渲染。
+     * 查询单只股票指定日期前后的日 K 图表数据。
+     * 实现逻辑：按基准日期向前取 N 条、向后取 M 条，再合并为升序方便前端时间轴渲染。
      */
     @Override
     @DS("market")
-    public List<Level2ChartBarDTO> findDailyBars(String stockCode, int limit) {
-        return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
-                        .eq(StockDailyEntity::getStockCode, stockCode)
-                        .orderByDesc(StockDailyEntity::getTradeDate)
-                        .last("LIMIT " + safeLimit(limit)))
-                .stream()
+    public List<Level2ChartBarDTO> findDailyBars(String stockCode, LocalDate tradeDate, int beforeLimit, int afterLimit) {
+        List<StockDailyEntity> beforeBars = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getStockCode, stockCode)
+                .le(StockDailyEntity::getTradeDate, tradeDate)
+                .orderByDesc(StockDailyEntity::getTradeDate)
+                .last("LIMIT " + safeLimit(beforeLimit)));
+        List<StockDailyEntity> afterBars = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getStockCode, stockCode)
+                .gt(StockDailyEntity::getTradeDate, tradeDate)
+                .orderByAsc(StockDailyEntity::getTradeDate)
+                .last("LIMIT " + safeLimit(afterLimit)));
+        return java.util.stream.Stream.concat(beforeBars.stream(), afterBars.stream())
                 .sorted(Comparator.comparing(StockDailyEntity::getTradeDate))
                 .map(this::toChartBarDTO)
                 .toList();
@@ -309,7 +315,11 @@ public class BacktestServiceImpl implements BacktestService {
         dto.setConsecutiveLimitUpCount(current == null ? 0 : defaultInt(current.getConsecutiveLimitUpCount()));
         dto.setExplodeCount(current == null ? 0 : defaultInt(current.getLimitUpBrokenCount()));
         dto.setLimitDownCount(current == null ? 0 : defaultInt(current.getLimitDownCount()));
+        dto.setDownLimitCount(current == null ? 0 : defaultInt(current.getDownLimitCount()));
         dto.setHighestLimitUp(current == null ? 0 : defaultInt(current.getHighestConsecutiveLimitUpDays()));
+        dto.setRisingCount(current == null ? 0 : defaultInt(current.getRisingCount()));
+        dto.setFallingCount(current == null ? 0 : defaultInt(current.getFallingCount()));
+        dto.setAllMarketTurnoverAmount(current == null ? BigDecimal.ZERO : current.getAllMarketTurnoverAmount());
         dto.setConsecutiveRate(rate(dto.getConsecutiveLimitUpCount(), dto.getLimitUpCount()));
         dto.setExplodeRate(rate(dto.getExplodeCount(), dto.getLimitUpCount() + dto.getExplodeCount()));
         dto.setLeaderCode(current == null ? null : current.getDominantCycleStockCode());

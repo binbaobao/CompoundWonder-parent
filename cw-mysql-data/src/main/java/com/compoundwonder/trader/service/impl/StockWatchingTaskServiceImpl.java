@@ -198,6 +198,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         List<StockWatchingTask> tasks = new ArrayList<>();
         if (!assistList.isEmpty()) {
+            for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
+                log.info("交易日期:{}:{}",stockSelectionAssistDTO.getTradeDate(),stockSelectionAssistDTO);
+            }
             tasks = assistList.stream()
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
                     .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 20)
@@ -313,10 +316,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 启动价格评分：低于 3 元 0 分，3 至 10 元 15 分，超过 19.5 元 0 分，中间区间线性扣分。
+     * 启动价格评分：低于 3 元 50 分，3 至 10 元 15 分，超过 19.5 元 0 分，中间区间线性扣分。
      */
     private int scoreStartPrice(Double price) {
-        if (price == null || price < 3 || price > 19.5) return 0;
+        if (price == null || price < 3.3 || price > 19.5) return 0;
+        if (price <= 4) return 10;
         if (price <= 10) return 15;
         if (price <= 12.5) return interpolate(price, 10, 12.5, 15, 10);
         if (price <= 15.5) return interpolate(price, 12.5, 15.5, 10, 7);
@@ -349,7 +353,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     private int scoreConsecutiveLimitUpDays(Integer consecutiveLimitUpDays) {
         if (consecutiveLimitUpDays == 2) return 5;
-        if (consecutiveLimitUpDays == 3) return 10;
+        if (consecutiveLimitUpDays == 3) return 15;
         return 0;
     }
 
@@ -380,7 +384,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     private List<StockSelectionAssistDTO> buildSelectionAssistList(List<StockDailyEntity> stockDailyList) {
         return stockDailyList.stream()
                 .map(stockDaily -> buildSelectionAssist(stockDaily))
-                .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < 35 && dto.getFiveDayChangeRate() < 30)
+                .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < dto.getConsecutiveLimitUpDays() * 15 )
                 .toList();
     }
 

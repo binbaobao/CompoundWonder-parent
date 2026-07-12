@@ -72,12 +72,15 @@ public class BacktestController {
 
     /**
      * 查询股票日 K。
-     * 作用：给前端日 K 图表和详情日期选择器提供最近 N 条数据库日线。
+     * 作用：给前端日 K 图表和详情日期选择器提供指定日期前后窗口内的数据库日线。
      */
     @GetMapping("daily-bars")
     public Result<List<Level2ChartBarDTO>> dailyBars(@RequestParam String stockCode,
-                                                     @RequestParam(defaultValue = "300") Integer limit) {
-        return new Result<List<Level2ChartBarDTO>>().ok(backtestService.findDailyBars(stockCode, limit));
+                                                     @RequestParam String date,
+                                                     @RequestParam(defaultValue = "300") Integer beforeLimit,
+                                                     @RequestParam(defaultValue = "100") Integer afterLimit) {
+        LocalDate tradeDate = backtestService.findRecentTradingDay(date);
+        return new Result<List<Level2ChartBarDTO>>().ok(backtestService.findDailyBars(stockCode, tradeDate, beforeLimit, afterLimit));
     }
 
     /**

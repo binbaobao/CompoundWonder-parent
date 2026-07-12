@@ -37,9 +37,9 @@ public interface BacktestService {
     List<Level2StockPoolDTO> findWatchingTaskPool(LocalDate tradeDate, LocalDate taskDate, int limit);
 
     /**
-     * 查询单只股票的日 K 图表数据。
+     * 查询单只股票指定日期前后的日 K 图表数据。
      */
-    List<Level2ChartBarDTO> findDailyBars(String stockCode, int limit);
+    List<Level2ChartBarDTO> findDailyBars(String stockCode, LocalDate tradeDate, int beforeLimit, int afterLimit);
 
     /**
      * 查询指定交易日的情绪周期摘要。
