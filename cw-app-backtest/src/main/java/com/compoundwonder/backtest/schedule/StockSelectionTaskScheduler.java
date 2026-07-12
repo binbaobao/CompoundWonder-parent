@@ -21,7 +21,7 @@ public class StockSelectionTaskScheduler {
         this.emotionCycleDailyAggregateService = emotionCycleDailyAggregateService;
     }
 
-    @Scheduled(cron = "00 57 18 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "20 06 12 * * ?", zone = "Asia/Shanghai")
     public void schedule() {
         LocalDate now = LocalDate.now();
         LocalDate parse = LocalDate.parse("2023-01-01");
