@@ -70,7 +70,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     @Override
     public List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate) {
         List<StockWatchingTask> tasks = new ArrayList<>();
-//        tasks.addAll(createHighQualityFirstLimitUpTasks(tradeDate));
+        tasks.addAll(createHighQualityFirstLimitUpTasks(tradeDate));
         tasks.addAll(createRelayLimitUpTasks(tradeDate));
         return tasks;
     }
@@ -84,13 +84,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockDailyEntity> stockDailyList = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
+                .lt(StockDailyEntity::getFloatMarketCap, 300_000)
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .between(StockDailyEntity::getKlineState, 1, 5)
                 .eq(StockDailyEntity::getConsecutiveLimitUpDays, 1));
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
         List<StockWatchingTask> tasks = assistList.stream()
+                .filter(dto -> dto.getFiveDayChangeRate() >= -2 && dto.getTenDayChangeRate() > 0 && dto.getTenDayChangeRate() < 25)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
+                .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
+                .limit(5)//只取前三个
                 .toList();
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
@@ -107,7 +111,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .between(StockDailyEntity::getKlineState, 1, 5)
-                .lt(StockDailyEntity::getFloatMarketCap, 600000)
+                .lt(StockDailyEntity::getFloatMarketCap, 600_000)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
 
         // 先查出 今天 昨天 前天 的最高板
@@ -202,6 +206,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 log.info("交易日期:{}:{}",stockSelectionAssistDTO.getTradeDate(),stockSelectionAssistDTO);
             }
             tasks = assistList.stream()
+                    .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < dto.getConsecutiveLimitUpDays() * 15)
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
                     .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 20)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
@@ -383,8 +388,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     private List<StockSelectionAssistDTO> buildSelectionAssistList(List<StockDailyEntity> stockDailyList) {
         return stockDailyList.stream()
-                .map(stockDaily -> buildSelectionAssist(stockDaily))
-                .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < dto.getConsecutiveLimitUpDays() * 15 )
+                .map(this::buildSelectionAssist)
                 .toList();
     }
 
@@ -533,12 +537,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     private Double calculateAdjustedCloseChangeRate(List<StockDailyEntity> ascRecentDailyList, int days) {
         if (ascRecentDailyList.size() <= days) {
-            return null;
+            return 0.0;
         }
         Double basePrice = ascRecentDailyList.get(ascRecentDailyList.size() - 1 - days).getAdjustClosePrice();
         Double currentPrice = ascRecentDailyList.get(ascRecentDailyList.size() - 1).getAdjustClosePrice();
         if (basePrice == null || currentPrice == null || basePrice == 0) {
-            return null;
+            return 0.0;
         }
         return (currentPrice - basePrice) * 100 / basePrice;
     }

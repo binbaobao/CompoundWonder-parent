@@ -26,20 +26,27 @@ public class StockSelectionTaskScheduler {
         this.stockWatchingTaskService = stockWatchingTaskService;
     }
 
-    @Scheduled(cron = "30 31 00 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "30 06 15 * * ?", zone = "Asia/Shanghai")
     public void schedule() {
         LocalDate now = LocalDate.now();
-        LocalDate parse = LocalDate.parse("2023-08-01");
+        LocalDate parse = LocalDate.parse("2023-10-16");
 
         while (parse.isBefore(now)) {
             boolean tradeDay = stockTradeCalendarService.isTradeDay(parse);
             System.out.println(parse + " ----------------- " + tradeDay);
             if (tradeDay) {
-                int taskCount = stockWatchingTaskService.createRelayLimitUpTasks(parse).size();
+                int taskCount = stockWatchingTaskService.createHighQualityFirstLimitUpTasks(parse).size();
                 log.info("收盘后选股任务生成完成 tradeDate={} taskCount={}", parse, taskCount);
             }
             parse = parse.plusDays(1);
         }
     }
+
+    @Scheduled(cron = "30 39 21 * * ?", zone = "Asia/Shanghai")
+    public void schedule1() {
+        LocalDate now = LocalDate.now();
+        stockEmotionCycleDailyService.aggregateAndSave(now);
+    }
+
 
 }
