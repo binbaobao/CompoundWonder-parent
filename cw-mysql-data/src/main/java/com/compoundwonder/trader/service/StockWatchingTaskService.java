@@ -19,15 +19,4 @@ public interface StockWatchingTaskService extends IService<StockWatchingTask> {
      */
     List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate);
 
-    /**
-     * 创建优质首板推荐任务。
-     * 作用：按交易日期查询当天非 ST、涨幅小于 11 的首板涨停股票，并批量写入盯盘任务。
-     */
-    List<StockWatchingTask> createHighQualityFirstLimitUpTasks(LocalDate tradeDate);
-
-    /**
-     * 创建连板接力推荐任务。
-     * 作用：按交易日期查询当天非 ST、涨幅小于 11 的 2、3、4 板涨停股票，并批量写入盯盘任务。
-     */
-    List<StockWatchingTask> createRelayLimitUpTasks(LocalDate tradeDate);
 }

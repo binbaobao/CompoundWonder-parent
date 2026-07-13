@@ -32,6 +32,11 @@ public class StockSelectionAssistDTO {
     private Integer consecutiveLimitUpDays;
 
     /**
+     * 本轮连续涨停中一字板的数量，按当前连板数向前回看统计。
+     */
+    private Integer consecutiveOneWordLimitUpDays;
+
+    /**
      * 省份属性。
      */
     private String province;
@@ -70,6 +75,11 @@ public class StockSelectionAssistDTO {
      * 最高板。
      */
     private Integer highestConsecutiveLimitUpDays;
+
+    /**
+     * 近 3 个自然月内的最高板。
+     */
+    private Integer recentThreeMonthHighestConsecutiveLimitUpDays;
 
     /**
      * 非正常状态次数，统计 klineState != 0 的交易日数量。

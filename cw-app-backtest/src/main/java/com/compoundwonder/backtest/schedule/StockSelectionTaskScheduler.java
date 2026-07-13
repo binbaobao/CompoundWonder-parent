@@ -35,7 +35,7 @@ public class StockSelectionTaskScheduler {
             boolean tradeDay = stockTradeCalendarService.isTradeDay(parse);
             System.out.println(parse + " ----------------- " + tradeDay);
             if (tradeDay) {
-                int taskCount = stockWatchingTaskService.createHighQualityFirstLimitUpTasks(parse).size();
+                int taskCount = stockWatchingTaskService.createPostCloseWatchingTasks(parse).size();
                 log.info("收盘后选股任务生成完成 tradeDate={} taskCount={}", parse, taskCount);
             }
             parse = parse.plusDays(1);
