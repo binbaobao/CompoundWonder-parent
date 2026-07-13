@@ -100,12 +100,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .toList();
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
+
         List<StockWatchingTask> tasks = assistList.stream()
-                .filter(dto -> dto.getMaxTurnoverRate() > 25 && dto.getNonStMonthCount() >= 18)// 最大换手大于 25的同时，摘帽大于 18个月
+                .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18)// 最大换手大于 25的同时，摘帽大于 18个月
                 .filter(dto -> dto.getFiveDayChangeRate() >= -2 && dto.getTenDayChangeRate() > 0 && dto.getTenDayChangeRate() < 25)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
-                .filter(task -> task.getLimitUpScore() > 30)
+                .filter(task -> task.getLimitUpScore() > 2)
                 .limit(5)//只取前三个
                 .toList();
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
@@ -218,9 +219,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         List<StockWatchingTask> tasks = new ArrayList<>();
         if (!assistList.isEmpty()) {
-            for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-                log.info("交易日期:{}:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO);
-            }
             tasks = assistList.stream()
                     .filter(dto -> dto.getConsecutiveOneWordLimitUpDays() < 2 && dto.getRecentThreeMonthHighestConsecutiveLimitUpDays() < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
                     .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18)// 最大换手大于 25的同时，摘帽大于 18个月
