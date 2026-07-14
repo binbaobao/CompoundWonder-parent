@@ -102,16 +102,16 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
         for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-            log.info("首板------:{}:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO);
+            log.info("首板------:{}:{}", calculateSelectionScore(stockSelectionAssistDTO), stockSelectionAssistDTO);
         }
         List<StockWatchingTask> tasks = assistList.stream()
                 .filter(dto -> dto.getAbnormalKlineStateCount() < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
                 .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                .filter(dto -> dto.getTenDayChangeRate() < 25)
+                .filter(dto -> dto.getTenDayChangeRate() < 25 && dto.getStartPrice() > 3)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
-                .filter(task -> task.getLimitUpScore() > 20)
-                .limit(5)//只取前三个
+                .filter(task -> task.getLimitUpScore() > 30)
+                .limit(3)//只取前三个
                 .toList();
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
@@ -152,15 +152,15 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         int yesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc.getHighestConsecutiveLimitUpDays(), 0);
         int dayBeforeYesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc2.getHighestConsecutiveLimitUpDays(), 0);
 
-        List<StockSelectionAssistDTO> assistList = new ArrayList<>();
+        Integer minConsecutiveLimitUpDays = null;
+        Integer maxConsecutiveLimitUpDays = null;
         // 高度压制到 4 板以下就推荐
         //2.高度压制 2板，推荐2板股票
         //3.高度压制 3板，推荐2/3板股票
         //4.高度压制 4板，推荐4/3/2板
         if (todayMaxLbc <= 4) {
-            List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
-            assistList = buildSelectionAssistList(list);
-            this.filterStocks(tradeDate, list, todayMaxLbc);
+            minConsecutiveLimitUpDays = 2;
+            maxConsecutiveLimitUpDays = 3;
         } else if (yesterdayHighestLimitUp <= dayBeforeYesterdayHighestLimitUp) {
             //5.连板高度 >=5 板，判断是否是龙头断板第二天，推荐昨天的2板票
             String yesterdayMaxLbc2Code = findHighestLimitUp(yesterdayMaxLbc2.getTradeDate(), dayBeforeYesterdayHighestLimitUp);
@@ -168,15 +168,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             // 判断前天大退潮的时候高度有没有超过7板
             if (dayBeforeYesterdayHighestLimitUp < 7) {
                 // 没有超过7板直接推荐三四班
-                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 3 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
-                assistList = buildSelectionAssistList(list);
-                this.filterStocks(tradeDate, list, todayMaxLbc);
+                minConsecutiveLimitUpDays = 3;
+                maxConsecutiveLimitUpDays = 3;
             }
             if (StrUtil.isNotEmpty(yesterdayMaxLbc2.getDominantCycleStockCode()) && Objects.equals(yesterdayMaxLbc2Code, yesterdayMaxLbc2.getDominantCycleStockCode())) {
                 // 超过7板，判断断板的股票是否是占领情绪周期的股票，如果是推荐三四班
-                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 3 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
-                assistList = buildSelectionAssistList(list);
-                this.filterStocks(tradeDate, list, todayMaxLbc);
+                minConsecutiveLimitUpDays = 3;
+                maxConsecutiveLimitUpDays = 3;
             }
         } else if (todayMaxLbc <= yesterdayHighestLimitUp) {
             String yesterdayMaxLbcCode = findHighestLimitUp(yesterdayMaxLbc.getTradeDate(), yesterdayHighestLimitUp);
@@ -185,55 +183,38 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             // 今日高度降低，判断昨日高度是否超过 7 板
             if (yesterdayHighestLimitUp < 7) {
                 // 如果昨日高度没有超过7板直接推荐 2,3 板
-                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getConsecutiveLimitUpDays() <= 3).toList();
-                assistList = buildSelectionAssistList(list);
-                this.filterStocks(tradeDate, list, todayMaxLbc);
+                minConsecutiveLimitUpDays = 2;
+                maxConsecutiveLimitUpDays = 3;
             } else if (StrUtil.isNotEmpty(yesterdayMaxLbc.getDominantCycleStockCode()) && Objects.equals(yesterdayMaxLbcCode, yesterdayMaxLbc.getDominantCycleStockCode())) {
                 // 如果昨日高度超过7板，判断是否占领情绪周期，如果占领情绪周期才推荐，为了避免一些高度较高的中位票
-                List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= 2 && stockDaily.getConsecutiveLimitUpDays() <= 4).toList();
-                assistList = buildSelectionAssistList(list);
-                this.filterStocks(tradeDate, list, todayMaxLbc);
+                minConsecutiveLimitUpDays = 2;
+                maxConsecutiveLimitUpDays = 3;
             }
         }
 
-        for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-            stockSelectionAssistDTO.setScore(calculateSelectionScore(stockSelectionAssistDTO));
-        }
+        int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
+        int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
+        List<StockDailyEntity> selectedStockDailyList = minConsecutiveLimitUpDays == null
+                ? List.of()
+                : stockDailyEntities.stream()
+                .filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= minLimitUpDays
+                        && stockDaily.getConsecutiveLimitUpDays() <= maxLimitUpDays)
+                .toList();
+        List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(selectedStockDailyList);
 
-        // 如果最高是 5 板执行特殊逻辑
-        if (todayMaxLbc == 5) {
-            List<StockDailyEntity> dailyEntities = stockDailyEntities.stream()
-                    .filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() == 5)
-                    .toList();
-            long aLong = assistList.stream().filter(stockSelectionAssistDTO -> stockSelectionAssistDTO.getScore() > 60).count();
-            // 如果只有一个 5 板，而且前面没有推荐执行特殊逻辑
-            if (dailyEntities.size() == 1 && aLong == 0) {
-                StockDailyEntity stockDailyEntity = dailyEntities.get(0);
-                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
-                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
-                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 2.5 || closePrice > 30) {
-                    List<StockDailyEntity> list = stockDailyEntities.stream().filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() == 2).toList();
-                    assistList = buildSelectionAssistList(list);
-                    for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-                        stockSelectionAssistDTO.setScore(calculateSelectionScore(stockSelectionAssistDTO));
-                        log.info("如果最高是 5 板执行特殊逻辑:交易日期:{},股名:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO.getStockName());
-                    }
-                    this.filterStocks(tradeDate, list, 4);// 如果 5 板很拉按照最高四板逻辑执行逻辑，其实就是一个卡位预判逻辑
-                }
-            }
-        }
+
         List<StockWatchingTask> tasks = new ArrayList<>();
         if (!assistList.isEmpty()) {
 
             for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-                log.info("连板------:{}:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO);
+                log.info("连板------:{}:{}", calculateSelectionScore(stockSelectionAssistDTO), stockSelectionAssistDTO);
             }
 
             tasks = assistList.stream()
                     .filter(dto -> dto.getConsecutiveOneWordLimitUpDays() < 2 && dto.getRecentThreeMonthHighestConsecutiveLimitUpDays() < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
                     .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
                     .filter(dto -> dto.getTenDayChangeRate() < 60 && dto.getStartPrice() > 3 )// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
-                    .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
+                    .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, calculateSelectionScore(assist)))
                     .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 15)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
                     .limit(3)//只取前三个
@@ -259,9 +240,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     private Set<String> listConvertibleBondStockCodes(LocalDate tradeDate) {
         return stockConvertibleBondHistoryService.listTradableStockCodes(tradeDate);
-    }
-
-    private void filterStocks(LocalDate tradeDate, List<StockDailyEntity> stockDailyEntities, int todayMaxLbc) {
     }
 
     /**
