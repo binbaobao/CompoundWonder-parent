@@ -26,14 +26,14 @@ public class StockSelectionTaskScheduler {
         this.stockWatchingTaskService = stockWatchingTaskService;
     }
 
-    @Scheduled(cron = "30 06 15 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "30 08 13 * * ?", zone = "Asia/Shanghai")
     public void schedule() {
         LocalDate now = LocalDate.now();
-        LocalDate parse = LocalDate.parse("2023-10-16");
+        LocalDate parse = LocalDate.parse("2023-07-01");
 
         while (parse.isBefore(now)) {
             boolean tradeDay = stockTradeCalendarService.isTradeDay(parse);
-            System.out.println(parse + " ----------------- " + tradeDay);
+//            System.out.println(parse + " ----------------- " + tradeDay);
             if (tradeDay) {
                 int taskCount = stockWatchingTaskService.createPostCloseWatchingTasks(parse).size();
                 log.info("收盘后选股任务生成完成 tradeDate={} taskCount={}", parse, taskCount);
@@ -42,10 +42,18 @@ public class StockSelectionTaskScheduler {
         }
     }
 
-    @Scheduled(cron = "30 39 21 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "30 30 17 * * ?", zone = "Asia/Shanghai")
     public void schedule1() {
         LocalDate now = LocalDate.now();
-        stockEmotionCycleDailyService.aggregateAndSave(now);
+        boolean tradeDay = stockTradeCalendarService.isTradeDay(now);
+        if (tradeDay) {
+            StockEmotionCycleDaily stockEmotionCycleDaily = stockEmotionCycleDailyService.aggregateAndSave(now);
+            log.info("情绪周期：{}", stockEmotionCycleDaily);
+            int taskCount = stockWatchingTaskService.createPostCloseWatchingTasks(now).size();
+            log.info("{}日 收盘后选股任务生成完成 推荐{}条", now, taskCount);
+        }
+
+
     }
 
 

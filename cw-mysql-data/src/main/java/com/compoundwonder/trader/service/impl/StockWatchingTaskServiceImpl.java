@@ -524,7 +524,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         int consecutiveDays = Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 0));
         int count = 0;
         for (int i = 0; i < consecutiveDays && i < recentDailyList.size(); i++) {
-            if (Objects.equals(recentDailyList.get(i).getKlineState(), 3)) {
+            StockDailyEntity stockDailyEntity = recentDailyList.get(i);
+            if (Objects.equals(stockDailyEntity.getKlineState(), 3) || stockDailyEntity.getAmplitude() < 1.5) {
                 count++;
             }
         }
