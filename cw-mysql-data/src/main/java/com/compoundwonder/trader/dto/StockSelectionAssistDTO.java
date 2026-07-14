@@ -67,6 +67,11 @@ public class StockSelectionAssistDTO {
     private Integer nonStMonthCount;
 
     /**
+     * 新上市至选股日期的自然月数。
+     */
+    private Integer listingMonthCount;
+
+    /**
      * 最大换手率。
      */
     private Double maxTurnoverRate;

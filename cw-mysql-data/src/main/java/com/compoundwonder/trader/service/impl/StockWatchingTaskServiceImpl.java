@@ -86,11 +86,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 实现逻辑：查询当天非 ST、涨幅小于 11、K 线为涨停、连续涨停天数为 1 的股票，批量插入任务表。
      */
     private List<StockWatchingTask> createHighQualityFirstLimitUpTasks(LocalDate tradeDate,
-                                                                        Set<String> convertibleBondStockCodes) {
+                                                                       Set<String> convertibleBondStockCodes) {
         List<StockDailyEntity> stockDailyList = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getFloatMarketCap, 300_000)
+                .lt(StockDailyEntity::getClosePrice, 40)
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .between(StockDailyEntity::getKlineState, 1, 5)
                 .eq(StockDailyEntity::getConsecutiveLimitUpDays, 1));
@@ -100,13 +101,16 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .toList();
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
-
+        for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
+            log.info("首板------:{}:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO);
+        }
         List<StockWatchingTask> tasks = assistList.stream()
-                .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18)// 最大换手大于 25的同时，摘帽大于 18个月
-                .filter(dto -> dto.getFiveDayChangeRate() >= -2 && dto.getTenDayChangeRate() > 0 && dto.getTenDayChangeRate() < 25)
+                .filter(dto -> dto.getAbnormalKlineStateCount() < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
+                .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
+                .filter(dto -> dto.getTenDayChangeRate() < 25)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
-                .filter(task -> task.getLimitUpScore() > 2)
+                .filter(task -> task.getLimitUpScore() > 20)
                 .limit(5)//只取前三个
                 .toList();
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
@@ -123,8 +127,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
-                .between(StockDailyEntity::getKlineState, 1, 5)
                 .lt(StockDailyEntity::getFloatMarketCap, 600_000)
+                .lt(StockDailyEntity::getClosePrice, 40)
+                .between(StockDailyEntity::getKlineState, 1, 5)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票
         stockDailyEntities = stockDailyEntities.stream()
@@ -219,12 +224,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         List<StockWatchingTask> tasks = new ArrayList<>();
         if (!assistList.isEmpty()) {
+
+            for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
+                log.info("连板------:{}:{}", stockSelectionAssistDTO.getTradeDate(), stockSelectionAssistDTO);
+            }
+
             tasks = assistList.stream()
                     .filter(dto -> dto.getConsecutiveOneWordLimitUpDays() < 2 && dto.getRecentThreeMonthHighestConsecutiveLimitUpDays() < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
-                    .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18)// 最大换手大于 25的同时，摘帽大于 18个月
-                    .filter(dto -> dto.getFiveDayChangeRate() > 5 && dto.getTenDayChangeRate() > 15 && dto.getTenDayChangeRate() < dto.getConsecutiveLimitUpDays() * 15)// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
+                    .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
+                    .filter(dto -> dto.getTenDayChangeRate() < 60 && dto.getStartPrice() > 3 )// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, assist.getScore()))
-                    .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 30)
+                    .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 15)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
                     .limit(3)//只取前三个
                     .toList();
@@ -440,6 +450,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setStartPrice(startDaily == null ? null : startDaily.getClosePrice());
         assist.setCurrentTurnoverRate(stockDaily.getTurnoverRate());
         assist.setNonStMonthCount(calculateNonStMonthCount(stockDaily));
+        assist.setListingMonthCount(calculateListingMonthCount(stockDaily));
         assist.setMaxTurnoverRate(findMaxTurnoverRate(selectionWindowDailyList));
         assist.setHighestConsecutiveLimitUpDays(findHighestConsecutiveLimitUpDays(selectionWindowDailyList));
         assist.setRecentThreeMonthHighestConsecutiveLimitUpDays(
@@ -493,10 +504,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 定位本轮首板前一交易日，用于读取启动市值和启动价格。
+     * 日 K 按交易日倒序排列，下标等于当前连板数：1 板取下标 1，2 板取下标 2，以此类推。
      */
     private StockDailyEntity findStartDaily(List<StockDailyEntity> recentDailyList, Integer consecutiveLimitUpDays) {
-        int offset = Objects.requireNonNullElse(consecutiveLimitUpDays, 1);
-        return recentDailyList.size() <= offset ? null : recentDailyList.get(offset);
+        int startIndex = Math.max(1, Objects.requireNonNullElse(consecutiveLimitUpDays, 1));
+        return recentDailyList.size() <= startIndex ? null : recentDailyList.get(startIndex);
     }
 
     /**
@@ -539,10 +551,31 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 统计选股窗口内最大换手率。
+     * 计算股票从最早日 K 交易日到选股日期的自然月数。
+     */
+    private Integer calculateListingMonthCount(StockDailyEntity stockDaily) {
+        StockDailyEntity firstDaily = stockDailyService.getOne(Wrappers.<StockDailyEntity>lambdaQuery()
+                .select(StockDailyEntity::getTradeDate)
+                .eq(StockDailyEntity::getStockCode, stockDaily.getStockCode())
+                .le(StockDailyEntity::getTradeDate, stockDaily.getTradeDate())
+                .orderByAsc(StockDailyEntity::getTradeDate)
+                .last("LIMIT 1"));
+        if (firstDaily == null || firstDaily.getTradeDate() == null) {
+            return null;
+        }
+        return Math.toIntExact(ChronoUnit.MONTHS.between(
+                firstDaily.getTradeDate().withDayOfMonth(1),
+                stockDaily.getTradeDate().withDayOfMonth(1)));
+    }
+
+    /**
+     * 统计选股窗口内最大换手率，排除股票上市后最早的 10 根日 K，
+     * 避免新上市初期异常高换手干扰历史量能判断。
      */
     private Double findMaxTurnoverRate(List<StockDailyEntity> recentDailyList) {
         return recentDailyList.stream()
+                .sorted(Comparator.comparing(StockDailyEntity::getTradeDate))
+                .skip(10)
                 .map(StockDailyEntity::getTurnoverRate)
                 .filter(Objects::nonNull)
                 .max(Double::compareTo)
