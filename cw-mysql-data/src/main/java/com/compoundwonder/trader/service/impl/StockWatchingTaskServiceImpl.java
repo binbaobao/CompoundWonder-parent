@@ -3,6 +3,7 @@ package com.compoundwonder.trader.service.impl;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.dynamic.datasource.annotation.DS;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.compoundwonder.hxdata.entity.StockCurrentStatus;
@@ -93,7 +94,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .lt(StockDailyEntity::getFloatMarketCap, 300_000)
                 .lt(StockDailyEntity::getClosePrice, 40)
                 .lt(StockDailyEntity::getChangeRate, 11)
-                .between(StockDailyEntity::getKlineState, 1, 5)
                 .eq(StockDailyEntity::getConsecutiveLimitUpDays, 1));
         // 过滤包含可转债的股票
         stockDailyList = stockDailyList.stream()
@@ -107,7 +107,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockWatchingTask> tasks = assistList.stream()
                 .filter(dto -> dto.getAbnormalKlineStateCount() < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
                 .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                .filter(dto -> dto.getTenDayChangeRate() < 25 && dto.getStartPrice() > 3)
+                .filter(dto -> dto.getTenDayChangeRate() > 2 && dto.getTenDayChangeRate() < 25 && dto.getStartPrice() > 3)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
                 .filter(task -> task.getLimitUpScore() > 30)
@@ -129,7 +129,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .lt(StockDailyEntity::getFloatMarketCap, 600_000)
                 .lt(StockDailyEntity::getClosePrice, 40)
-                .between(StockDailyEntity::getKlineState, 1, 5)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票
         stockDailyEntities = stockDailyEntities.stream()
@@ -192,6 +191,24 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
         }
 
+        if (todayMaxLbc == 5 && minConsecutiveLimitUpDays == null) {
+            // 如果最高是 5 板执行特殊逻辑
+            // 查询今天 5 板的股
+            List<StockDailyEntity> stockDailyEntities1 = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                    .eq(StockDailyEntity::getTradeDate, tradeDate)
+                    .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
+                    .eq(StockDailyEntity::getConsecutiveLimitUpDays, todayMaxLbc));
+            if (stockDailyEntities1.size() == 1) {
+                StockDailyEntity stockDailyEntity = stockDailyEntities1.get(0);
+                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
+                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
+                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 3.5 || closePrice > 30) {
+                    minConsecutiveLimitUpDays = 2;
+                    maxConsecutiveLimitUpDays = 2;
+                }
+            }
+        }
+
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
         List<StockDailyEntity> selectedStockDailyList = minConsecutiveLimitUpDays == null
@@ -201,7 +218,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                         && stockDaily.getConsecutiveLimitUpDays() <= maxLimitUpDays)
                 .toList();
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(selectedStockDailyList);
-
 
         List<StockWatchingTask> tasks = new ArrayList<>();
         if (!assistList.isEmpty()) {
@@ -213,7 +229,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             tasks = assistList.stream()
                     .filter(dto -> dto.getConsecutiveOneWordLimitUpDays() < 2 && dto.getRecentThreeMonthHighestConsecutiveLimitUpDays() < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
                     .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                    .filter(dto -> dto.getTenDayChangeRate() < 60 && dto.getStartPrice() > 3 )// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
+                    .filter(dto -> dto.getTenDayChangeRate() < 60 && dto.getStartPrice() > 3)// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, calculateSelectionScore(assist)))
                     .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 15)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
