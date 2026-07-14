@@ -105,9 +105,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             log.info("首板------:{}:{}", calculateSelectionScore(stockSelectionAssistDTO), stockSelectionAssistDTO);
         }
         List<StockWatchingTask> tasks = assistList.stream()
-                .filter(dto -> dto.getAbnormalKlineStateCount() < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
-                .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                .filter(dto -> dto.getTenDayChangeRate() > 2 && dto.getTenDayChangeRate() < 25 && dto.getStartPrice() > 3)
+                .filter(dto -> Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0) < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
+                .filter(dto -> Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D) > 25
+                        || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= 18
+                        || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= Objects.requireNonNullElse(dto.getListingMonthCount(), 0))// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
+                .filter(dto -> Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) > 2
+                        && Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) < 25
+                        && Objects.requireNonNullElse(dto.getStartPrice(), 0D) > 3)
                 .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
                 .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
                 .filter(task -> task.getLimitUpScore() > 30)
@@ -153,25 +157,24 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
         Integer minConsecutiveLimitUpDays = null;
         Integer maxConsecutiveLimitUpDays = null;
-        // 高度压制到 4 板以下就推荐
+        // 高度压制到 3 板以下就推荐
         //2.高度压制 2板，推荐2板股票
         //3.高度压制 3板，推荐2/3板股票
-        //4.高度压制 4板，推荐4/3/2板
         if (todayMaxLbc <= 4) {
             minConsecutiveLimitUpDays = 2;
             maxConsecutiveLimitUpDays = 3;
         } else if (yesterdayHighestLimitUp <= dayBeforeYesterdayHighestLimitUp) {
             //5.连板高度 >=5 板，判断是否是龙头断板第二天，推荐昨天的2板票
             String yesterdayMaxLbc2Code = findHighestLimitUp(yesterdayMaxLbc2.getTradeDate(), dayBeforeYesterdayHighestLimitUp);
-            // 如果前天发生大退潮而且高度大于5板，推荐 3,4 班
+            // 如果前天发生大退潮而且高度大于5板，推荐 3 板
             // 判断前天大退潮的时候高度有没有超过7板
             if (dayBeforeYesterdayHighestLimitUp < 7) {
-                // 没有超过7板直接推荐三四班
+                // 没有超过7板直接推荐三板
                 minConsecutiveLimitUpDays = 3;
                 maxConsecutiveLimitUpDays = 3;
             }
             if (StrUtil.isNotEmpty(yesterdayMaxLbc2.getDominantCycleStockCode()) && Objects.equals(yesterdayMaxLbc2Code, yesterdayMaxLbc2.getDominantCycleStockCode())) {
-                // 超过7板，判断断板的股票是否是占领情绪周期的股票，如果是推荐三四班
+                // 超过7板，判断断板的股票是否是占领情绪周期的股票，如果是推荐三板
                 minConsecutiveLimitUpDays = 3;
                 maxConsecutiveLimitUpDays = 3;
             }
@@ -227,9 +230,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
 
             tasks = assistList.stream()
-                    .filter(dto -> dto.getConsecutiveOneWordLimitUpDays() < 2 && dto.getRecentThreeMonthHighestConsecutiveLimitUpDays() < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
-                    .filter(dto -> dto.getMaxTurnoverRate() > 25 || dto.getNonStMonthCount() >= 18 || dto.getNonStMonthCount() >= dto.getListingMonthCount())// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                    .filter(dto -> dto.getTenDayChangeRate() < 60 && dto.getStartPrice() > 3)// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
+                    .filter(dto -> Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0) < 2
+                            && Objects.requireNonNullElse(dto.getRecentThreeMonthHighestConsecutiveLimitUpDays(), 0) < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
+                    .filter(dto -> Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D) > 25
+                            || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= 18
+                            || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= Objects.requireNonNullElse(dto.getListingMonthCount(), 0))// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
+                    .filter(dto -> Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) < 60
+                            && Objects.requireNonNullElse(dto.getStartPrice(), 0D) > 3)// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
                     .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, calculateSelectionScore(assist)))
                     .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 15)
                     .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
@@ -241,10 +248,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     }
 
+    /**
+     * 查询指定日期指定最高板的非 ST 股票代码，用于判断情绪周期龙头是否断板。
+     * is_st 为空表示历史 ST 状态未记录，按非 ST 候选处理，与选股主查询保持一致。
+     */
     private String findHighestLimitUp(LocalDate tradeDate, Integer highestLimitUp) {
         StockDailyEntity stockDaily = stockDailyService.getOne(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
-                .eq(StockDailyEntity::getIsSt, false)
+                .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .eq(StockDailyEntity::getConsecutiveLimitUpDays, highestLimitUp)
                 .orderByDesc(StockDailyEntity::getChangeRate)
                 .last("LIMIT 1"));
