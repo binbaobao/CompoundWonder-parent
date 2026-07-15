@@ -19,7 +19,6 @@ import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
-import java.util.List;
 
 
 /**
@@ -53,7 +52,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
     public void reset() {
         for (OrderBook orderBook : orderBooks) {
             if (orderBook != null) {
-                orderBook.getIdIndex().values().forEach(tickNodePool::release);
+                orderBook.clearOrders(tickNodePool::release);
             }
         }
         Arrays.fill(orderBooks, null);
@@ -299,56 +298,14 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
         }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
-        int priceIndex = order.price - orderBook.getLimitDownPrice();
-        orderBook.getIdIndex().put(order.orderId, tickNode);
-        orderBook.getPriceIndex().get(order.price).add(tickNode);
-        if (order.direction == 1) {
-            orderBook.getPriceBuySum()[priceIndex] += order.quantity;
-            orderBook.totalBuyVolume += order.quantity;
-        } else {
-            orderBook.getPriceSellerSum()[priceIndex] += order.quantity;
-            orderBook.totalSellVolume += order.quantity;
-        }
+        orderBook.addOrder(tickNode);
     }
 
 
     private void tradeOrder(TickData order, int orderId, OrderBook orderBook) {
-        TickNode person = orderBook.getIdIndex().get(orderId);
-        if (person == null) {
-            return;
-        }
-        removeOrderBook(person, order.quantity, orderBook);
-        // 全部成交
-        if (person.getQuantity() <= order.quantity) {
-            TickNode person1 = orderBook.getIdIndex().remove(orderId);
-            if (person1 != null) {
-                List<TickNode> ageGroup = orderBook.getPriceIndex().get(person1.getPrice());
-                if (ageGroup != null) {
-                    ageGroup.remove(person1);
-                }
-                tickNodePool.release(person1);
-            }
-        } else {
-            List<TickNode> ageGroup = orderBook.getPriceIndex().get(person.getPrice());
-            if (ageGroup != null) {
-                person.setQuantity(person.getQuantity() - order.quantity);
-            }
-        }
-    }
-
-    /**
-     * 删除订单簿统计数据
-     *
-     * @param orderData
-     */
-    private void removeOrderBook(TickNode orderData, int quantity, OrderBook orderBook) {
-        int priceIndex = orderData.getPrice() - orderBook.getLimitDownPrice();
-        if (orderData.getDirection() == 1) {
-            orderBook.getPriceBuySum()[priceIndex] -= quantity;
-            orderBook.totalBuyVolume -= quantity;
-        } else {
-            orderBook.getPriceSellerSum()[priceIndex] -= quantity;
-            orderBook.totalSellVolume -= quantity;
+        TickNode completed = orderBook.applyTrade(orderId, order.quantity);
+        if (completed != null) {
+            tickNodePool.release(completed);
         }
     }
 

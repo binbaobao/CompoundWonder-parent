@@ -35,12 +35,7 @@ public class TickNodePool {
     public void release(TickNode node) {
         if (pool.size() < maxCapacity) {
             // 重置数据，防止脏数据影响下一次使用
-            node.setTime(0);
-            node.setQuantity(0);
-            node.setPrice(0);
-            node.setDirection((byte) 0);
-            node.setOrderId(0);
-
+            node.clear();
             pool.push(node);
         }
         // 超过最大容量的对象会被丢弃，等待 GC 回收

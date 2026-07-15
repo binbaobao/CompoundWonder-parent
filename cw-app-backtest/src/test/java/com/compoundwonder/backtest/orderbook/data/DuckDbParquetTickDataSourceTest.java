@@ -22,7 +22,7 @@ class DuckDbParquetTickDataSourceTest {
         assertEquals(1, tick.dataType);
         assertEquals(2, tick.direction);
         assertEquals(1, tick.type);
-        assertEquals(2100, tick.amount);
+        assertEquals(0, tick.amount);
         assertEquals(101, tick.buyerOrderId);
         assertEquals(202, tick.sellerOrderId);
     }
@@ -38,14 +38,30 @@ class DuckDbParquetTickDataSourceTest {
     }
 
     @Test
+    void skipsAmountCalculationForLargeNonTradeQuantity() {
+        TickData tick = DuckDbParquetTickDataSource.decodeTick(
+                1_000_001, 121, 93000000, 88, 1000, 300_000_001, 101, 202);
+
+        assertEquals(0, tick.amount);
+    }
+
+    @Test
+    void calculatesAmountForTradeUsingExistingIntegerUnitConvention() {
+        TickData tick = DuckDbParquetTickDataSource.decodeTick(
+                1_000_001, 200, 93000000, 88, 1050, 200, 101, 202);
+
+        assertEquals(2100, tick.amount);
+    }
+
+    @Test
     void replaysRealParquetWhenLocalFixtureExists() {
         Path dataDirectory = Path.of(System.getProperty("user.home"), "Documents", "lev2data");
         assumeTrue(Files.isRegularFile(dataDirectory.resolve("2026-07-14.parquet")));
         DuckDbParquetTickDataSource dataSource = new DuckDbParquetTickDataSource(dataDirectory.toString());
         AtomicLong consumed = new AtomicLong();
 
-        long replayed = dataSource.replay(LocalDate.of(2026, 7, 14), "000078", tick -> {
-            assertEquals(1_000_078, tick.symbolId);
+        long replayed = dataSource.replay(LocalDate.of(2026, 7, 14), "600664", tick -> {
+            assertEquals(1_600_664, tick.symbolId);
             consumed.incrementAndGet();
         });
 

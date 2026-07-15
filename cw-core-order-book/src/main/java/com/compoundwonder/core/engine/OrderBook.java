@@ -6,8 +6,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
+import java.util.function.Consumer;
 
 /**
  * 股票订单簿
@@ -168,15 +168,9 @@ public class OrderBook {
     // 主索引：快速 orderId 删除
     @ToString.Exclude
     private Int2ObjectOpenHashMap<TickNode> idIndex;
-    // 二级索引：价格分组 + 分组内orderId排序
+    // 二级索引：连续价格档位 + 档位内买卖双向队列
     @ToString.Exclude
-    private Int2ObjectOpenHashMap<List<TickNode>> priceIndex;
-    // 买单订单簿统计量
-    @ToString.Exclude
-    private long[] priceBuySum;
-    // 卖单订单簿统计量
-    @ToString.Exclude
-    private long[] priceSellerSum;
+    private PriceLevel[] priceLevels;
     // 均价 ，每一分钟采集一次
     @ToString.Exclude
     public final int[] avgPrice = new int[60 * 4];
@@ -206,16 +200,10 @@ public class OrderBook {
         this.limitDownPrice = ((this.closePrice * (market ? 90 : 80)) + 50) / 100;
         this.maxVolume = maxVolume;
         this.idIndex = new Int2ObjectOpenHashMap<>();
-        this.priceIndex = new Int2ObjectOpenHashMap<>();
         this.limitUpBreakLowestPrice = this.limitUpPrice;
-        // 计算一共多少价位
-        // 初始化价位相关的数据
+        // 价格档位对象在首笔委托到达时按需创建
         int range = limitUpPrice - limitDownPrice + 1;
-        this.priceBuySum = new long[range];
-        this.priceSellerSum = new long[range];
-        for (int i = 0; i < range; i++) {
-            priceIndex.put(i + limitDownPrice, new ArrayList<>());
-        }
+        this.priceLevels = new PriceLevel[range];
         this.buyMaxOrder = new TickNode();
     }
 
@@ -236,16 +224,136 @@ public class OrderBook {
         this.limitUpPrice = (int) Math.round(limitUpPrice * 100);
         this.limitDownPrice = (int) Math.round(limitDownPrice * 100);
         this.idIndex = new Int2ObjectOpenHashMap<>();
-        this.priceIndex = new Int2ObjectOpenHashMap<>();
-        // 计算一共多少价位
-        // 初始化价位相关的数据
+        // 价格区间变化后重新建立连续价位索引
         int range = this.limitUpPrice - this.limitDownPrice + 1;
-        this.priceBuySum = new long[range];
-        this.priceSellerSum = new long[range];
-        for (int i = 0; i < range; i++) {
-            priceIndex.put(i + this.limitDownPrice, new ArrayList<>());
-        }
+        this.priceLevels = new PriceLevel[range];
+        this.totalBuyVolume = 0;
+        this.totalSellVolume = 0;
         this.limitUpBreakLowestPrice = this.limitUpPrice;
+    }
+
+    /**
+     * 新增委托，并同步维护订单编号索引、价位队列和全盘口数量。
+     */
+    public void addOrder(TickNode node) {
+        if (idIndex.containsKey(node.getOrderId())) {
+            throw new IllegalArgumentException("重复的委托编号: " + node.getOrderId());
+        }
+        int priceIndex = priceToIndex(node.getPrice());
+        PriceLevel level = priceLevels[priceIndex];
+        if (level == null) {
+            level = new PriceLevel();
+            priceLevels[priceIndex] = level;
+        }
+        level.add(node);
+        idIndex.put(node.getOrderId(), node);
+        increaseTotalVolume(node.getDirection(), node.getQuantity());
+    }
+
+    /**
+     * 扣减指定委托的成交数量。
+     *
+     * @return 委托全部成交时返回已摘除的节点；部分成交或委托不存在时返回 {@code null}
+     */
+    public TickNode applyTrade(int orderId, int quantity) {
+        TickNode node = idIndex.get(orderId);
+        if (node == null) {
+            return null;
+        }
+        int priceIndex = priceToIndex(node.getPrice());
+        PriceLevel level = priceLevels[priceIndex];
+        int deducted = level.applyTrade(node, quantity);
+        decreaseTotalVolume(node.getDirection(), deducted);
+        if (node.getQuantity() > 0) {
+            return null;
+        }
+        idIndex.remove(orderId);
+        removeEmptyPriceLevel(priceIndex, level);
+        return node;
+    }
+
+    /**
+     * 撤销指定委托，并同步清理所有订单簿索引。
+     *
+     * @return 被撤销的节点；委托不存在时返回 {@code null}
+     */
+    public TickNode cancelOrder(int orderId) {
+        TickNode node = idIndex.remove(orderId);
+        if (node == null) {
+            return null;
+        }
+        int priceIndex = priceToIndex(node.getPrice());
+        PriceLevel level = priceLevels[priceIndex];
+        int cancelled = level.remove(node);
+        decreaseTotalVolume(node.getDirection(), cancelled);
+        removeEmptyPriceLevel(priceIndex, level);
+        return node;
+    }
+
+    /**
+     * 清空当日委托状态，并将仍在订单簿中的节点交给调用方回收。
+     *
+     * <p>只能在 Handler 停止消费当前批次后调用。</p>
+     */
+    public void clearOrders(Consumer<TickNode> recycler) {
+        idIndex.values().forEach(recycler);
+        idIndex.clear();
+        Arrays.fill(priceLevels, null);
+        totalBuyVolume = 0;
+        totalSellVolume = 0;
+    }
+
+    /**
+     * 获取指定价格档位；该价格尚无委托时返回 {@code null}。
+     */
+    public PriceLevel getPriceLevel(int price) {
+        return priceLevels[priceToIndex(price)];
+    }
+
+    /**
+     * 获取指定价格的买方剩余总量。
+     */
+    public long getBuyQuantity(int price) {
+        PriceLevel level = getPriceLevel(price);
+        return level == null ? 0 : level.getBuyQuantity();
+    }
+
+    /**
+     * 获取指定价格的卖方剩余总量。
+     */
+    public long getSellQuantity(int price) {
+        PriceLevel level = getPriceLevel(price);
+        return level == null ? 0 : level.getSellQuantity();
+    }
+
+    private int priceToIndex(int price) {
+        int index = price - limitDownPrice;
+        if (index < 0 || index >= priceLevels.length) {
+            throw new IllegalArgumentException("委托价格超出订单簿范围: " + price);
+        }
+        return index;
+    }
+
+    private void removeEmptyPriceLevel(int priceIndex, PriceLevel level) {
+        if (level.isEmpty()) {
+            priceLevels[priceIndex] = null;
+        }
+    }
+
+    private void increaseTotalVolume(byte direction, int quantity) {
+        if (direction == 1) {
+            totalBuyVolume += quantity;
+        } else {
+            totalSellVolume += quantity;
+        }
+    }
+
+    private void decreaseTotalVolume(byte direction, int quantity) {
+        if (direction == 1) {
+            totalBuyVolume -= quantity;
+        } else {
+            totalSellVolume -= quantity;
+        }
     }
 
     /**
@@ -328,10 +436,10 @@ public class OrderBook {
             this.lastLimitUptime = 0;
         }
         // 在没涨停的时候，一个大的委托买单会吃掉笼子内所有卖单
-        if (this.status % 2 == 0 && lastPrice == limitUpPrice && priceBuySum[limitUpPrice - limitDownPrice] > 0) {
+        if (this.status % 2 == 0 && lastPrice == limitUpPrice && getBuyQuantity(limitUpPrice) > 0) {
             // 封单
             // 涨停买一总金额，不涨停这个字段是 0
-            this.limitUpBuyAmount = priceBuySum[limitUpPrice - limitDownPrice] / 100L * limitUpPrice / 10000L;
+            this.limitUpBuyAmount = getBuyQuantity(limitUpPrice) / 100L * limitUpPrice / 10000L;
             // 封单大于 100万 视为一次涨停封单
             if (this.limitUpBuyAmount > 100) {
                 this.status++;
@@ -348,7 +456,7 @@ public class OrderBook {
                 this.changePercent = 0;
                 this.lastSealAmount = 0;
             } else {
-                long limitUpOrderVolume = priceBuySum[limitUpPrice - limitDownPrice];
+                long limitUpOrderVolume = getBuyQuantity(limitUpPrice);
                 // 涨停买一总金额，不涨停这个字段是 0
                 this.limitUpBuyAmount = limitUpOrderVolume / 100L * limitUpPrice / 10000L;
 

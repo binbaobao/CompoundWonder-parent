@@ -2,9 +2,20 @@ package com.compoundwonder.core.engine;
 
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 @Data
 public class TickNode {
+
+    /** 同价位、同方向队列中的前一个委托。 */
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private TickNode previous;
+    /** 同价位、同方向队列中的后一个委托。 */
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private TickNode next;
 
     // 数据区
     private int price;
@@ -26,6 +37,8 @@ public class TickNode {
         this.time = 0;
         this.direction = 0;
         this.orderId = 0;
+        this.previous = null;
+        this.next = null;
     }
 
     /**

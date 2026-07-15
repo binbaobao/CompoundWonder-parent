@@ -19,7 +19,6 @@ import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
-import java.util.List;
 
 
 /**
@@ -53,7 +52,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     public void reset() {
         for (OrderBook orderBook : orderBooks) {
             if (orderBook != null) {
-                orderBook.getIdIndex().values().forEach(tickNodePool::release);
+                orderBook.clearOrders(tickNodePool::release);
             }
         }
         Arrays.fill(orderBooks, null);
@@ -180,7 +179,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             // 涨停价格
             int limitUpPrice = orderBook.getLimitUpPrice();
             // 涨停总买手数
-            long limitUpBuyVolume = orderBook.getPriceBuySum()[limitUpPrice - orderBook.getLimitDownPrice()];
+            long limitUpBuyVolume = orderBook.getBuyQuantity(limitUpPrice);
             int totalSellVolume = orderBook.getTotalSellVolume();
             // 总涨停买 金额 单位 W
             long limitUpBuyAmount = limitUpBuyVolume / 100L * limitUpPrice / 10000L;
@@ -263,17 +262,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
-
-        int priceIndex = order.price - orderBook.getLimitDownPrice();
-        orderBook.getIdIndex().put(order.orderId, tickNode);
-        orderBook.getPriceIndex().get(order.price).add(tickNode);
-        if (order.direction == 1) {
-            orderBook.getPriceBuySum()[priceIndex] += order.quantity;
-            orderBook.totalBuyVolume += order.quantity;
-        } else {
-            orderBook.getPriceSellerSum()[priceIndex] += order.quantity;
-            orderBook.totalSellVolume += order.quantity;
-        }
+        orderBook.addOrder(tickNode);
     }
 
     /**
@@ -284,33 +273,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
      * @param orderBook
      */
     private void tradeOrder(TickData trade, int orderId, OrderBook orderBook) {
-        TickNode person = orderBook.getIdIndex().get(orderId);
-        if (person == null) {
-            return;
-        }
-        int priceIndex = person.getPrice() - orderBook.getLimitDownPrice();
-        if (person.getDirection() == 1) {
-            orderBook.getPriceBuySum()[priceIndex] -= trade.quantity;
-            orderBook.totalBuyVolume -= trade.quantity;
-        } else {
-            orderBook.getPriceSellerSum()[priceIndex] -= trade.quantity;
-            orderBook.totalSellVolume -= trade.quantity;
-        }
-        //如果 成交数量相同就删除
-        if (person.getQuantity() == trade.quantity) {
-            TickNode person1 = orderBook.getIdIndex().remove(orderId);
-            if (person1 != null) {
-                List<TickNode> ageGroup = orderBook.getPriceIndex().get(person.getPrice());
-                if (ageGroup != null) {
-                    ageGroup.remove(person);
-                }
-                tickNodePool.release(person1);
-            }
-        } else {
-            List<TickNode> ageGroup = orderBook.getPriceIndex().get(person.getPrice());
-            if (ageGroup != null) {
-                person.setQuantity(person.getQuantity() - trade.quantity);
-            }
+        TickNode completed = orderBook.applyTrade(orderId, trade.quantity);
+        if (completed != null) {
+            tickNodePool.release(completed);
         }
     }
 
@@ -318,30 +283,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     private void cancelOrder(TickData trade, OrderBook orderBook) {
         //交易方向 1-买方成交，2-卖方成交
         int orderId = trade.buyerOrderId == 0 ? trade.sellerOrderId : trade.buyerOrderId;
-        TickNode person = orderBook.getIdIndex().remove(orderId);
-        if (person != null) {
-            List<TickNode> ageGroup = orderBook.getPriceIndex().get(person.getPrice());
-            if (ageGroup != null) {
-                ageGroup.remove(person);
-            }
-            removeOrderBook(person, person.getQuantity(), orderBook);
-            tickNodePool.release(person);
-        }
-    }
-
-    /**
-     * 删除
-     *
-     * @param orderData
-     */
-    private void removeOrderBook(TickNode orderData, int quantity, OrderBook orderBook) {
-        int priceIndex = orderData.getPrice() - orderBook.getLimitDownPrice();
-        if (orderData.getDirection() == 1) {
-            orderBook.getPriceBuySum()[priceIndex] -= quantity;
-            orderBook.totalBuyVolume -= quantity;
-        } else {
-            orderBook.getPriceSellerSum()[priceIndex] -= quantity;
-            orderBook.totalSellVolume -= quantity;
+        TickNode cancelled = orderBook.cancelOrder(orderId);
+        if (cancelled != null) {
+            tickNodePool.release(cancelled);
         }
     }
 

@@ -150,7 +150,9 @@ public class DuckDbParquetTickDataSource implements BacktestTickDataSource {
         tick.orderId = orderId;
         tick.price = price;
         tick.quantity = quantity;
-        tick.amount = Math.toIntExact(quantity / 100L * price);
+        boolean isTrade = tick.dataType == 2
+                && (symbolId >= 1_600_000 || tick.type == 0);
+        tick.amount = isTrade ? quantity / 100 * price : 0;
         tick.buyerOrderId = buyerOrderId;
         tick.sellerOrderId = sellerOrderId;
         return tick;
