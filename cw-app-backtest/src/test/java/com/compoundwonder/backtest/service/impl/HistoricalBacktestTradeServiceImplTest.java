@@ -84,7 +84,7 @@ class HistoricalBacktestTradeServiceImplTest {
     }
 
     @Test
-    void skipsNonPositiveKlineStateCandidatesButStillReplaysTheOvernightOrder() {
+    void skipsNonPositiveTopTaskAndReplaysOnlyPositiveCandidatesWithoutOvernightOrder() {
         LocalDate tradeDate = LocalDate.of(2026, 7, 14);
         StockWatchingTask overnightTask = watchingTask(1L, "600001", tradeDate);
         StockWatchingTask zeroStateTask = watchingTask(2L, "000001", tradeDate);
@@ -92,15 +92,10 @@ class HistoricalBacktestTradeServiceImplTest {
         StockWatchingTask positiveStateTask = watchingTask(4L, "000002", tradeDate);
         FakePersistenceService persistence = new FakePersistenceService(date ->
                 List.of(overnightTask, zeroStateTask, negativeStateTask, positiveStateTask));
-        FakeReplayService replay = new FakeReplayService(request -> {
-            if (request.mode() == BacktestReplayMode.OVERNIGHT_BUY) {
-                return result(tradeDate, request.symbol(), request.mode(), List.of(
-                        rule(RuleConstant.TRADING_MODE_CANCEL, request.symbol(), 91_952_000, 0)));
-            }
-            return result(tradeDate, request.symbol(), request.mode(), List.of(
+        FakeReplayService replay = new FakeReplayService(request ->
+                result(tradeDate, request.symbol(), request.mode(), List.of(
                     rule(RuleConstant.TRADING_MODE_BUY, request.symbol(),
-                            100_000_000, 100_000_101)));
-        });
+                            100_000_000, 100_000_101))));
         StockDailyEntity overnightDaily = daily("600001", tradeDate, 10D);
         overnightDaily.setKlineState(0);
         StockDailyEntity zeroStateDaily = daily("000001", tradeDate, 10D);
@@ -119,11 +114,9 @@ class HistoricalBacktestTradeServiceImplTest {
 
         BacktestDayWrite write = persistence.savedDays.get(0);
         assertEquals("000002", write.buyRule().getSymbol());
-        assertEquals(2, replay.requests.size());
-        assertEquals("600001", replay.requests.get(0).symbol());
-        assertEquals(BacktestReplayMode.OVERNIGHT_BUY, replay.requests.get(0).mode());
-        assertEquals("000002", replay.requests.get(1).symbol());
-        assertEquals(BacktestReplayMode.BUY_AFTER_TIME, replay.requests.get(1).mode());
+        assertEquals(1, replay.requests.size());
+        assertEquals("000002", replay.requests.get(0).symbol());
+        assertEquals(BacktestReplayMode.BUY, replay.requests.get(0).mode());
     }
 
     @Test
@@ -225,7 +218,7 @@ class HistoricalBacktestTradeServiceImplTest {
         assertEquals(1, replay.requests.size());
         assertEquals(RuleConstant.SELL_BACKTEST_LIMIT_UP_BREAK_NEXT_OPEN,
                 secondDay.sellRule().getRuleCode());
-        assertEquals(93_000_000, secondDay.sellRule().getTime());
+        assertEquals(92_500_000, secondDay.sellRule().getTime());
         assertEquals(2_169, secondDay.sellRule().getPrice());
         assertEquals(new BigDecimal("80253.00"), secondDay.previousPosition().getSellAmount());
         assertEquals(2, secondDay.previousPosition().getStatus());

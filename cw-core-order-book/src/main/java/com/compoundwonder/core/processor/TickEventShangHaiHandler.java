@@ -231,8 +231,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                     log.info("执行均价卖出策略 时间：{},成交额：{},成交量：{},均价：{},价格 {},涨幅:{} %", order.time / 1000, turnover, order.sellerOrderId, orderBook.avgPrice[calculateIndex], order.price, orderBook.getIncrease());
                     ruleRecordBuffer.commit();
                 }
-                //如果是 time 等于 l1 行情的时间，说明现在是l1更快，并且买一是涨停价说明已经涨停
-                if (transStatus == 1 && order.time == time && time >= ConstantUtil.TIME_930 && orderBook.getLimitUpPrice() == order.price) {
+                // 09:31 前行情只更新订单簿；time 等于 L1 行情时间且买一为涨停价时，09:31 后才允许触发买入。
+                if (transStatus == 1 && order.time == time && time >= ConstantUtil.TIME_931 && orderBook.getLimitUpPrice() == order.price) {
                     // 清空成交额成交量，与大单记录
                     orderBook.setTurnover(0);
                     orderBook.setVolume(0);
@@ -255,8 +255,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
             }
         }
 
-        // 上交所，只有 在连续竞价期间才能交易,判断是否可以交易 CompactTimeUtil.millisToCompact(order.time)
-        if (transStatus != 0 && order.time >= ConstantUtil.TIME_930 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
+        // 上交所盘中策略统一从 09:31 开始，避开开盘初段行情延迟。
+        if (transStatus != 0 && order.time >= ConstantUtil.TIME_931 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
             //一个票换手超过50% 或者 以开盘价为基准 跌幅 >= 5 如果是擒龙捉妖就去打开其他的
             if (transStatus == 1 && order.time < ConstantUtil.TIME_939 && (orderBook.getOpenIncrease() - orderBook.getIncrease() >= 5) && orderBook.getIncrease() <= -1) {
                 if (orderBook.getLbcs() > 1) {

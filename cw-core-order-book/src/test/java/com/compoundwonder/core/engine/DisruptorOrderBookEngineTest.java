@@ -168,7 +168,7 @@ class DisruptorOrderBookEngineTest {
     }
 
     @Test
-    void invalidPricesAreRejectedInsteadOfReplacedWithLastPrice() {
+    void shanghaiRejectsOutOfRangePriceWhileShenzhenUsesCurrentPrice() {
         CacheService repository = new CacheService();
         int shSymbolId = SymbolUtil.fastSymbolToInt("600000");
         int szSymbolId = SymbolUtil.fastSymbolToInt("000001");
@@ -184,14 +184,70 @@ class DisruptorOrderBookEngineTest {
 
         TickData shOrder = order(shSymbolId, 1, 2000, 300, (byte) 1);
         shOrder.type = 2;
-        TickData szOrder = order(szSymbolId, 1, 2000, 300, (byte) 1);
-        szOrder.type = 2;
+        TickData szAboveLimit = order(szSymbolId, 1, 2000, 300, (byte) 1);
+        szAboveLimit.type = 2;
+        TickData szBelowLimit = order(szSymbolId, 2, 800, 200, (byte) 1);
+        szBelowLimit.type = 2;
         engine.publish(shOrder);
-        engine.publish(szOrder);
+        engine.publish(szAboveLimit);
+        engine.publish(szBelowLimit);
         engine.awaitProcessed(Duration.ofSeconds(1));
 
         assertEquals(0, shOrderBook.getActiveOrderCount());
-        assertEquals(0, szOrderBook.getActiveOrderCount());
+        assertEquals(2, szOrderBook.getActiveOrderCount());
+        assertEquals(500, szOrderBook.getBuyQuantity(1000));
+    }
+
+    @Test
+    void shenzhenZeroPriceMarketOrderUsesCurrentOrderBookPrice() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("000001");
+        OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
+        orderBook.setLastPrice(1000);
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        TickData marketOrder = order(symbolId, 1, 0, 300, (byte) 1);
+        marketOrder.type = 1;
+        engine.publish(marketOrder);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(1, orderBook.getActiveOrderCount());
+        assertEquals(300, orderBook.getBuyQuantity(1000));
+    }
+
+    @Test
+    void shanghaiIntradaySellRuleStartsAtNineThirtyOne() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600000");
+        OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
+        orderBook.setInitialMarketValue(120_000);
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        engine.publish(trade(symbolId, 92_800_000, 900));
+        engine.publish(trade(symbolId, 92_900_000, orderBook.getLimitUpPrice()));
+        TickData limitUpBuy = order(symbolId, 1, orderBook.getLimitUpPrice(), 1_000_000, (byte) 1);
+        limitUpBuy.type = 2;
+        engine.publish(limitUpBuy);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+        assertEquals(1, orderBook.getStatus());
+        orderBook.setTransactionStatus(-1);
+
+        engine.publish(trade(symbolId, ConstantUtil.TIME_930, orderBook.getLimitUpPrice()));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+        assertEquals(0, gateway.quickSellCount);
+        assertEquals(-1, orderBook.getTransactionStatus());
+
+        engine.publish(trade(symbolId, ConstantUtil.TIME_931, orderBook.getLimitUpPrice()));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+        assertEquals(1, gateway.quickSellCount);
+        assertEquals(-2, orderBook.getTransactionStatus());
     }
 
     @Test
@@ -284,9 +340,19 @@ class DisruptorOrderBookEngineTest {
         return order;
     }
 
+    private TickData trade(int symbolId, int time, int price) {
+        TickData trade = new TickData();
+        trade.symbolId = symbolId;
+        trade.dataType = 2;
+        trade.time = time;
+        trade.price = price;
+        return trade;
+    }
+
     private static final class RecordingOrderExecutionGateway implements OrderExecutionGateway {
 
         private int sellCount;
+        private int quickSellCount;
         private boolean failSell;
 
         @Override
@@ -303,6 +369,7 @@ class DisruptorOrderBookEngineTest {
 
         @Override
         public void quickSell(String symbol, int price, int limitDownPrice) {
+            quickSellCount++;
         }
 
         @Override

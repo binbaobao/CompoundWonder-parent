@@ -144,19 +144,31 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             }
         } else if (!tasks.isEmpty()) {
             StockWatchingTask overnightTask = tasks.get(0);
-            BacktestReplayResult overnightResult = replayService.replay(
-                    tradeDate, overnightTask.getStockCode(), BacktestReplayMode.OVERNIGHT_BUY, null);
-            RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
-            if (cancelRule != null) {
+            Set<String> nonBuyableSymbols = findNonBuyableSymbols(tradeDate, tasks);
+            if (nonBuyableSymbols.contains(overnightTask.getStockCode())) {
                 BuyCandidate candidate = findEarliestBuy(
-                        tradeDate, tasks, cancelRule.getTime(), Set.of());
+                        tradeDate, tasks, BacktestReplayMode.BUY, null,
+                        Set.of(), nonBuyableSymbols);
                 if (candidate != null) {
                     buyTask = candidate.task();
                     buyRule = candidate.rule();
                 }
-            } else if (BacktestExecutionPolicy.isOvernightBuyFillable(overnightResult.lastOrderTime())) {
-                buyTask = overnightTask;
-                buyRule = overnightBuyRule(overnightResult);
+            } else {
+                BacktestReplayResult overnightResult = replayService.replay(
+                        tradeDate, overnightTask.getStockCode(), BacktestReplayMode.OVERNIGHT_BUY, null);
+                RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
+                if (cancelRule != null) {
+                    BuyCandidate candidate = findEarliestBuy(
+                            tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
+                            cancelRule.getTime(), Set.of(), nonBuyableSymbols);
+                    if (candidate != null) {
+                        buyTask = candidate.task();
+                        buyRule = candidate.rule();
+                    }
+                } else if (BacktestExecutionPolicy.isOvernightBuyFillable(overnightResult.lastOrderTime())) {
+                    buyTask = overnightTask;
+                    buyRule = overnightBuyRule(overnightResult);
+                }
             }
         }
 
@@ -185,9 +197,16 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
 
     private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
                                          int allowedAfterTime, Set<String> excludedSymbols) {
+        return findEarliestBuy(tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
+                allowedAfterTime, excludedSymbols, findNonBuyableSymbols(tradeDate, tasks));
+    }
+
+    private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
+                                         BacktestReplayMode replayMode, Integer allowedAfterTime,
+                                         Set<String> excludedSymbols,
+                                         Set<String> nonBuyableSymbols) {
         List<BuyCandidate> candidates = new ArrayList<>();
         Set<String> replayedSymbols = new HashSet<>();
-        Set<String> nonBuyableSymbols = findNonBuyableSymbols(tradeDate, tasks);
         for (StockWatchingTask task : tasks) {
             String symbol = task.getStockCode();
             if (symbol == null || excludedSymbols.contains(symbol) || !replayedSymbols.add(symbol)) {
@@ -199,7 +218,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             }
             try {
                 BacktestReplayResult result = replayService.replay(
-                        tradeDate, symbol, BacktestReplayMode.BUY_AFTER_TIME, allowedAfterTime);
+                        tradeDate, symbol, replayMode, allowedAfterTime);
                 for (RuleRecordDTO record : result.records()) {
                     if (Integer.valueOf(RuleConstant.TRADING_MODE_BUY).equals(record.getActionType())
                             && BacktestExecutionPolicy.isIntradayBuyFillable(record)) {
@@ -252,7 +271,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
      * 买入当天已经炸板的持仓，下一交易日直接按日 K 开盘价卖出。
      *
      * <p>该规则不依赖下一交易日 Level2，可覆盖历史只备份 {@code kline_state > 0}
-     * 股票 Tick 的数据范围。炸板状态口径为 11、12、13。</p>
+     * 股票 Tick 的数据范围。炸板状态口径为 11、12、13；成交价取日 K 开盘价，
+     * 成交时间记为开盘集合竞价结束的 09:25。</p>
      */
     private RuleRecordDTO createBreakBoardNextOpenSellRule(BacktestPosition position,
                                                             LocalDate tradeDate,
@@ -267,7 +287,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         rule.setActionType(RuleConstant.TRADING_MODE_SELL);
         rule.setRuleCode(RuleConstant.SELL_BACKTEST_LIMIT_UP_BREAK_NEXT_OPEN);
         rule.setSymbol(position.getSymbol());
-        rule.setTime(ConstantUtil.TIME_930);
+        rule.setTime(ConstantUtil.TIME_925);
         rule.setPrice(openPrice);
         if (sellDaily.getPrevClose() != null && sellDaily.getPrevClose() > 0) {
             rule.setIncrease((sellDaily.getOpenPrice() - sellDaily.getPrevClose())

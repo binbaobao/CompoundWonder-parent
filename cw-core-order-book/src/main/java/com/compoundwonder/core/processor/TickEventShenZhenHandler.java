@@ -234,7 +234,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 }
             }
         }
-        // 在连续竞价期间才能交易,判断是否可以交易
+        // 深交所盘中策略统一从 09:31 开始，避开开盘初段行情延迟。
         if (transStatus != 0 && order.time >= ConstantUtil.TIME_931 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
             // 以开盘价为基准 跌幅 >= 5 如果是擒龙捉妖就去打开其他的
             if (transStatus == 1 && order.time < ConstantUtil.TIME_939 && (orderBook.getOpenIncrease() - orderBook.getIncrease() >= 5) && orderBook.getIncrease() <= -1) {
@@ -262,6 +262,11 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
 
     // 逐笔委托数据
     private boolean addOrder(TickData order, OrderBook orderBook) {
+        // 深圳市价委托可能以 0 或涨跌停区间外的价格推送，统一按到达时订单簿最新价入队。
+        if (order.price < orderBook.getLimitDownPrice()
+                || order.price > orderBook.getLimitUpPrice()) {
+            order.price = orderBook.getLastPrice();
+        }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
         OrderBook.AddOrderResult result = orderBook.addOrder(tickNode);
