@@ -74,4 +74,17 @@ public class StockTradeCalendarServiceImpl extends ServiceImpl<StockTradeCalenda
         return count(Wrappers.<StockTradeCalendar>lambdaQuery()
                 .eq(StockTradeCalendar::getTradeDate, tradeDate)) > 0;
     }
+
+    /**
+     * 查询指定日期之后的第一个交易日。
+     */
+    @Override
+    public LocalDate findNextTradeDay(LocalDate tradeDate) {
+        StockTradeCalendar nextTradeDay = getOne(Wrappers.<StockTradeCalendar>lambdaQuery()
+                .select(StockTradeCalendar::getTradeDate)
+                .gt(StockTradeCalendar::getTradeDate, tradeDate)
+                .orderByAsc(StockTradeCalendar::getTradeDate)
+                .last("LIMIT 1"));
+        return nextTradeDay == null ? null : nextTradeDay.getTradeDate();
+    }
 }

@@ -11,6 +11,8 @@ import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
+import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.util.SymbolUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -33,17 +36,23 @@ public class BackTestTradeService {
     private final DisruptorOrderBookEngine orderBookEngine;
     private final BacktestTickDataSource tickDataSource;
     private final StockDailyService stockDailyService;
+    private final StockTradeCalendarService stockTradeCalendarService;
+    private final StockEmotionCycleDailyService stockEmotionCycleDailyService;
     private final BacktestOrderExecutionGateway executionGateway;
     private final Duration replayTimeout;
 
     public BackTestTradeService(DisruptorOrderBookEngine orderBookEngine,
                                 BacktestTickDataSource tickDataSource,
                                 StockDailyService stockDailyService,
+                                StockTradeCalendarService stockTradeCalendarService,
+                                StockEmotionCycleDailyService stockEmotionCycleDailyService,
                                 BacktestOrderExecutionGateway executionGateway,
                                 @Value("${backtest.replay-timeout-seconds:120}") long replayTimeoutSeconds) {
         this.orderBookEngine = orderBookEngine;
         this.tickDataSource = tickDataSource;
         this.stockDailyService = stockDailyService;
+        this.stockTradeCalendarService = stockTradeCalendarService;
+        this.stockEmotionCycleDailyService = stockEmotionCycleDailyService;
         this.executionGateway = executionGateway;
         this.replayTimeout = Duration.ofSeconds(replayTimeoutSeconds);
     }
@@ -197,16 +206,61 @@ public class BackTestTradeService {
         orderBook.setDate(tradeDate.toString());
         orderBook.setLbcs(Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays())));
         orderBook.setYesterdayTurnover(valueOrZero(previousDaily.getTurnoverRate()));
-        if (history.size() > 1) {
-            orderBook.setTwoDaysTurnover(valueOrZero(history.get(1).getTurnoverRate()));
-        }
-        if (history.size() > 2) {
-            orderBook.setThreeDaysTurnover(valueOrZero(history.get(2).getTurnoverRate()));
-        }
         orderBook.setInitialMarketValue(calculateInitialMarketValue(previousDaily, orderBook.getLbcs()));
         orderBook.setMaxHs(maxVolume * 100.0 / circulation);
         orderBook.setTransactionStatus(direction == 1 ? 1 : -1);
+        if (direction == 2) {
+            initializeSellHistory(orderBook, history, tradeDate, stockCode);
+        }
         return orderBook;
+    }
+
+    /**
+     * 按旧实盘持仓初始化口径补充卖出规则依赖的最近三日日 K 统计。
+     */
+    private void initializeSellHistory(OrderBook orderBook, List<StockDailyEntity> history,
+                                       LocalDate tradeDate, String stockCode) {
+        if (history.size() < 3) {
+            throw new IllegalArgumentException(tradeDate + " 之前股票 " + stockCode
+                    + " 的日 K 不足 3 个交易日，无法初始化卖出订单簿");
+        }
+
+        StockDailyEntity yesterday = history.get(0);
+        StockDailyEntity twoDaysAgo = history.get(1);
+        StockDailyEntity threeDaysAgo = history.get(2);
+        double yesterdayTurnover = valueOrZero(yesterday.getTurnoverRate());
+        double twoDaysAgoTurnover = valueOrZero(twoDaysAgo.getTurnoverRate());
+        double threeDaysAgoTurnover = valueOrZero(threeDaysAgo.getTurnoverRate());
+
+        orderBook.setTwoDaysTurnover((yesterdayTurnover + twoDaysAgoTurnover) / 2);
+        orderBook.setThreeDaysTurnover(
+                (yesterdayTurnover + twoDaysAgoTurnover + threeDaysAgoTurnover) / 3);
+        orderBook.setOneWordLimitUp(countConsecutiveOneWordLimitUps(
+                yesterday, twoDaysAgo, threeDaysAgo));
+
+        Integer averageLimitUpHeight = stockEmotionCycleDailyService
+                .queryRecentAverageLimitUpHeight(tradeDate.minusDays(15), tradeDate);
+        if (averageLimitUpHeight == null) {
+            throw new IllegalStateException(tradeDate + " 之前 15 日没有市场最高连板数据");
+        }
+        orderBook.setAverageLimitUpHeight(averageLimitUpHeight);
+
+        LocalDate nextTradeDay = stockTradeCalendarService.findNextTradeDay(tradeDate);
+        if (nextTradeDay == null) {
+            throw new IllegalStateException(tradeDate + " 之后没有交易日历数据");
+        }
+        orderBook.setNextTradingDay((int) ChronoUnit.DAYS.between(tradeDate, nextTradeDay) - 1);
+    }
+
+    private int countConsecutiveOneWordLimitUps(StockDailyEntity... dailyRows) {
+        int count = 0;
+        for (StockDailyEntity daily : dailyRows) {
+            if (valueOrZero(daily.getKlineState()) != 3) {
+                break;
+            }
+            count++;
+        }
+        return count;
     }
 
     private int calculateInitialMarketValue(StockDailyEntity previousDaily, int consecutiveLimitUpDays) {

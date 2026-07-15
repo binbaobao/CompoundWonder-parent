@@ -26,4 +26,14 @@ public interface StockEmotionCycleDailyService extends IService<StockEmotionCycl
      * @param stockDailyList
      */
     void updateStockEmotionCycleDaily(StockEmotionCycleDailyDTO dto, List<StockDailyEntity> stockDailyList);
+
+    /**
+     * 查询一段历史区间内全市场最高连板的平均高度。
+     *
+     * @param startDateInclusive 起始日期，包含
+     * @param endDateExclusive 结束日期，不包含，避免历史回测读取当日结果
+     * @return 四舍五入后的平均高度；区间没有数据时返回 {@code null}
+     */
+    Integer queryRecentAverageLimitUpHeight(LocalDate startDateInclusive,
+                                            LocalDate endDateExclusive);
 }

@@ -22,4 +22,11 @@ public interface StockTradeCalendarService extends IService<StockTradeCalendar> 
      * 判断指定日期是否为交易日。
      */
     boolean isTradeDay(LocalDate tradeDate);
+
+    /**
+     * 查询指定日期之后的第一个交易日。
+     *
+     * @return 后续没有交易日数据时返回 {@code null}
+     */
+    LocalDate findNextTradeDay(LocalDate tradeDate);
 }

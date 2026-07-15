@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalDouble;
 
 /**
  * 股票情绪周期每日记录服务实现。
@@ -130,6 +131,25 @@ public class StockEmotionCycleDailyServiceImpl extends ServiceImpl<StockEmotionC
                 updateBatchById(entityList);
             }
         }
+    }
+
+    /**
+     * 计算历史区间内全市场每日最高连板的平均高度。
+     */
+    @Override
+    public Integer queryRecentAverageLimitUpHeight(LocalDate startDateInclusive,
+                                                   LocalDate endDateExclusive) {
+        List<StockEmotionCycleDaily> history = list(Wrappers.<StockEmotionCycleDaily>lambdaQuery()
+                .select(StockEmotionCycleDaily::getHighestConsecutiveLimitUpDays)
+                .ge(StockEmotionCycleDaily::getTradeDate, startDateInclusive)
+                .lt(StockEmotionCycleDaily::getTradeDate, endDateExclusive)
+                .orderByAsc(StockEmotionCycleDaily::getTradeDate));
+        OptionalDouble average = history.stream()
+                .map(StockEmotionCycleDaily::getHighestConsecutiveLimitUpDays)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .average();
+        return average.isPresent() ? (int) Math.round(average.getAsDouble()) : null;
     }
 
     /**

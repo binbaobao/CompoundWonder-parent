@@ -10,6 +10,8 @@ import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
+import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.ProducerType;
 import org.junit.jupiter.api.AfterEach;
@@ -64,7 +66,8 @@ class BackTestTradeServiceTest {
         engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
                 "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
-        BackTestTradeService service = new BackTestTradeService(engine, dataSource, dailyService, gateway, 1);
+        BackTestTradeService service = new BackTestTradeService(
+                engine, dataSource, dailyService, null, null, gateway, 1);
 
         assertEquals(List.of(), service.backTest("2026-07-15", "600000", 1));
     }
@@ -87,7 +90,7 @@ class BackTestTradeServiceTest {
                     throw new UnsupportedOperationException("Unexpected method: " + method.getName());
                 });
         BackTestTradeService service = new BackTestTradeService(
-                null, null, dailyService, new BacktestOrderExecutionGateway(), 1);
+                null, null, dailyService, null, null, new BacktestOrderExecutionGateway(), 1);
 
         OrderBook orderBook = service.buildOrderBook(LocalDate.of(2026, 7, 15), "600000", 1);
 
@@ -102,9 +105,47 @@ class BackTestTradeServiceTest {
     }
 
     @Test
+    void initializesSellHistoryUsingRealTradeCalculationRules() {
+        StockDailyEntity currentDaily = currentDaily();
+        StockDailyEntity yesterday = previousDaily();
+        yesterday.setKlineState(3);
+
+        StockDailyEntity twoDaysAgo = previousDaily();
+        twoDaysAgo.setTradeDate(LocalDate.of(2026, 7, 13));
+        twoDaysAgo.setTurnoverRate(30D);
+        twoDaysAgo.setVolume(800_000L);
+        twoDaysAgo.setKlineState(3);
+
+        StockDailyEntity threeDaysAgo = previousDaily();
+        threeDaysAgo.setTradeDate(LocalDate.of(2026, 7, 10));
+        threeDaysAgo.setTurnoverRate(45D);
+        threeDaysAgo.setVolume(600_000L);
+        threeDaysAgo.setKlineState(3);
+
+        StockDailyService dailyService = dailyService(
+                List.of(currentDaily, yesterday, twoDaysAgo, threeDaysAgo));
+        StockTradeCalendarService calendarService = tradeCalendarService(LocalDate.of(2026, 7, 20));
+        StockEmotionCycleDailyService emotionCycleService = emotionCycleService(4);
+        BackTestTradeService service = new BackTestTradeService(
+                null, null, dailyService, calendarService, emotionCycleService,
+                new BacktestOrderExecutionGateway(), 1);
+
+        OrderBook orderBook = service.buildOrderBook(
+                LocalDate.of(2026, 7, 15), "600000", 2);
+
+        assertEquals(-1, orderBook.getTransactionStatus());
+        assertEquals(15D, orderBook.getYesterdayTurnover());
+        assertEquals(22.5D, orderBook.getTwoDaysTurnover());
+        assertEquals(30D, orderBook.getThreeDaysTurnover());
+        assertEquals(3, orderBook.getOneWordLimitUp());
+        assertEquals(4, orderBook.getAverageLimitUpHeight());
+        assertEquals(4, orderBook.getNextTradingDay());
+    }
+
+    @Test
     void rejectsUnknownDirectionBeforeReadingData() {
         BackTestTradeService service = new BackTestTradeService(
-                null, null, null, new BacktestOrderExecutionGateway(), 1);
+                null, null, null, null, null, new BacktestOrderExecutionGateway(), 1);
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.backTest("2026-07-15", "600000", 3));
@@ -131,6 +172,42 @@ class BackTestTradeServiceTest {
         node.setQuantity(100);
         node.setDirection(direction);
         return node;
+    }
+
+    private StockDailyService dailyService(List<StockDailyEntity> dailyRows) {
+        return (StockDailyService) Proxy.newProxyInstance(
+                StockDailyService.class.getClassLoader(),
+                new Class<?>[]{StockDailyService.class},
+                (proxy, method, args) -> {
+                    if ("list".equals(method.getName())) {
+                        return dailyRows;
+                    }
+                    throw new UnsupportedOperationException("Unexpected method: " + method.getName());
+                });
+    }
+
+    private StockTradeCalendarService tradeCalendarService(LocalDate nextTradeDay) {
+        return (StockTradeCalendarService) Proxy.newProxyInstance(
+                StockTradeCalendarService.class.getClassLoader(),
+                new Class<?>[]{StockTradeCalendarService.class},
+                (proxy, method, args) -> {
+                    if ("findNextTradeDay".equals(method.getName())) {
+                        return nextTradeDay;
+                    }
+                    throw new UnsupportedOperationException("Unexpected method: " + method.getName());
+                });
+    }
+
+    private StockEmotionCycleDailyService emotionCycleService(int averageLimitUpHeight) {
+        return (StockEmotionCycleDailyService) Proxy.newProxyInstance(
+                StockEmotionCycleDailyService.class.getClassLoader(),
+                new Class<?>[]{StockEmotionCycleDailyService.class},
+                (proxy, method, args) -> {
+                    if ("queryRecentAverageLimitUpHeight".equals(method.getName())) {
+                        return averageLimitUpHeight;
+                    }
+                    throw new UnsupportedOperationException("Unexpected method: " + method.getName());
+                });
     }
 
     private StockDailyEntity previousDaily() {

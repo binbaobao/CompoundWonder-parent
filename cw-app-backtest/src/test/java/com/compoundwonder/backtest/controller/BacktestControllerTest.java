@@ -21,7 +21,7 @@ class BacktestControllerTest {
         rule.setActionType(1);
         rule.setSymbol("600000");
         BackTestTradeService tradeService = new BackTestTradeService(
-                null, null, null, new BacktestOrderExecutionGateway(), 1) {
+                null, null, null, null, null, new BacktestOrderExecutionGateway(), 1) {
             @Override
             public synchronized List<RuleRecordDTO> backTest(String date, String stockCode, int direction) {
                 return List.of(rule);
