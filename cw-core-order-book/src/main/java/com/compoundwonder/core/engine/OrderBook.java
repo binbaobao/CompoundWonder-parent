@@ -220,13 +220,17 @@ public class OrderBook {
     }
 
     /**
-     * 如果涨跌停价格计算错误还能再更新一次
+     * 开盘前修正昨收价和当日涨跌停价格，并按照修正后的价格区间重建订单簿索引。
      *
-     * @param closePrice
-     * @param limitUpPrice
-     * @param limitDownPrice
+     * <p>该方法只能在第一条行情进入订单簿前调用，禁止在盘中行情处理期间调用。</p>
+     *
+     * @param closePrice 昨收价
+     * @param limitUpPrice 当日涨停价
+     * @param limitDownPrice 当日跌停价
+     * @param securityName 证券名称
      */
-    public void updateOrderBookInfo(double closePrice, double limitUpPrice, double limitDownPrice, String securityName) {
+    public void updatePreOpenPriceLimits(double closePrice, double limitUpPrice,
+                                         double limitDownPrice, String securityName) {
         this.securityName = securityName;
         this.closePrice = (int) Math.round(closePrice * 100);
         this.limitUpPrice = (int) Math.round(limitUpPrice * 100);

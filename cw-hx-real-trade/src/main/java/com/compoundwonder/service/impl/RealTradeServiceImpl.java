@@ -312,13 +312,15 @@ public class RealTradeServiceImpl implements RealTradeService {
     }
 
     /**
-     * 更新订单簿信息
+     * 开盘前使用柜台证券信息修正订单簿的昨收价和当日涨跌停价格。
+     * 必须在第一条行情进入订单簿前调用。
      *
-     * @param pSecurity
+     * @param pSecurity 柜台返回的当日证券信息
      */
-    public void updateOrderBookInfo(CTORATstpSecurityField pSecurity) {
-        log.info("更新 {}({}) 订单簿信息: 昨收盘价:{},今涨停价:{}，今跌停价:{},总股本:{}, 流通股本:{}", pSecurity.getSecurityName(), pSecurity.getSecurityID(), pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getTotalEquity(), pSecurity.getCirculationEquity());
-        orderBookService.updateOrderBookInfo(pSecurity.getSecurityID(),pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getSecurityName());
+    public void updatePreOpenPriceLimits(CTORATstpSecurityField pSecurity) {
+        log.info("开盘前更新 {}({}) 订单簿参考价格: 昨收盘价:{},今涨停价:{}，今跌停价:{},总股本:{}, 流通股本:{}", pSecurity.getSecurityName(), pSecurity.getSecurityID(), pSecurity.getPreClosePrice(), pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getTotalEquity(), pSecurity.getCirculationEquity());
+        orderBookService.updatePreOpenPriceLimits(pSecurity.getSecurityID(), pSecurity.getPreClosePrice(),
+                pSecurity.getUpperLimitPrice(), pSecurity.getLowerLimitPrice(), pSecurity.getSecurityName());
     }
 
 

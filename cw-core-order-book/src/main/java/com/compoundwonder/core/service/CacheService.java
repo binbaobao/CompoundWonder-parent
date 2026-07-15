@@ -4,6 +4,7 @@ package com.compoundwonder.core.service;
 
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.service.OrderBookService;
 import com.compoundwonder.util.SymbolUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
@@ -20,7 +21,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-public class CacheService {
+public class CacheService implements OrderBookRepository, OrderBookService {
 
     /**
      * 股票订单簿
@@ -36,7 +37,12 @@ public class CacheService {
      * @param orderBook
      */
     public void putOrderBook(int code, OrderBook orderBook) {
-        orderBookMap.put(code, orderBook);
+        put(code, orderBook);
+    }
+
+    @Override
+    public void put(int symbolId, OrderBook orderBook) {
+        orderBookMap.put(symbolId, orderBook);
     }
 
     /**
@@ -45,6 +51,11 @@ public class CacheService {
      * @return
      */
     public Set<String> getOrderBookCodes() {
+        return getSymbols();
+    }
+
+    @Override
+    public Set<String> getSymbols() {
         return orderBookMap.keySet().stream().map(SymbolUtil::intToSymbol).collect(Collectors.toSet());
     }
 
@@ -64,7 +75,21 @@ public class CacheService {
      * @return
      */
     public OrderBook getOrderBook(int code) {
-        return orderBookMap.get(code);
+        return get(code);
+    }
+
+    @Override
+    public OrderBook get(int symbolId) {
+        return orderBookMap.get(symbolId);
+    }
+
+    @Override
+    public void updatePreOpenPriceLimits(String securityID, double closePrice, double limitUpPrice,
+                                         double limitDownPrice, String securityName) {
+        OrderBook orderBook = get(SymbolUtil.fastSymbolToInt(securityID));
+        if (orderBook != null) {
+            orderBook.updatePreOpenPriceLimits(closePrice, limitUpPrice, limitDownPrice, securityName);
+        }
     }
 
     /**
@@ -88,6 +113,11 @@ public class CacheService {
      * 收盘清除缓存
      */
     public void clearCacheMap() {
+        clear();
+    }
+
+    @Override
+    public void clear() {
         orderBookMap.clear();
     }
 }

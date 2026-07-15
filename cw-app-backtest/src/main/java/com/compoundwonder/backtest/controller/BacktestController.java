@@ -4,6 +4,7 @@ package com.compoundwonder.backtest.controller;
 import com.compoundwonder.backtest.service.BacktestService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
 import com.compoundwonder.backtest.service.StockSelectionBacktestService;
+import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.*;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,14 +26,20 @@ public class BacktestController {
 
     private final StockSelectionBacktestService stockSelectionBacktestService;
 
+    private final BackTestTradeService backTestTradeService;
+
     /**
      * 创建回测接口控制器。
      * 作用：注入回测查询服务和 Level2 分时查询服务。
      */
-    public BacktestController(BacktestService backtestService, Level2MinuteBarService level2MinuteBarService, StockSelectionBacktestService stockSelectionBacktestService) {
+    public BacktestController(BacktestService backtestService,
+                              Level2MinuteBarService level2MinuteBarService,
+                              StockSelectionBacktestService stockSelectionBacktestService,
+                              BackTestTradeService backTestTradeService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
         this.stockSelectionBacktestService = stockSelectionBacktestService;
+        this.backTestTradeService = backTestTradeService;
     }
 
 
@@ -115,6 +122,21 @@ public class BacktestController {
     public Result<String> stockSelectionBacktest(@RequestParam String date) {
         stockSelectionBacktestService.stockSelectionBacktest(date);
         return new Result<String>().ok("ss");
+    }
+
+    /**
+     * 使用指定交易日的 Level2 逐笔数据回放单只股票的订单簿。
+     *
+     * @param stockCode 股票代码
+     * @param date 回放日期
+     * @param direction 交易方向：1 买入，2 卖出
+     * @return 回放过程中触发的规则记录
+     */
+    @GetMapping("order-book/replay")
+    public Result<List<RuleRecordDTO>> replayOrderBook(@RequestParam String stockCode,
+                                                        @RequestParam String date,
+                                                        @RequestParam(defaultValue = "1") Integer direction) {
+        return new Result<List<RuleRecordDTO>>().ok(backTestTradeService.backTest(date, stockCode, direction));
     }
 
 

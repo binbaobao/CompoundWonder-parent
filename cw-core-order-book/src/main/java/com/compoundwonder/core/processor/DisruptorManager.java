@@ -2,6 +2,7 @@ package com.compoundwonder.core.processor;
 
 import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.service.DisruptorService;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.RingBuffer;
@@ -11,7 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -22,8 +22,9 @@ public class DisruptorManager implements DisruptorService {
     @Autowired
     private CacheService cacheService;
 
-    public DisruptorManager(Map<Integer, Disruptor<TickData>> disruptorMap) {
-        disruptorMap.forEach((k, v) -> disruptorArray[k] = v);
+    public DisruptorManager(DisruptorOrderBookEngine orderBookEngine) {
+        disruptorArray[0] = orderBookEngine.disruptor(0);
+        disruptorArray[1] = orderBookEngine.disruptor(1);
     }
 
 

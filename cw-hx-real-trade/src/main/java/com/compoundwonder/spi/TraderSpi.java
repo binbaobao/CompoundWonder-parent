@@ -227,7 +227,7 @@ public class TraderSpi extends CTORATstpTraderSpi {
      */
     public void OnRspQrySecurity(CTORATstpSecurityField pSecurity, CTORATstpRspInfoField pRspInfo, int nRequestID, boolean bIsLast) {
         if (pSecurity != null) {
-            realTradeService.updateOrderBookInfo(pSecurity);
+            realTradeService.updatePreOpenPriceLimits(pSecurity);
         }
     }
 }
