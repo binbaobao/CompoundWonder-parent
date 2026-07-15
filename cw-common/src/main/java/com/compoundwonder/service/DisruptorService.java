@@ -69,16 +69,4 @@ public interface DisruptorService {
      */
     void publishSnapshotData(int symbol, int time, int price, long amount, long sellVolume, long buyVolume);
 
-
-    /**
-     * 推送 实时快照信息
-     * 集合竞价 买入（只上海） 卖出
-     *
-     * @param symbol     代码
-     * @param time       快照时间
-     * @param sellVolume 竞价涨停总卖
-     * @param buyVolume  竞价涨停总买
-     */
-    void pushRealTimeSnapshot(int symbol, int time, int price, long amount, long sellVolume, long buyVolume);
-
 }

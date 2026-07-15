@@ -2,6 +2,7 @@ package com.compoundwonder.core.engine;
 
 import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.ProducerType;
@@ -31,7 +32,7 @@ class DisruptorOrderBookEngineTest {
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
         OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
 
-        engine = new DisruptorOrderBookEngine(repository, new NoOpOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -57,7 +58,7 @@ class DisruptorOrderBookEngineTest {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
-        engine = new DisruptorOrderBookEngine(repository, new NoOpOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -90,7 +91,7 @@ class DisruptorOrderBookEngineTest {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
-        engine = new DisruptorOrderBookEngine(repository, new NoOpOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -129,7 +130,7 @@ class DisruptorOrderBookEngineTest {
     @Test
     void rejectsNonMainBoardSymbol() {
         CacheService repository = new CacheService();
-        engine = new DisruptorOrderBookEngine(repository, new NoOpOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
 
@@ -137,6 +138,138 @@ class DisruptorOrderBookEngineTest {
         tick.symbolId = SymbolUtil.fastSymbolToInt("300001");
 
         assertThrows(IllegalArgumentException.class, () -> engine.publish(tick));
+    }
+
+    @Test
+    void treatsShanghaiNineThirtySnapshotAsContinuousMarketData() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600000");
+        OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        TickData snapshot = snapshot(symbolId, ConstantUtil.TIME_930, 1001);
+        engine.publish(snapshot);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(1001, orderBook.price[0]);
+    }
+
+    @Test
+    void closingAuctionSellMovesShanghaiToSellPendingOnlyOnce() {
+        assertClosingAuctionSellOnlyOnce("600000");
+    }
+
+    @Test
+    void closingAuctionSellMovesShenzhenToSellPendingOnlyOnce() {
+        assertClosingAuctionSellOnlyOnce("000001");
+    }
+
+    @Test
+    void invalidPricesAreRejectedInsteadOfReplacedWithLastPrice() {
+        CacheService repository = new CacheService();
+        int shSymbolId = SymbolUtil.fastSymbolToInt("600000");
+        int szSymbolId = SymbolUtil.fastSymbolToInt("000001");
+        OrderBook shOrderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
+        OrderBook szOrderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
+        shOrderBook.setLastPrice(1000);
+        szOrderBook.setLastPrice(1000);
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(shSymbolId, shOrderBook);
+        engine.registerOrderBook(szSymbolId, szOrderBook);
+
+        TickData shOrder = order(shSymbolId, 1, 2000, 300, (byte) 1);
+        shOrder.type = 2;
+        TickData szOrder = order(szSymbolId, 1, 2000, 300, (byte) 1);
+        szOrder.type = 2;
+        engine.publish(shOrder);
+        engine.publish(szOrder);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(0, shOrderBook.getActiveOrderCount());
+        assertEquals(0, szOrderBook.getActiveOrderCount());
+    }
+
+    @Test
+    void largeAuctionThresholdDoesNotOverflow() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600000");
+        OrderBook orderBook = new OrderBook(
+                "600000", 100_000_000_000L, 10.00, 100_000_000_000L);
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        engine.publish(snapshot(symbolId, 91_600_000, orderBook.getLimitUpPrice()));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(0, orderBook.getTransactionStatus());
+    }
+
+    @Test
+    void handlerContinuesAfterUnexpectedEventException() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600000");
+        OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
+        orderBook.setTransactionStatus(-1);
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        gateway.failSell = true;
+        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        engine.publish(snapshot(symbolId, ConstantUtil.TIME_1459, 1000));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        TickData trade = new TickData();
+        trade.symbolId = symbolId;
+        trade.dataType = 2;
+        trade.time = ConstantUtil.TIME_1500;
+        trade.price = 1000;
+        trade.quantity = 100;
+        trade.amount = 100_000;
+        engine.publish(trade);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(0, orderBook.getTransactionStatus());
+        assertEquals(100, orderBook.getVolume());
+    }
+
+    private void assertClosingAuctionSellOnlyOnce(String symbol) {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt(symbol);
+        OrderBook orderBook = new OrderBook(symbol, 1_000_000L, 10.00, 500_000L);
+        orderBook.setTransactionStatus(-1);
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        engine.publish(snapshot(symbolId, ConstantUtil.TIME_1459, 1000));
+        engine.publish(snapshot(symbolId, ConstantUtil.TIME_1459 + 1, 1000));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(-2, orderBook.getTransactionStatus());
+        assertEquals(1, gateway.sellCount);
+    }
+
+    private TickData snapshot(int symbolId, int time, int price) {
+        TickData snapshot = new TickData();
+        snapshot.symbolId = symbolId;
+        snapshot.dataType = 4;
+        snapshot.time = time;
+        snapshot.price = price;
+        snapshot.orderId = 100_000;
+        snapshot.buyerOrderId = 100;
+        snapshot.sellerOrderId = 200;
+        return snapshot;
     }
 
     private TickData order(int symbolId, int orderId, int price, int quantity, byte direction) {
@@ -151,13 +284,21 @@ class DisruptorOrderBookEngineTest {
         return order;
     }
 
-    private static final class NoOpOrderExecutionGateway implements OrderExecutionGateway {
+    private static final class RecordingOrderExecutionGateway implements OrderExecutionGateway {
+
+        private int sellCount;
+        private boolean failSell;
+
         @Override
         public void buy(String date, int symbol, int price, int time) {
         }
 
         @Override
         public void sell(String symbol, int price, int limitDownPrice) {
+            sellCount++;
+            if (failSell) {
+                throw new IllegalStateException("test sell failure");
+            }
         }
 
         @Override

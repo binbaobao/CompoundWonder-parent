@@ -6,7 +6,7 @@ package com.compoundwonder.constant;
 public class ConstantUtil {
 
 
-    public static final Integer TIME_916 = 91530000;
+    public static final Integer TIME_91530 = 91530000;
     public static final Integer TIME_920 = 92000000;
     public static final Integer TIME_91952 = 91952000;
     public static final Integer TIME_925 = 92500000;

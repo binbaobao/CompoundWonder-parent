@@ -337,6 +337,23 @@ public class OrderBook {
     }
 
     /**
+     * 获取最新成交价价位中，最早仍在队列里的委托时间。
+     *
+     * <p>用于回测结束后填充规则记录的最后委托时间，等价于旧价格 List 在最新价位
+     * 取 {@code get(0)}，但不会向外暴露可修改的订单节点。</p>
+     *
+     * @return 委托时间；最新价无有效委托时返回 0
+     */
+    public int getLastPriceOrderTime() {
+        int priceIndex = priceToIndexIfValid(lastPrice);
+        if (priceIndex < 0) {
+            return 0;
+        }
+        PriceLevel level = priceLevels[priceIndex];
+        return level == null ? 0 : level.getFirstOrderTime();
+    }
+
+    /**
      * 获取指定价格的买方剩余总量。
      */
     public long getBuyQuantity(int price) {

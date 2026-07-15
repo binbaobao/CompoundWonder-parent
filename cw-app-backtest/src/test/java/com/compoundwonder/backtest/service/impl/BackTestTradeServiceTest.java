@@ -5,7 +5,9 @@ import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.core.service.CacheService;
+import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.lmax.disruptor.YieldingWaitStrategy;
@@ -106,6 +108,29 @@ class BackTestTradeServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.backTest("2026-07-15", "600000", 3));
+    }
+
+    @Test
+    void fillsLastOrderTimeFromFirstOrderAtLastTradePrice() {
+        OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
+        orderBook.setLastPrice(1_000);
+        orderBook.addOrder(order(2, 1_000, 93_000_200, (byte) 2));
+        orderBook.addOrder(order(1, 1_000, 93_000_100, (byte) 1));
+        RuleRecordDTO record = new RuleRecordDTO();
+
+        BackTestTradeService.fillLastOrderTime(List.of(record), orderBook);
+
+        assertEquals(93_000_100, record.getLastOrderTime());
+    }
+
+    private TickNode order(int orderId, int price, int time, byte direction) {
+        TickNode node = new TickNode();
+        node.setOrderId(orderId);
+        node.setPrice(price);
+        node.setTime(time);
+        node.setQuantity(100);
+        node.setDirection(direction);
+        return node;
     }
 
     private StockDailyEntity previousDaily() {

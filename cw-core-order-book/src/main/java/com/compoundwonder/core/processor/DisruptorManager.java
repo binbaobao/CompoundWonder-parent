@@ -325,49 +325,4 @@ public class DisruptorManager implements DisruptorService {
         }
     }
 
-    /**
-     * 推送 实时快照信息
-     * 集合竞价 买入（只上海） 卖出
-     *
-     * @param symbol     代码
-     * @param time       快照时间
-     * @param sellVolume 竞价涨停总卖
-     * @param buyVolume  竞价涨停总买
-     */
-    public void pushRealTimeSnapshot(int symbol, int time, int price, long amount, long sellVolume, long buyVolume) {
-
-        if (sellVolume > Integer.MAX_VALUE) {
-            sellVolume = Integer.MAX_VALUE;
-        }
-        if (buyVolume > Integer.MAX_VALUE) {
-            buyVolume = Integer.MAX_VALUE;
-        }
-
-        int shard = SymbolUtil.getHandlerIndex(symbol);
-        Disruptor<TickData> tickDataDisruptor = disruptorArray[shard];
-        RingBuffer<TickData> ringBuffer = tickDataDisruptor.getRingBuffer();
-        long sequence = ringBuffer.next();
-        try {
-            TickData event = ringBuffer.get(sequence);
-            event.symbolId = symbol;
-            event.time = time;
-            event.dataType = 5;
-            if (amount > Integer.MAX_VALUE) {
-                event.type = 1;
-                event.orderId = (int) (amount / 100);
-            } else {
-                event.type = 0;
-                event.orderId = (int) amount;
-            }
-            event.direction = 0;
-            event.price = price;
-            event.quantity = (int) buyVolume;//集合竞价期间 买数量 手 、、 非集合竞价期间 买一量
-            event.buyerOrderId = (int) buyVolume;//集合竞价期间 买数量 手 、、 非集合竞价期间 买一量
-            event.sellerOrderId = (int) sellVolume;//集合竞价期间 卖数量 手、、 非集合竞价期间 总成交量
-            event.time1 = System.nanoTime();
-        } finally {
-            ringBuffer.publish(sequence);
-        }
-    }
-
 }

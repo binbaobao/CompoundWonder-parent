@@ -122,11 +122,16 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                     executionGateway.quickSell(orderBook.getSymbol(), orderBook.getLastPrice(), orderBook.getLimitDownPrice());
                 }
             }
+            order.time3 = System.nanoTime();
+            return;
+        } else if (order.dataType == 5) {
+            // 券商下单受理回报只用于推进当前市场时间，不修改订单簿，也不重复触发策略。
+            order.time3 = System.nanoTime();
             return;
         } else if (order.dataType == 4) {
             // 集合竞价下单只适合小市值股票
             // 上交所集合竞价期间用三秒一次的快照数据 || ConstantUtil.TIME_1457 <= order.time
-            if (ConstantUtil.TIME_930 >= order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
+            if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
                 // 涨停价格 && transStatus >= 1 && transStatus <= 2
                 int limitUpPrice = orderBook.getLimitUpPrice();
                 // 总涨停买 金额 单位 W
@@ -135,13 +140,13 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 long circulation = orderBook.getCirculation();
                 double increase = (order.price - orderBook.getClosePrice()) * 100.0 / orderBook.getClosePrice();
                 // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
-                int buyVolume = Math.toIntExact(Math.min(circulation / 20, orderBook.getMaxVolume() / 5));
+                long buyVolume = Math.min(circulation / 20, orderBook.getMaxVolume() / 5);
                 if (transStatus == 1 && order.price == limitUpPrice && order.buyerOrderId > buyVolume / 3) {
                     if (ConstantUtil.TIME_925 >= order.time && (order.sellerOrderId * 100.0 / order.buyerOrderId <= 40 || limitUpBuyAmount > 15_000)) {
                         RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                         // 买入方向的委托单，委托价格是涨停价格，这次快照比上次快照如果涨停买单多大于总卖，并且总买大于流通的 2 %
                         // 如果上面没有修改交易状态，就去判断 总涨停买如果大于 4.5% 则下单买入
-                        if (transStatus == 1 && order.buyerOrderId > buyVolume) {
+                        if (order.buyerOrderId > buyVolume) {
                             executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), order.time);
                             orderBook.setTransactionStatus(2);
                             String remark = StrUtil.format("买入 - 上午早盘竞价 {}，涨停总买占最大成交 {} % 股票代码 {},涨停总买量 {} 手,占流通股:{} %，涨停总买:{} W,", order.time, order.buyerOrderId * 100.0 / orderBook.getMaxVolume(), order.symbolId, order.buyerOrderId, order.buyerOrderId * 100.0 / circulation, limitUpBuyAmount);
@@ -159,8 +164,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                         executionGateway.sell(orderBook.getSymbol(), orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
                         String remark = StrUtil.format("卖出 - 尾盘 {} 竞价 ： 如果竞价价格 {} 比涨停价格低 {} 或者竞价买 {} 小于竞价卖 {}, 股票代码 {} 以跌停价格 {} 卖出", order.time, order.price, orderBook.getLimitUpPrice(), order.buyerOrderId, order.sellerOrderId, orderBook.getSymbol(), orderBook.getLimitDownPrice());
                         log.info(remark);
-                        orderBook.setTransactionStatus(1);
-                        transStatus = 0;
+                        orderBook.setTransactionStatus(-2);
+                        transStatus = -2;
                         RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                         ruleRecord.fill(RuleConstant.TRADING_MODE_SELL, 1, orderBook.getSymbol(), time, order.price, increase, remark);
                         ruleRecordBuffer.commit();
@@ -168,7 +173,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 }
 
                 // 如果是下单状态，在 9:19:56:500 之后判断是否撤单。总涨停买如果小于 4.5% 则撤单
-                if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_916) {
+                if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
                     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                     //集合竞价期间价格不等于涨停价直接撤单,然后把状态设置为 1 ，继续等待买入状态
                     //集合竞价期间价格不等于涨停价直接撤单,然后把状态设置为 1 ，继续等待买入状态
@@ -284,12 +289,6 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
 
     // 逐笔委托数据
     private boolean addOrder(TickData order, OrderBook orderBook) {
-        int limitDownPrice = orderBook.getLimitDownPrice();
-        int limitUpPrice = orderBook.getLimitUpPrice();
-        if (order.price < limitDownPrice || order.price > limitUpPrice) {
-            order.price = orderBook.getLastPrice();
-            log.info("委托价格异常:{}", order);
-        }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
         OrderBook.AddOrderResult result = orderBook.addOrder(tickNode);

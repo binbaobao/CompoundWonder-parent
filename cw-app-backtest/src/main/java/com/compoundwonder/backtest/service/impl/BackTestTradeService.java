@@ -86,6 +86,7 @@ public class BackTestTradeService {
             List<RuleRecordDTO> records = orderBookEngine.drainRuleRecords().stream()
                     .filter(record -> matchesDirection(record, direction))
                     .toList();
+            fillLastOrderTime(records, orderBook);
             log.info("回测完成 date={}, stockCode={}, direction={}, tickCount={}, ruleCount={}, orderBook={}",
                     tradeDate, stockCode, direction, tickCount, records.size(), orderBook);
             return records;
@@ -95,6 +96,19 @@ public class BackTestTradeService {
             }
             orderBookEngine.reset();
             executionGateway.clear();
+        }
+    }
+
+    /**
+     * 按回放结束时的最新成交价，从该价位委托队头补充规则记录的最后委托时间。
+     */
+    static void fillLastOrderTime(List<RuleRecordDTO> records, OrderBook orderBook) {
+        int lastOrderTime = orderBook.getLastPriceOrderTime();
+        if (lastOrderTime == 0) {
+            return;
+        }
+        for (RuleRecordDTO record : records) {
+            record.setLastOrderTime(lastOrderTime);
         }
     }
 

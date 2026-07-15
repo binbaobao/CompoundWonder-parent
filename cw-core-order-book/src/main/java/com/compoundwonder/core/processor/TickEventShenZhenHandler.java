@@ -101,6 +101,11 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                     executionGateway.quickSell(orderBook.getSymbol(), orderBook.getLastPrice(), orderBook.getLimitDownPrice());
                 }
             }
+            order.time3 = System.nanoTime();
+            return;
+        } else if (order.dataType == 5) {
+            // 券商下单受理回报只用于推进当前市场时间，不修改订单簿，也不重复触发策略。
+            order.time3 = System.nanoTime();
             return;
         } else if (order.dataType == 4) {
             //深圳早盘竞价卖出 TODO 急跌。低开，连续三天加速 然后低开卖出
@@ -109,7 +114,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
                 orderBook.setLastPrice(order.price);
                 RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_916) {
+                if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
                     //集合竞价期间价格不等于涨停价直接撤单,然后把状态设置为 1 ，继续等待买入状态
                     if (order.price != orderBook.getLimitUpPrice()) {
                         executionGateway.cancel(orderBook.getSymbol());
@@ -127,6 +132,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                     // 如果竞价价格比涨停价格低 或者竞价买小于竞价卖
                     if (order.price < orderBook.getLimitUpPrice() || order.buyerOrderId < order.sellerOrderId) {
                         executionGateway.sell(orderBook.getSymbol(), orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
+                        orderBook.setTransactionStatus(-2);
+                        transStatus = -2;
                         String remark = StrUtil.format("尾盘{}竞价 ： 如果竞价价格{}比涨停价格低{} 或者竞价买{}小于竞价卖{}, 股票代码 {} 以跌停价格{}卖出", order.time, order.price, orderBook.getLimitUpPrice(), order.buyerOrderId, order.sellerOrderId, orderBook.getSymbol(), orderBook.getLimitDownPrice());
                         log.info(remark);
                         ruleRecord.fill(RuleConstant.TRADING_MODE_SELL, 1, orderBook.getSymbol(), time, order.price,increase, remark);
@@ -186,7 +193,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             // 流通股
             long circulation = orderBook.getCirculation();
             // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
-            int buyVolume = Math.toIntExact(Math.min(circulation / 20, orderBook.getMaxVolume() / 5));
+            long buyVolume = Math.min(circulation / 20, orderBook.getMaxVolume() / 5);
             // 涨停总买手，大于 全部总卖手，全部总卖全部以涨停价格成交，总卖小于 2500w ，如果遇到 委托买单 大于 200w，则跟单 orderBook.getInitialMarketValue() < 120_000 || orderBook.getLbcs() > 1 || transStatus == 2) && transStatus != 0
             if (transStatus == 1 && totalSellVolume * 100.0 / limitUpBuyVolume <= 40) {
 
@@ -255,11 +262,6 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
 
     // 逐笔委托数据
     private boolean addOrder(TickData order, OrderBook orderBook) {
-        int limitDownPrice = orderBook.getLimitDownPrice();
-        int limitUpPrice = orderBook.getLimitUpPrice();
-        if (order.price < limitDownPrice || order.price > limitUpPrice) {
-            order.price = orderBook.getLastPrice();
-        }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
         OrderBook.AddOrderResult result = orderBook.addOrder(tickNode);

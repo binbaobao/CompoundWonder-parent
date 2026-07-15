@@ -20,6 +20,24 @@ public final class PriceLevel {
     private int sellOrderCount;
 
     /**
+     * 获取该价位最早仍在队列中的委托时间。
+     *
+     * <p>沪深队列已经拆成买卖两条链，因此比较两个队头的时间，保持与旧版混合
+     * List {@code get(0)} 的取值语义一致。</p>
+     *
+     * @return 队头委托时间；该价位没有有效委托时返回 0
+     */
+    public int getFirstOrderTime() {
+        if (buyHead == null) {
+            return sellHead == null ? 0 : sellHead.getTime();
+        }
+        if (sellHead == null) {
+            return buyHead.getTime();
+        }
+        return Math.min(buyHead.getTime(), sellHead.getTime());
+    }
+
+    /**
      * 将委托追加到对应买卖队列的尾部。
      */
     void add(TickNode node) {

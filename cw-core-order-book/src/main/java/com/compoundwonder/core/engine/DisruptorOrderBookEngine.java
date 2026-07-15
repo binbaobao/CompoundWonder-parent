@@ -106,6 +106,9 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
                 ringBufferSize, threadNamePrefix + "sh-", producerType, waitStrategyFactory.get());
         disruptors[SHENZHEN_HANDLER] = createDisruptor(
                 ringBufferSize, threadNamePrefix + "sz-", producerType, waitStrategyFactory.get());
+        OrderBookEventExceptionHandler exceptionHandler = new OrderBookEventExceptionHandler(repository);
+        disruptors[SHANGHAI_HANDLER].setDefaultExceptionHandler(exceptionHandler);
+        disruptors[SHENZHEN_HANDLER].setDefaultExceptionHandler(exceptionHandler);
         disruptors[SHANGHAI_HANDLER].handleEventsWith((TickEventShangHaiHandler) handlers[SHANGHAI_HANDLER]);
         disruptors[SHENZHEN_HANDLER].handleEventsWith((TickEventShenZhenHandler) handlers[SHENZHEN_HANDLER]);
     }
