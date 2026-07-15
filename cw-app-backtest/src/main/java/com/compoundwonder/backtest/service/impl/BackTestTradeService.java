@@ -6,6 +6,8 @@ import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.engine.OrderBook;
+import com.compoundwonder.core.engine.PriceLevel;
+import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
@@ -80,6 +82,7 @@ public class BackTestTradeService {
 
             orderBookEngine.awaitProcessed(replayTimeout);
             processed = true;
+            logLimitUpBuyQueue(orderBook);
             List<RuleRecordDTO> records = orderBookEngine.drainRuleRecords().stream()
                     .filter(record -> matchesDirection(record, direction))
                     .toList();
@@ -93,6 +96,51 @@ public class BackTestTradeService {
             orderBookEngine.reset();
             executionGateway.clear();
         }
+    }
+
+    /**
+     * 回放完成后打印一次涨停价买方委托队列，便于与旧 List 订单簿结果核对。
+     */
+    private void logLimitUpBuyQueue(OrderBook orderBook) {
+        if (orderBook.getStatus() % 2 != 1) {
+            return;
+        }
+
+        PriceLevel limitUpLevel = orderBook.getPriceLevel(orderBook.getLimitUpPrice());
+        if (limitUpLevel == null || limitUpLevel.getBuyHead() == null) {
+            log.warn("股票 {} 状态为涨停，但涨停价 {} 没有买方委托队列",
+                    orderBook.getSymbol(), orderBook.getLimitUpPrice());
+            return;
+        }
+
+        TickNode head = limitUpLevel.getBuyHead();
+        TickNode tail = limitUpLevel.getBuyTail();
+        int orderCount = 0;
+        int printedCount = 0;
+        StringBuilder quantities = new StringBuilder();
+        for (TickNode node = head; node != null; node = node.getNext()) {
+            orderCount++;
+            if (printedCount >= 200) {
+                continue;
+            }
+            if (printedCount > 0 && printedCount % 10 != 0) {
+                quantities.append(',');
+            }
+            quantities.append(node.getQuantity());
+            printedCount++;
+            if (printedCount % 10 == 0) {
+                quantities.append(System.lineSeparator());
+            }
+        }
+
+        log.info("股票 {} 涨停封单共计：{} 单，共计：{} 股，"
+                        + "队首委托(剩余数量:{},时间:{},订单号:{})，"
+                        + "队尾委托(剩余数量:{},时间:{},订单号:{})",
+                orderBook.getSymbol(), orderCount, limitUpLevel.getBuyQuantity(),
+                head.getQuantity(), head.getTime(), head.getOrderId(),
+                tail.getQuantity(), tail.getTime(), tail.getOrderId());
+        log.info("股票 {} 涨停封单前 {} 单（队首到队尾）：{}{}",
+                orderBook.getSymbol(), printedCount, System.lineSeparator(), quantities);
     }
 
     /**

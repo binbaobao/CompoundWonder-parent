@@ -223,7 +223,7 @@ public class OrderBook {
         this.closePrice = (int) Math.round(closePrice * 100);
         this.limitUpPrice = (int) Math.round(limitUpPrice * 100);
         this.limitDownPrice = (int) Math.round(limitDownPrice * 100);
-        this.idIndex = new Int2ObjectOpenHashMap<>();
+        this.idIndex = new Int2ObjectOpenHashMap<>(5000);
         // 价格区间变化后重新建立连续价位索引
         int range = this.limitUpPrice - this.limitDownPrice + 1;
         this.priceLevels = new PriceLevel[range];
@@ -235,19 +235,23 @@ public class OrderBook {
     /**
      * 新增委托，并同步维护订单编号索引、价位队列和全盘口数量。
      */
-    public void addOrder(TickNode node) {
-        if (idIndex.containsKey(node.getOrderId())) {
-            throw new IllegalArgumentException("重复的委托编号: " + node.getOrderId());
-        }
+    public boolean addOrder(TickNode node) {
         int priceIndex = priceToIndex(node.getPrice());
+        if (node.getDirection() != 1 && node.getDirection() != 2) {
+            throw new IllegalArgumentException("不支持的委托方向: " + node.getDirection());
+        }
+        TickNode existing = idIndex.putIfAbsent(node.getOrderId(), node);
+        if (existing != null) {
+            return false;
+        }
         PriceLevel level = priceLevels[priceIndex];
         if (level == null) {
             level = new PriceLevel();
             priceLevels[priceIndex] = level;
         }
         level.add(node);
-        idIndex.put(node.getOrderId(), node);
         increaseTotalVolume(node.getDirection(), node.getQuantity());
+        return true;
     }
 
     /**

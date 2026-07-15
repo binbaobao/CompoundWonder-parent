@@ -74,16 +74,17 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
             byte type = order.type;
             //沪市 交易类型：2-限价，10-撤单
             if (type == 2) {
-                addOrder(order, orderBook);
-                if (orderBook.buyMaxOrder.orderId == order.orderId) {
-                    if (order.direction == 1) {
-                        int quantity = orderBook.buyMaxOrder.getQuantity();
-                        orderBook.buyMaxOrder.setQuantity(quantity + order.quantity);
-                    }
-                } else {
-                    orderBook.buyMaxOrder.clear();
-                    if (order.direction == 1) {
-                        orderBook.buyMaxOrder.copyFrom(order);
+                if (addOrder(order, orderBook)) {
+                    if (orderBook.buyMaxOrder.orderId == order.orderId) {
+                        if (order.direction == 1) {
+                            int quantity = orderBook.buyMaxOrder.getQuantity();
+                            orderBook.buyMaxOrder.setQuantity(quantity + order.quantity);
+                        }
+                    } else {
+                        orderBook.buyMaxOrder.clear();
+                        if (order.direction == 1) {
+                            orderBook.buyMaxOrder.copyFrom(order);
+                        }
                     }
                 }
             } else if (type == 10) {
@@ -289,7 +290,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
 
 
     // 逐笔委托数据
-    private void addOrder(TickData order, OrderBook orderBook) {
+    private boolean addOrder(TickData order, OrderBook orderBook) {
         int limitDownPrice = orderBook.getLimitDownPrice();
         int limitUpPrice = orderBook.getLimitUpPrice();
         if (order.price < limitDownPrice || order.price > limitUpPrice) {
@@ -298,7 +299,13 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
         }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
-        orderBook.addOrder(tickNode);
+        if (orderBook.addOrder(tickNode)) {
+            return true;
+        }
+        tickNodePool.release(tickNode);
+        log.warn("上海重复委托已忽略 symbolId={}, orderId={}, price={}, quantity={}, time={}",
+                order.symbolId, order.orderId, order.price, order.quantity, order.time);
+        return false;
     }
 
 
