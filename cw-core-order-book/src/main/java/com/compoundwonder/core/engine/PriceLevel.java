@@ -38,6 +38,15 @@ public final class PriceLevel {
     }
 
     /**
+     * 获取买方队列中最早仍未离场的委托时间。
+     *
+     * @return 买方队首委托时间；没有买方委托时返回 0
+     */
+    public int getFirstBuyOrderTime() {
+        return buyHead == null ? 0 : buyHead.getTime();
+    }
+
+    /**
      * 将委托追加到对应买卖队列的尾部。
      */
     void add(TickNode node) {

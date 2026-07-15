@@ -2,12 +2,16 @@ package com.compoundwonder.backtest.controller;
 
 
 import com.compoundwonder.backtest.service.BacktestService;
+import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
 import com.compoundwonder.backtest.service.StockSelectionBacktestService;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.*;
+import com.compoundwonder.trader.entity.BacktestRun;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,6 +32,8 @@ public class BacktestController {
 
     private final BackTestTradeService backTestTradeService;
 
+    private final HistoricalBacktestTradeService historicalBacktestTradeService;
+
     /**
      * 创建回测接口控制器。
      * 作用：注入回测查询服务和 Level2 分时查询服务。
@@ -35,11 +41,13 @@ public class BacktestController {
     public BacktestController(BacktestService backtestService,
                               Level2MinuteBarService level2MinuteBarService,
                               StockSelectionBacktestService stockSelectionBacktestService,
-                              BackTestTradeService backTestTradeService) {
+                              BackTestTradeService backTestTradeService,
+                              HistoricalBacktestTradeService historicalBacktestTradeService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
         this.stockSelectionBacktestService = stockSelectionBacktestService;
         this.backTestTradeService = backTestTradeService;
+        this.historicalBacktestTradeService = historicalBacktestTradeService;
     }
 
 
@@ -137,6 +145,24 @@ public class BacktestController {
                                                         @RequestParam String date,
                                                         @RequestParam(defaultValue = "1") Integer direction) {
         return new Result<List<RuleRecordDTO>>().ok(backTestTradeService.backTest(date, stockCode, direction));
+    }
+
+    /**
+     * 按交易日串行执行完整的全仓单票历史回测。
+     */
+    @PostMapping("trade-runs")
+    public Result<BacktestRun> runHistoricalTradingBacktest(@RequestParam LocalDate startDate,
+                                                            @RequestParam LocalDate endDate) {
+        return new Result<BacktestRun>().ok(
+                historicalBacktestTradeService.startRange(startDate, endDate));
+    }
+
+    /**
+     * 查询回测任务进度和最终结果。
+     */
+    @GetMapping("trade-runs/{runId}")
+    public Result<BacktestRun> historicalTradingBacktestRun(@PathVariable Long runId) {
+        return new Result<BacktestRun>().ok(historicalBacktestTradeService.findRun(runId));
     }
 
 

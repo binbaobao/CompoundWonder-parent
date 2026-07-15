@@ -82,6 +82,21 @@ public class TradeCalculator {
     }
 
     /**
+     * 按买入数量和价格计算与买入数量计算相同口径的手续费。
+     *
+     * @param quantity 买入股数
+     * @param priceInt 买入价格，单位为分
+     * @return 买入手续费，单位为元；无效数量或价格返回 0
+     */
+    public static double calculateBuyFee(int quantity, int priceInt) {
+        if (quantity <= 0 || priceInt <= 0) {
+            return 0D;
+        }
+        double tradeAmount = quantity * (priceInt / 100.0);
+        return Math.max(MIN_FEE, tradeAmount * FEE_RATE);
+    }
+
+    /**
      * 计算卖出上限
      *
      * @param internalId

@@ -164,6 +164,65 @@ class BackTestTradeServiceTest {
         assertEquals(93_000_100, record.getLastOrderTime());
     }
 
+    @Test
+    void fillsLastOrderTimeFromBuyQueueWhenShenzhenPriceHasBothDirections() {
+        OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
+        orderBook.setLastPrice(1_000);
+        orderBook.addOrder(order(1, 1_000, 93_000_100, (byte) 2));
+        orderBook.addOrder(order(2, 1_000, 93_000_600, (byte) 1));
+        RuleRecordDTO record = new RuleRecordDTO();
+
+        BackTestTradeService.fillLastOrderTime(List.of(record), orderBook);
+
+        assertEquals(93_000_600, record.getLastOrderTime());
+    }
+
+    @Test
+    void opensBuyMonitoringOnlyAfterConfiguredTimeWhileRebuildingWholeOrderBook() {
+        StockDailyService dailyService = dailyService(List.of(
+                currentDaily(), previousDaily(), historicalDaily(LocalDate.of(2026, 7, 13), 800_000L)));
+        BacktestTickDataSource dataSource = (tradeDate, stockCode, consumer) -> {
+            consumer.accept(tradeTick(1_600_000, 92_500_000, 1_000));
+            consumer.accept(tradeTick(1_600_000, 93_000_000, 1_001));
+            consumer.accept(tradeTick(1_600_000, 93_000_001, 1_002));
+            return 3;
+        };
+        BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+                "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        BackTestTradeService service = new BackTestTradeService(
+                engine, dataSource, dailyService, null, null, gateway, 1);
+
+        BacktestReplayResult result = service.replay(
+                LocalDate.of(2026, 7, 15), "600000", BacktestReplayMode.BUY_AFTER_TIME, 93_000_000);
+
+        assertEquals(3, result.tickCount());
+        assertEquals(1, result.finalTransactionStatus());
+        assertEquals(1_002, result.lastPrice());
+    }
+
+    @Test
+    void initializesOvernightReplayWithPendingBuyStatus() {
+        StockDailyService dailyService = dailyService(List.of(
+                currentDaily(), previousDaily(), historicalDaily(LocalDate.of(2026, 7, 13), 800_000L)));
+        BacktestTickDataSource dataSource = (tradeDate, stockCode, consumer) -> {
+            consumer.accept(tradeTick(1_600_000, 91_500_000, 1_000));
+            return 1;
+        };
+        BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+                "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        BackTestTradeService service = new BackTestTradeService(
+                engine, dataSource, dailyService, null, null, gateway, 1);
+
+        BacktestReplayResult result = service.replay(
+                LocalDate.of(2026, 7, 15), "600000", BacktestReplayMode.OVERNIGHT_BUY, null);
+
+        assertEquals(2, result.finalTransactionStatus());
+    }
+
     private TickNode order(int orderId, int price, int time, byte direction) {
         TickNode node = new TickNode();
         node.setOrderId(orderId);
@@ -172,6 +231,24 @@ class BackTestTradeServiceTest {
         node.setQuantity(100);
         node.setDirection(direction);
         return node;
+    }
+
+    private TickData tradeTick(int symbolId, int time, int price) {
+        TickData tick = new TickData();
+        tick.symbolId = symbolId;
+        tick.dataType = 2;
+        tick.time = time;
+        tick.price = price;
+        tick.quantity = 100;
+        tick.amount = price;
+        return tick;
+    }
+
+    private StockDailyEntity historicalDaily(LocalDate tradeDate, long volume) {
+        StockDailyEntity daily = previousDaily();
+        daily.setTradeDate(tradeDate);
+        daily.setVolume(volume);
+        return daily;
     }
 
     private StockDailyService dailyService(List<StockDailyEntity> dailyRows) {

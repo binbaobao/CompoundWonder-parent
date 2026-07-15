@@ -337,10 +337,11 @@ public class OrderBook {
     }
 
     /**
-     * 获取最新成交价价位中，最早仍在队列里的委托时间。
+     * 获取最新成交价价位中，最早仍在买方队列里的委托时间。
      *
      * <p>用于回测结束后填充规则记录的最后委托时间，等价于旧价格 List 在最新价位
-     * 取 {@code get(0)}，但不会向外暴露可修改的订单节点。</p>
+     * 取买方队首，但不会向外暴露可修改的订单节点。深圳同一价位可能同时存在
+     * 买卖队列，买入成交延迟只与买方队列比较。</p>
      *
      * @return 委托时间；最新价无有效委托时返回 0
      */
@@ -350,7 +351,7 @@ public class OrderBook {
             return 0;
         }
         PriceLevel level = priceLevels[priceIndex];
-        return level == null ? 0 : level.getFirstOrderTime();
+        return level == null ? 0 : level.getFirstBuyOrderTime();
     }
 
     /**

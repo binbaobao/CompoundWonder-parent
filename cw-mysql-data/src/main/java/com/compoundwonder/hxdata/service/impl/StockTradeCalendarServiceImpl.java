@@ -87,4 +87,17 @@ public class StockTradeCalendarServiceImpl extends ServiceImpl<StockTradeCalenda
                 .last("LIMIT 1"));
         return nextTradeDay == null ? null : nextTradeDay.getTradeDate();
     }
+
+    @Override
+    public List<LocalDate> findTradeDays(LocalDate startDate, LocalDate endDate) {
+        return list(Wrappers.<StockTradeCalendar>lambdaQuery()
+                .select(StockTradeCalendar::getTradeDate)
+                .ge(StockTradeCalendar::getTradeDate, startDate)
+                .le(StockTradeCalendar::getTradeDate, endDate)
+                .orderByAsc(StockTradeCalendar::getTradeDate))
+                .stream()
+                .map(StockTradeCalendar::getTradeDate)
+                .distinct()
+                .toList();
+    }
 }

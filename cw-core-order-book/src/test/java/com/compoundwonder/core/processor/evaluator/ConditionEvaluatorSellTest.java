@@ -23,7 +23,7 @@ class ConditionEvaluatorSellTest {
                 .map(ConditionEvaluatorSellTest::readRuleCode)
                 .toList();
 
-        assertEquals(28, sellRuleCodes.size());
+        assertEquals(29, sellRuleCodes.size());
         assertEquals(sellRuleCodes.size(), sellRuleCodes.stream().distinct().count());
     }
 

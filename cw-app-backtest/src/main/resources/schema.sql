@@ -1,6 +1,10 @@
 CREATE TABLE `rule_execute_record`
 (
     `id`              bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `execution_source` tinyint NOT NULL DEFAULT '0' COMMENT '执行来源：0历史未知，1实盘，2回测',
+    `backtest_run_id` bigint DEFAULT NULL COMMENT '回测任务ID',
+    `position_id` bigint DEFAULT NULL COMMENT '持仓ID',
+    `watching_task_id` bigint DEFAULT NULL COMMENT '推荐任务ID',
     `action_type`     int               DEFAULT NULL COMMENT '操作类型：BUY / SELL / CANCEL / REBUY',
     `rule_code`       int               DEFAULT NULL COMMENT '规则编码',
     `symbol`          varchar(20)       DEFAULT NULL COMMENT '证券代码',
@@ -8,6 +12,11 @@ CREATE TABLE `rule_execute_record`
     `trade_date`      date              DEFAULT NULL COMMENT '交易日期',
     `time`            int               DEFAULT NULL COMMENT '下单时间',
     `last_order_time` int               DEFAULT NULL COMMENT '最后委托时间',
+    `quantity` int DEFAULT NULL COMMENT '实际买卖数量',
+    `trade_amount` decimal(18,2) DEFAULT NULL COMMENT '成交金额',
+    `fee_amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '手续费及税费',
+    `trade_mode` int DEFAULT NULL COMMENT '买入时交易模式快照',
+    `limit_up_score` int DEFAULT NULL COMMENT '买入时涨停分数快照',
     `price`           int               DEFAULT NULL COMMENT '下单价格',
     `increase` double DEFAULT NULL COMMENT '涨幅',
     `remark`          varchar(500)      DEFAULT NULL COMMENT '交易说明',
@@ -16,8 +25,12 @@ CREATE TABLE `rule_execute_record`
     KEY               `idx_symbol` (`symbol`),
     KEY               `idx_rule_code` (`rule_code`),
     KEY               `idx_action_type` (`action_type`),
-    KEY               `idx_time` (`time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表'
+    KEY               `idx_time` (`time`),
+    KEY `idx_rule_execute_backtest_date_time` (`backtest_run_id`,`trade_date`,`time`),
+    KEY `idx_rule_execute_position_action` (`position_id`,`action_type`),
+    KEY `idx_rule_execute_watching_task` (`watching_task_id`),
+    UNIQUE KEY `uk_rule_execute_backtest_event` (`backtest_run_id`,`trade_date`,`symbol`,`action_type`,`rule_code`,`time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表';
 
 CREATE TABLE `stock_emotion_cycle_daily`
 (
@@ -40,5 +53,91 @@ CREATE TABLE `stock_emotion_cycle_daily`
     KEY                                 `idx_dominant_cycle_stock_code` (`dominant_cycle_stock_code`),
     KEY                                 `idx_limit_up_count` (`limit_up_count`),
     KEY                                 `idx_consecutive_limit_up_count` (`consecutive_limit_up_count`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表';
 
+CREATE TABLE `backtest_run`
+(
+    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '回测任务ID',
+    `start_date` date NOT NULL COMMENT '开始日期',
+    `end_date` date NOT NULL COMMENT '结束日期',
+    `initial_capital` decimal(18,2) NOT NULL DEFAULT '100000.00' COMMENT '初始资金',
+    `shanghai_delay_ms` int NOT NULL DEFAULT '500' COMMENT '上海成交延迟毫秒',
+    `shenzhen_delay_ms` int NOT NULL DEFAULT '100' COMMENT '深圳成交延迟毫秒',
+    `overnight_fill_time` int NOT NULL DEFAULT '91501000' COMMENT '隔夜成交判断时间',
+    `status` tinyint NOT NULL DEFAULT '0' COMMENT '0待执行，1执行中，2完成，3失败',
+    `last_completed_date` date DEFAULT NULL COMMENT '最后完成交易日',
+    `final_asset` decimal(18,2) DEFAULT NULL COMMENT '最终资产',
+    `total_return_rate` decimal(18,8) DEFAULT NULL COMMENT '累计收益率',
+    `error_message` varchar(1000) DEFAULT NULL COMMENT '失败原因',
+    `started_time` datetime DEFAULT NULL COMMENT '开始时间',
+    `finished_time` datetime DEFAULT NULL COMMENT '完成时间',
+    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_backtest_run_status` (`status`),
+    KEY `idx_backtest_run_date_range` (`start_date`,`end_date`),
+    KEY `idx_backtest_run_last_date` (`last_completed_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测任务表';
+
+CREATE TABLE `backtest_position`
+(
+    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '持仓ID',
+    `backtest_run_id` bigint NOT NULL COMMENT '回测任务ID',
+    `watching_task_id` bigint DEFAULT NULL COMMENT '推荐任务ID',
+    `symbol` varchar(20) NOT NULL COMMENT '股票代码',
+    `symbol_name` varchar(50) DEFAULT NULL COMMENT '股票名称',
+    `trade_mode` int DEFAULT NULL COMMENT '交易模式快照',
+    `limit_up_score` int DEFAULT NULL COMMENT '涨停分数快照',
+    `buy_date` date NOT NULL COMMENT '买入日期',
+    `buy_time` int NOT NULL COMMENT '买入时间',
+    `buy_price` int NOT NULL COMMENT '买入价格，分',
+    `quantity` int NOT NULL COMMENT '持仓股数',
+    `buy_amount` decimal(18,2) NOT NULL COMMENT '买入金额',
+    `buy_fee` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '买入手续费',
+    `sell_date` date DEFAULT NULL COMMENT '卖出日期',
+    `sell_time` int DEFAULT NULL COMMENT '卖出时间',
+    `sell_price` int DEFAULT NULL COMMENT '卖出价格，分',
+    `sell_amount` decimal(18,2) DEFAULT NULL COMMENT '卖出金额',
+    `sell_fee` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '卖出手续费及税费',
+    `status` tinyint NOT NULL DEFAULT '1' COMMENT '1持仓中，2已卖出',
+    `holding_trade_days` int NOT NULL DEFAULT '1' COMMENT '持仓交易日数',
+    `realized_profit` decimal(18,2) DEFAULT NULL COMMENT '已实现收益',
+    `return_rate` decimal(18,8) DEFAULT NULL COMMENT '持仓收益率',
+    `max_floating_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '最高浮盈率',
+    `max_drawdown_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '最大回撤率',
+    `limit_up_break_days` int NOT NULL DEFAULT '0' COMMENT '炸板天数',
+    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_backtest_position_run_status` (`backtest_run_id`,`status`),
+    KEY `idx_backtest_position_run_buy_date` (`backtest_run_id`,`buy_date`),
+    KEY `idx_backtest_position_symbol_date` (`symbol`,`buy_date`),
+    KEY `idx_backtest_position_watching_task` (`watching_task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测持仓生命周期表';
+
+CREATE TABLE `backtest_daily_record`
+(
+    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `backtest_run_id` bigint NOT NULL COMMENT '回测任务ID',
+    `trade_date` date NOT NULL COMMENT '交易日期',
+    `position_id` bigint DEFAULT NULL COMMENT '持仓ID',
+    `account_status` tinyint NOT NULL DEFAULT '0' COMMENT '0空仓，1持仓',
+    `symbol` varchar(20) DEFAULT NULL COMMENT '持仓股票代码',
+    `symbol_name` varchar(50) DEFAULT NULL COMMENT '持仓股票名称',
+    `quantity` int NOT NULL DEFAULT '0' COMMENT '持仓数量',
+    `available_cash` decimal(18,2) NOT NULL COMMENT '可用现金',
+    `close_price` int DEFAULT NULL COMMENT '收盘价，分',
+    `position_market_value` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '持仓市值',
+    `total_asset` decimal(18,2) NOT NULL COMMENT '总资产',
+    `daily_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '当日收益率',
+    `cumulative_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '累计收益率',
+    `position_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '持仓收益率',
+    `kline_state` int DEFAULT NULL COMMENT '日K状态',
+    `adjust_factor` decimal(20,10) DEFAULT NULL COMMENT '复权因子',
+    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_backtest_daily_run_date` (`backtest_run_id`,`trade_date`),
+    KEY `idx_backtest_daily_position` (`position_id`),
+    KEY `idx_backtest_daily_symbol_date` (`symbol`,`trade_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测每日账户与持仓快照表';

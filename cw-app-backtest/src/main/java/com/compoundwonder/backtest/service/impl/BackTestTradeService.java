@@ -7,6 +7,7 @@ import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.PriceLevel;
+import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
@@ -22,6 +23,8 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  * 单股票历史订单簿回测编排服务。
@@ -69,12 +72,28 @@ public class BackTestTradeService {
      * @param direction 1 表示测试买入规则，2 表示测试卖出规则
      * @return 本轮对应方向触发的规则记录
      */
-    public synchronized List<RuleRecordDTO> backTest(String date, String stockCode, int direction) {
+    public List<RuleRecordDTO> backTest(String date, String stockCode, int direction) {
         validateDirection(direction);
         validateStockCode(stockCode);
         LocalDate tradeDate = LocalDate.parse(date);
+        BacktestReplayMode mode = direction == 1 ? BacktestReplayMode.BUY : BacktestReplayMode.SELL;
+        return replay(tradeDate, stockCode, mode, null).records().stream()
+                .filter(record -> matchesDirection(record, direction))
+                .toList();
+    }
+
+    /**
+     * 按指定场景执行一次单股票、单交易日订单簿回放。
+     *
+     * <p>{@link BacktestReplayMode#BUY_AFTER_TIME} 仍会从当天第一条 Tick 开始构建订单簿，
+     * 只是到达允许时间后的第一条 Tick 前才打开买入监控。</p>
+     */
+    public synchronized BacktestReplayResult replay(LocalDate tradeDate, String stockCode,
+                                                     BacktestReplayMode mode, Integer allowedAfterTime) {
+        validateStockCode(stockCode);
+        validateReplayMode(mode, allowedAfterTime);
         int symbolId = SymbolUtil.fastSymbolToInt(stockCode);
-        OrderBook orderBook = buildOrderBook(tradeDate, stockCode, direction);
+        OrderBook orderBook = buildOrderBook(tradeDate, stockCode, mode);
 
         orderBookEngine.reset();
         executionGateway.clear();
@@ -84,7 +103,8 @@ public class BackTestTradeService {
         boolean processed = false;
         try {
             replayStarted = true;
-            long tickCount = tickDataSource.replay(tradeDate, stockCode, orderBookEngine::publish);
+            Consumer<TickData> consumer = replayConsumer(symbolId, mode, allowedAfterTime);
+            long tickCount = tickDataSource.replay(tradeDate, stockCode, consumer);
             if (tickCount == 0) {
                 throw new IllegalStateException(tradeDate + " 没有找到股票 " + stockCode + " 的 Level2 Tick");
             }
@@ -92,13 +112,18 @@ public class BackTestTradeService {
             orderBookEngine.awaitProcessed(replayTimeout);
             processed = true;
             logLimitUpBuyQueue(orderBook);
-            List<RuleRecordDTO> records = orderBookEngine.drainRuleRecords().stream()
-                    .filter(record -> matchesDirection(record, direction))
-                    .toList();
-            fillLastOrderTime(records, orderBook);
-            log.info("回测完成 date={}, stockCode={}, direction={}, tickCount={}, ruleCount={}, orderBook={}",
-                    tradeDate, stockCode, direction, tickCount, records.size(), orderBook);
-            return records;
+            List<RuleRecordDTO> records = orderBookEngine.drainRuleRecords();
+            fillLastOrderTime(records.stream()
+                    .filter(record -> Integer.valueOf(RuleConstant.TRADING_MODE_BUY)
+                            .equals(record.getActionType()))
+                    .toList(), orderBook);
+            BacktestReplayResult result = new BacktestReplayResult(
+                    tradeDate, stockCode, orderBook.getSecurityName(), mode, records,
+                    orderBook.getTransactionStatus(), orderBook.getLastPriceOrderTime(),
+                    orderBook.getLimitUpPrice(), orderBook.getLastPrice(), tickCount);
+            log.info("回测完成 date={}, stockCode={}, mode={}, tickCount={}, ruleCount={}, orderBook={}",
+                    tradeDate, stockCode, mode, tickCount, records.size(), orderBook);
+            return result;
         } finally {
             if (replayStarted && !processed) {
                 awaitPartiallyPublishedTicks();
@@ -106,6 +131,26 @@ public class BackTestTradeService {
             orderBookEngine.reset();
             executionGateway.clear();
         }
+    }
+
+    private Consumer<TickData> replayConsumer(int symbolId, BacktestReplayMode mode,
+                                              Integer allowedAfterTime) {
+        if (mode != BacktestReplayMode.BUY_AFTER_TIME) {
+            return orderBookEngine::publish;
+        }
+        AtomicBoolean monitoringOpened = new AtomicBoolean(false);
+        return tick -> {
+            if (!monitoringOpened.get() && tick.time > allowedAfterTime) {
+                TickData control = new TickData();
+                control.symbolId = symbolId;
+                control.time = tick.time;
+                control.dataType = 3;
+                control.type = 1;
+                orderBookEngine.publish(control);
+                monitoringOpened.set(true);
+            }
+            orderBookEngine.publish(tick);
+        };
     }
 
     /**
@@ -167,6 +212,12 @@ public class BackTestTradeService {
      * <p>当天日 K 提供 prevClose 和流通股本；名称和所有策略统计仍使用回测日前的数据。</p>
      */
     OrderBook buildOrderBook(LocalDate tradeDate, String stockCode, int direction) {
+        validateDirection(direction);
+        return buildOrderBook(tradeDate, stockCode,
+                direction == 1 ? BacktestReplayMode.BUY : BacktestReplayMode.SELL);
+    }
+
+    OrderBook buildOrderBook(LocalDate tradeDate, String stockCode, BacktestReplayMode mode) {
         List<StockDailyEntity> dailyRows = stockDailyService.list(
                 Wrappers.<StockDailyEntity>lambdaQuery()
                         .eq(StockDailyEntity::getStockCode, stockCode)
@@ -208,11 +259,20 @@ public class BackTestTradeService {
         orderBook.setYesterdayTurnover(valueOrZero(previousDaily.getTurnoverRate()));
         orderBook.setInitialMarketValue(calculateInitialMarketValue(previousDaily, orderBook.getLbcs()));
         orderBook.setMaxHs(maxVolume * 100.0 / circulation);
-        orderBook.setTransactionStatus(direction == 1 ? 1 : -1);
-        if (direction == 2) {
+        orderBook.setTransactionStatus(initialTransactionStatus(mode));
+        if (mode == BacktestReplayMode.SELL) {
             initializeSellHistory(orderBook, history, tradeDate, stockCode);
         }
         return orderBook;
+    }
+
+    private int initialTransactionStatus(BacktestReplayMode mode) {
+        return switch (mode) {
+            case BUY -> 1;
+            case SELL -> -1;
+            case OVERNIGHT_BUY -> 2;
+            case BUY_AFTER_TIME -> 0;
+        };
     }
 
     /**
@@ -280,6 +340,15 @@ public class BackTestTradeService {
     private void validateDirection(int direction) {
         if (direction != 1 && direction != 2) {
             throw new IllegalArgumentException("direction 只能是 1（买入）或 2（卖出）");
+        }
+    }
+
+    private void validateReplayMode(BacktestReplayMode mode, Integer allowedAfterTime) {
+        if (mode == null) {
+            throw new IllegalArgumentException("回放模式不能为空");
+        }
+        if (mode == BacktestReplayMode.BUY_AFTER_TIME && allowedAfterTime == null) {
+            throw new IllegalArgumentException("卖出后买入回放必须提供允许买入时间");
         }
     }
 

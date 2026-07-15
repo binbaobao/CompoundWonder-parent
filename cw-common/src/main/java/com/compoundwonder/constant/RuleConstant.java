@@ -43,5 +43,7 @@ public class RuleConstant {
     public static final int SELL_AVERAGE_BREAK_WITH_PEAK_DRAWDOWN = 209;
     public static final int SELL_AVERAGE_BREAK_LATE_OR_HIGH_TURNOVER = 210;
 
+    // 回测确定性卖出规则（301-399）
+    public static final int SELL_BACKTEST_LIMIT_UP_BREAK_NEXT_OPEN = 301;
 
 }

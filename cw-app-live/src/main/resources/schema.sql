@@ -1,6 +1,10 @@
 CREATE TABLE `rule_execute_record`
 (
     `id`              bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `execution_source` tinyint NOT NULL DEFAULT '0' COMMENT '执行来源：0历史未知，1实盘，2回测',
+    `backtest_run_id` bigint DEFAULT NULL COMMENT '回测任务ID',
+    `position_id` bigint DEFAULT NULL COMMENT '持仓ID',
+    `watching_task_id` bigint DEFAULT NULL COMMENT '推荐任务ID',
     `action_type`     int               DEFAULT NULL COMMENT '操作类型：BUY / SELL / CANCEL / REBUY',
     `rule_code`       int               DEFAULT NULL COMMENT '规则编码',
     `symbol`          varchar(20)       DEFAULT NULL COMMENT '证券代码',
@@ -8,6 +12,11 @@ CREATE TABLE `rule_execute_record`
     `trade_date`      date              DEFAULT NULL COMMENT '交易日期',
     `time`            int               DEFAULT NULL COMMENT '下单时间',
     `last_order_time` int               DEFAULT NULL COMMENT '最后委托时间',
+    `quantity` int DEFAULT NULL COMMENT '实际买卖数量',
+    `trade_amount` decimal(18,2) DEFAULT NULL COMMENT '成交金额',
+    `fee_amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '手续费及税费',
+    `trade_mode` int DEFAULT NULL COMMENT '买入时交易模式快照',
+    `limit_up_score` int DEFAULT NULL COMMENT '买入时涨停分数快照',
     `price`           int               DEFAULT NULL COMMENT '下单价格',
     `increase` double DEFAULT NULL COMMENT '涨幅',
     `remark`          varchar(500)      DEFAULT NULL COMMENT '交易说明',
@@ -16,8 +25,12 @@ CREATE TABLE `rule_execute_record`
     KEY               `idx_symbol` (`symbol`),
     KEY               `idx_rule_code` (`rule_code`),
     KEY               `idx_action_type` (`action_type`),
-    KEY               `idx_time` (`time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表'
+    KEY               `idx_time` (`time`),
+    KEY `idx_rule_execute_backtest_date_time` (`backtest_run_id`,`trade_date`,`time`),
+    KEY `idx_rule_execute_position_action` (`position_id`,`action_type`),
+    KEY `idx_rule_execute_watching_task` (`watching_task_id`),
+    UNIQUE KEY `uk_rule_execute_backtest_event` (`backtest_run_id`,`trade_date`,`symbol`,`action_type`,`rule_code`,`time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表';
 
 CREATE TABLE `stock_emotion_cycle_daily`
 (
@@ -40,5 +53,4 @@ CREATE TABLE `stock_emotion_cycle_daily`
     KEY                                 `idx_dominant_cycle_stock_code` (`dominant_cycle_stock_code`),
     KEY                                 `idx_limit_up_count` (`limit_up_count`),
     KEY                                 `idx_consecutive_limit_up_count` (`consecutive_limit_up_count`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表'
-
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表';

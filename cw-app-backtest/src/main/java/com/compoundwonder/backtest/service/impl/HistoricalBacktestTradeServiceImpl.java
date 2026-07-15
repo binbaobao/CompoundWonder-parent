@@ -1,0 +1,474 @@
+package com.compoundwonder.backtest.service.impl;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
+import com.compoundwonder.constant.ConstantUtil;
+import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.dto.RuleRecordDTO;
+import com.compoundwonder.hxdata.entity.StockDailyEntity;
+import com.compoundwonder.hxdata.service.StockDailyService;
+import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.trader.entity.BacktestDailyRecord;
+import com.compoundwonder.trader.entity.BacktestPosition;
+import com.compoundwonder.trader.entity.BacktestRun;
+import com.compoundwonder.trader.entity.StockWatchingTask;
+import com.compoundwonder.util.SymbolUtil;
+import com.compoundwonder.util.TradeCalculator;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+
+/**
+ * 按交易日串行执行推荐股票回测，并维护唯一持仓和每日权益。
+ */
+@Slf4j
+@Service
+public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTradeService {
+
+    private static final BigDecimal INITIAL_CAPITAL = new BigDecimal("100000.00");
+    private static final BigDecimal ZERO_MONEY = new BigDecimal("0.00");
+    private static final int POSITION_OPEN = 1;
+    private static final int POSITION_CLOSED = 2;
+    private static final int ACCOUNT_EMPTY = 0;
+    private static final int ACCOUNT_HOLDING = 1;
+    private static final int OVERNIGHT_BUY_RULE_CODE = 1;
+
+    private final BackTestTradeService replayService;
+    private final BacktestPersistenceService persistenceService;
+    private final StockTradeCalendarService calendarService;
+    private final StockDailyService stockDailyService;
+    private final Executor backtestExecutor;
+
+    public HistoricalBacktestTradeServiceImpl(BackTestTradeService replayService,
+                                              BacktestPersistenceService persistenceService,
+                                              StockTradeCalendarService calendarService,
+                                              StockDailyService stockDailyService,
+                                              @Qualifier("historicalBacktestExecutor") Executor backtestExecutor) {
+        this.replayService = replayService;
+        this.persistenceService = persistenceService;
+        this.calendarService = calendarService;
+        this.stockDailyService = stockDailyService;
+        this.backtestExecutor = backtestExecutor;
+    }
+
+    @Override
+    public BacktestRun startRange(LocalDate startDate, LocalDate endDate) {
+        validateDateRange(startDate, endDate);
+        BacktestRun run = persistenceService.createRun(startDate, endDate, INITIAL_CAPITAL);
+        try {
+            backtestExecutor.execute(() -> executeRun(run));
+            return run;
+        } catch (RejectedExecutionException exception) {
+            persistenceService.failRun(run.getId(), exception);
+            throw new IllegalStateException("历史回测任务队列已满，请稍后重试", exception);
+        }
+    }
+
+    @Override
+    public BacktestRun runRange(LocalDate startDate, LocalDate endDate) {
+        validateDateRange(startDate, endDate);
+        BacktestRun run = persistenceService.createRun(startDate, endDate, INITIAL_CAPITAL);
+        executeRun(run);
+        return persistenceService.findRun(run.getId());
+    }
+
+    private synchronized void executeRun(BacktestRun run) {
+        AccountState account = new AccountState(INITIAL_CAPITAL, INITIAL_CAPITAL);
+        try {
+            List<LocalDate> tradeDays = calendarService.findTradeDays(run.getStartDate(), run.getEndDate());
+            if (tradeDays.isEmpty()) {
+                throw new IllegalArgumentException("回测区间没有交易日: "
+                        + run.getStartDate() + " 至 " + run.getEndDate());
+            }
+            for (LocalDate tradeDate : tradeDays) {
+                processDay(run.getId(), tradeDate, account);
+            }
+            BigDecimal totalReturnRate = rate(account.previousTotalAsset.subtract(INITIAL_CAPITAL), INITIAL_CAPITAL);
+            persistenceService.completeRun(run.getId(), account.previousTotalAsset, totalReturnRate);
+        } catch (RuntimeException exception) {
+            persistenceService.failRun(run.getId(), exception);
+            log.error("历史回测失败 runId={}, startDate={}, endDate={}",
+                    run.getId(), run.getStartDate(), run.getEndDate(), exception);
+        }
+    }
+
+    @Override
+    public BacktestRun findRun(long runId) {
+        BacktestRun run = persistenceService.findRun(runId);
+        if (run == null) {
+            throw new IllegalArgumentException("回测任务不存在: " + runId);
+        }
+        return run;
+    }
+
+    private void processDay(long runId, LocalDate tradeDate, AccountState account) {
+        List<StockWatchingTask> tasks = persistenceService.findWatchingTasks(tradeDate);
+        BacktestPosition previousPosition = account.position;
+        RuleRecordDTO sellRule = null;
+        RuleRecordDTO buyRule = null;
+        StockWatchingTask buyTask = null;
+        BacktestPosition newPosition = null;
+
+        if (previousPosition != null) {
+            if (tradeDate.isAfter(previousPosition.getBuyDate())) {
+                previousPosition.setHoldingTradeDays(valueOrZero(previousPosition.getHoldingTradeDays()) + 1);
+            }
+            sellRule = createBreakBoardNextOpenSellRule(
+                    previousPosition, tradeDate, account.positionBuyKlineState);
+            if (sellRule == null) {
+                BacktestReplayResult sellResult = replayService.replay(
+                        tradeDate, previousPosition.getSymbol(), BacktestReplayMode.SELL, null);
+                sellRule = sellResult.firstSellRecord().orElse(null);
+            }
+            if (sellRule != null) {
+                closePosition(previousPosition, sellRule, tradeDate, account);
+                String soldSymbol = previousPosition.getSymbol();
+                account.position = null;
+                account.positionBuyKlineState = null;
+                BuyCandidate candidate = findEarliestBuy(
+                        tradeDate, tasks, sellRule.getTime(), Set.of(soldSymbol));
+                if (candidate != null) {
+                    buyTask = candidate.task();
+                    buyRule = candidate.rule();
+                }
+            }
+        } else if (!tasks.isEmpty()) {
+            StockWatchingTask overnightTask = tasks.get(0);
+            BacktestReplayResult overnightResult = replayService.replay(
+                    tradeDate, overnightTask.getStockCode(), BacktestReplayMode.OVERNIGHT_BUY, null);
+            RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
+            if (cancelRule != null) {
+                BuyCandidate candidate = findEarliestBuy(
+                        tradeDate, tasks, cancelRule.getTime(), Set.of());
+                if (candidate != null) {
+                    buyTask = candidate.task();
+                    buyRule = candidate.rule();
+                }
+            } else if (BacktestExecutionPolicy.isOvernightBuyFillable(overnightResult.lastOrderTime())) {
+                buyTask = overnightTask;
+                buyRule = overnightBuyRule(overnightResult);
+            }
+        }
+
+        if (account.position == null && buyRule != null && buyTask != null) {
+            newPosition = openPosition(runId, tradeDate, buyTask, buyRule, account);
+            account.position = newPosition;
+            if (newPosition == null) {
+                buyRule = null;
+                buyTask = null;
+            }
+        }
+
+        BacktestDailyRecord dailyRecord = buildDailyRecord(tradeDate, account);
+        if (newPosition != null) {
+            account.positionBuyKlineState = dailyRecord.getKlineState();
+        }
+        persistenceService.saveDay(new BacktestDayWrite(
+                runId, tradeDate, previousPosition, newPosition,
+                sellRule, buyRule, buyTask, dailyRecord));
+        account.previousTotalAsset = dailyRecord.getTotalAsset();
+        log.info("完成单日回测 runId={}, date={}, tasks={}, sell={}, buy={}, holding={}, totalAsset={}",
+                runId, tradeDate, tasks.size(), sellRule == null ? null : sellRule.getSymbol(),
+                buyRule == null ? null : buyRule.getSymbol(),
+                account.position == null ? null : account.position.getSymbol(), dailyRecord.getTotalAsset());
+    }
+
+    private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
+                                         int allowedAfterTime, Set<String> excludedSymbols) {
+        List<BuyCandidate> candidates = new ArrayList<>();
+        Set<String> replayedSymbols = new HashSet<>();
+        Set<String> nonBuyableSymbols = findNonBuyableSymbols(tradeDate, tasks);
+        for (StockWatchingTask task : tasks) {
+            String symbol = task.getStockCode();
+            if (symbol == null || excludedSymbols.contains(symbol) || !replayedSymbols.add(symbol)) {
+                continue;
+            }
+            if (nonBuyableSymbols.contains(symbol)) {
+                log.debug("跳过当日未触及涨停的候选股票 date={}, symbol={}", tradeDate, symbol);
+                continue;
+            }
+            try {
+                BacktestReplayResult result = replayService.replay(
+                        tradeDate, symbol, BacktestReplayMode.BUY_AFTER_TIME, allowedAfterTime);
+                for (RuleRecordDTO record : result.records()) {
+                    if (Integer.valueOf(RuleConstant.TRADING_MODE_BUY).equals(record.getActionType())
+                            && BacktestExecutionPolicy.isIntradayBuyFillable(record)) {
+                        record.setPrice(result.limitUpPrice());
+                        candidates.add(new BuyCandidate(task, record));
+                    }
+                }
+            } catch (IllegalArgumentException exception) {
+                log.warn("跳过缺少回测数据的候选股票 date={}, symbol={}, reason={}",
+                        tradeDate, symbol, exception.getMessage());
+            }
+        }
+        return candidates.stream()
+                .min(java.util.Comparator.comparingInt(candidate -> candidate.rule().getTime()))
+                .orElse(null);
+    }
+
+    /**
+     * 一次性查询当天 {@code kline_state <= 0} 的候选股票，避免逐只查询日 K，
+     * 也避免为全天没有触及涨停的股票读取并回放 Parquet。
+     *
+     * <p>日 K 缺失或状态为空的股票不在跳过集合中，仍由原回放流程暴露数据问题。</p>
+     */
+    private Set<String> findNonBuyableSymbols(LocalDate tradeDate, List<StockWatchingTask> tasks) {
+        List<String> symbols = tasks.stream()
+                .map(StockWatchingTask::getStockCode)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (symbols.isEmpty()) {
+            return Set.of();
+        }
+
+        List<StockDailyEntity> dailyRows = stockDailyService.list(
+                Wrappers.<StockDailyEntity>query()
+                        .select("stock_code")
+                        .eq("trade_date", tradeDate)
+                        .in("stock_code", symbols)
+                        .le("kline_state", 0));
+        Set<String> nonBuyableSymbols = new HashSet<>(dailyRows.size());
+        for (StockDailyEntity daily : dailyRows) {
+            if (daily.getStockCode() != null) {
+                nonBuyableSymbols.add(daily.getStockCode());
+            }
+        }
+        return nonBuyableSymbols;
+    }
+
+    /**
+     * 买入当天已经炸板的持仓，下一交易日直接按日 K 开盘价卖出。
+     *
+     * <p>该规则不依赖下一交易日 Level2，可覆盖历史只备份 {@code kline_state > 0}
+     * 股票 Tick 的数据范围。炸板状态口径为 11、12、13。</p>
+     */
+    private RuleRecordDTO createBreakBoardNextOpenSellRule(BacktestPosition position,
+                                                            LocalDate tradeDate,
+                                                            Integer buyKlineState) {
+        if (!tradeDate.isAfter(position.getBuyDate()) || !isLimitUpBreakState(buyKlineState)) {
+            return null;
+        }
+
+        StockDailyEntity sellDaily = findStockDaily(position.getSymbol(), tradeDate);
+        int openPrice = cents(sellDaily.getOpenPrice());
+        RuleRecordDTO rule = new RuleRecordDTO();
+        rule.setActionType(RuleConstant.TRADING_MODE_SELL);
+        rule.setRuleCode(RuleConstant.SELL_BACKTEST_LIMIT_UP_BREAK_NEXT_OPEN);
+        rule.setSymbol(position.getSymbol());
+        rule.setTime(ConstantUtil.TIME_930);
+        rule.setPrice(openPrice);
+        if (sellDaily.getPrevClose() != null && sellDaily.getPrevClose() > 0) {
+            rule.setIncrease((sellDaily.getOpenPrice() - sellDaily.getPrevClose())
+                    * 100D / sellDaily.getPrevClose());
+        }
+        rule.setRemark("回测卖出 - 买入日炸板，下一交易日按开盘价成交；买入日K线状态="
+                + buyKlineState);
+        return rule;
+    }
+
+    private boolean isLimitUpBreakState(Integer klineState) {
+        return klineState != null && klineState >= 11 && klineState <= 13;
+    }
+
+    private RuleRecordDTO overnightBuyRule(BacktestReplayResult result) {
+        RuleRecordDTO rule = new RuleRecordDTO();
+        rule.setActionType(RuleConstant.TRADING_MODE_BUY);
+        rule.setRuleCode(OVERNIGHT_BUY_RULE_CODE);
+        rule.setSymbol(result.symbol());
+        rule.setTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
+        rule.setLastOrderTime(result.lastOrderTime());
+        rule.setPrice(result.limitUpPrice());
+        rule.setRemark("隔夜涨停买单未撤单，回放结束队首时间满足成交条件");
+        return rule;
+    }
+
+    private BacktestPosition openPosition(long runId, LocalDate tradeDate, StockWatchingTask task,
+                                          RuleRecordDTO buyRule, AccountState account) {
+        int symbolId = SymbolUtil.fastSymbolToInt(task.getStockCode());
+        TradeCalculator.OrderResultContainer orders = TradeCalculator.calculateBuyOrders(
+                symbolId, account.cash.doubleValue(), buyRule.getPrice());
+        int quantity = 0;
+        for (int i = 0; i < orders.getSize(); i++) {
+            quantity += orders.getOrder(i).quantity;
+        }
+        if (quantity == 0) {
+            return null;
+        }
+
+        BigDecimal buyAmount = tradeAmount(quantity, buyRule.getPrice());
+        BigDecimal buyFee = BigDecimal.valueOf(
+                        TradeCalculator.calculateBuyFee(quantity, buyRule.getPrice()))
+                .setScale(2, RoundingMode.HALF_UP);
+        account.cash = account.cash.subtract(buyAmount).subtract(buyFee);
+        BacktestPosition position = new BacktestPosition();
+        position.setBacktestRunId(runId);
+        position.setWatchingTaskId(task.getId());
+        position.setSymbol(task.getStockCode());
+        position.setSymbolName(task.getStockName());
+        position.setTradeMode(task.getTradeMode());
+        position.setLimitUpScore(task.getLimitUpScore());
+        position.setBuyDate(tradeDate);
+        position.setBuyTime(buyRule.getTime());
+        position.setBuyPrice(buyRule.getPrice());
+        position.setQuantity(quantity);
+        position.setBuyAmount(buyAmount);
+        position.setBuyFee(buyFee);
+        position.setSellFee(ZERO_MONEY);
+        position.setStatus(POSITION_OPEN);
+        position.setHoldingTradeDays(1);
+        position.setMaxFloatingReturnRate(BigDecimal.ZERO);
+        position.setMaxDrawdownRate(BigDecimal.ZERO);
+        position.setLimitUpBreakDays(0);
+        return position;
+    }
+
+    private void closePosition(BacktestPosition position, RuleRecordDTO sellRule,
+                               LocalDate tradeDate, AccountState account) {
+        if (sellRule.getPrice() == null || sellRule.getPrice() <= 0) {
+            throw new IllegalStateException("卖出规则缺少有效价格: " + position.getSymbol() + " " + tradeDate);
+        }
+        BigDecimal sellAmount = tradeAmount(position.getQuantity(), sellRule.getPrice());
+        account.cash = account.cash.add(sellAmount);
+        position.setSellDate(tradeDate);
+        position.setSellTime(sellRule.getTime());
+        position.setSellPrice(sellRule.getPrice());
+        position.setSellAmount(sellAmount);
+        position.setStatus(POSITION_CLOSED);
+        BigDecimal realizedProfit = sellAmount.subtract(position.getBuyAmount())
+                .subtract(valueOrZero(position.getBuyFee()))
+                .subtract(valueOrZero(position.getSellFee()));
+        position.setRealizedProfit(realizedProfit);
+        position.setReturnRate(rate(realizedProfit,
+                position.getBuyAmount().add(valueOrZero(position.getBuyFee()))));
+    }
+
+    private BacktestDailyRecord buildDailyRecord(LocalDate tradeDate, AccountState account) {
+        BacktestDailyRecord daily = new BacktestDailyRecord();
+        daily.setAvailableCash(account.cash);
+        daily.setQuantity(0);
+        daily.setPositionMarketValue(ZERO_MONEY);
+        daily.setAccountStatus(ACCOUNT_EMPTY);
+
+        BigDecimal totalAsset = account.cash;
+        if (account.position != null) {
+            BacktestPosition position = account.position;
+            StockDailyEntity stockDaily = findStockDaily(position.getSymbol(), tradeDate);
+            int closePrice = cents(stockDaily.getClosePrice());
+            BigDecimal marketValue = tradeAmount(position.getQuantity(), closePrice);
+            BigDecimal positionProfit = marketValue.subtract(position.getBuyAmount())
+                    .subtract(valueOrZero(position.getBuyFee()));
+            BigDecimal positionReturn = rate(positionProfit,
+                    position.getBuyAmount().add(valueOrZero(position.getBuyFee())));
+            updatePositionMetrics(position, stockDaily, positionReturn);
+
+            totalAsset = account.cash.add(marketValue);
+            daily.setPositionId(position.getId());
+            daily.setAccountStatus(ACCOUNT_HOLDING);
+            daily.setSymbol(position.getSymbol());
+            daily.setSymbolName(position.getSymbolName());
+            daily.setQuantity(position.getQuantity());
+            daily.setClosePrice(closePrice);
+            daily.setPositionMarketValue(marketValue);
+            daily.setPositionReturnRate(positionReturn);
+            daily.setKlineState(stockDaily.getKlineState());
+            if (stockDaily.getAdjustFactor() != null) {
+                daily.setAdjustFactor(BigDecimal.valueOf(stockDaily.getAdjustFactor()));
+            }
+        } else {
+            daily.setPositionReturnRate(BigDecimal.ZERO);
+        }
+
+        daily.setTotalAsset(totalAsset);
+        daily.setDailyReturnRate(rate(totalAsset.subtract(account.previousTotalAsset), account.previousTotalAsset));
+        daily.setCumulativeReturnRate(rate(totalAsset.subtract(INITIAL_CAPITAL), INITIAL_CAPITAL));
+        return daily;
+    }
+
+    private void updatePositionMetrics(BacktestPosition position, StockDailyEntity daily,
+                                       BigDecimal currentReturn) {
+        BigDecimal maxReturn = valueOrZero(position.getMaxFloatingReturnRate()).max(currentReturn);
+        position.setMaxFloatingReturnRate(maxReturn);
+        BigDecimal drawdown = maxReturn.subtract(currentReturn).max(BigDecimal.ZERO);
+        position.setMaxDrawdownRate(valueOrZero(position.getMaxDrawdownRate()).max(drawdown));
+        Integer klineState = daily.getKlineState();
+        if (klineState != null && klineState >= 11 && klineState <= 13) {
+            position.setLimitUpBreakDays(valueOrZero(position.getLimitUpBreakDays()) + 1);
+        }
+    }
+
+    private StockDailyEntity findStockDaily(String symbol, LocalDate tradeDate) {
+        StockDailyEntity daily = stockDailyService.getOne(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getStockCode, symbol)
+                .eq(StockDailyEntity::getTradeDate, tradeDate)
+                .last("LIMIT 1"));
+        if (daily == null || daily.getClosePrice() == null) {
+            throw new IllegalStateException(tradeDate + " 缺少持仓股票 " + symbol + " 的日K数据");
+        }
+        return daily;
+    }
+
+    private BigDecimal tradeAmount(int quantity, int price) {
+        return BigDecimal.valueOf(quantity)
+                .multiply(BigDecimal.valueOf(price))
+                .movePointLeft(2)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal rate(BigDecimal numerator, BigDecimal denominator) {
+        if (numerator.signum() == 0 || denominator.signum() == 0) {
+            return BigDecimal.ZERO;
+        }
+        return numerator.divide(denominator, 8, RoundingMode.HALF_UP);
+    }
+
+    private int cents(Double price) {
+        if (price == null || price <= 0) {
+            throw new IllegalStateException("日K价格无效: " + price);
+        }
+        return (int) Math.round(price * 100);
+    }
+
+    private void validateDateRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null) {
+            throw new IllegalArgumentException("回测开始和结束日期不能为空");
+        }
+        if (startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("回测开始日期不能晚于结束日期");
+        }
+    }
+
+    private int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private BigDecimal valueOrZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private record BuyCandidate(StockWatchingTask task, RuleRecordDTO rule) {
+    }
+
+    private static final class AccountState {
+        private BigDecimal cash;
+        private BigDecimal previousTotalAsset;
+        private BacktestPosition position;
+        private Integer positionBuyKlineState;
+
+        private AccountState(BigDecimal cash, BigDecimal previousTotalAsset) {
+            this.cash = cash;
+            this.previousTotalAsset = previousTotalAsset;
+        }
+    }
+}

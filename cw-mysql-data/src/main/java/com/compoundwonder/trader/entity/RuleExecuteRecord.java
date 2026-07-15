@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -21,6 +22,15 @@ public class RuleExecuteRecord {
      */
     @TableId(type = IdType.AUTO)
     private Long id;
+
+    /** 0 历史未知，1 实盘，2 回测。 */
+    private Integer executionSource;
+
+    private Long backtestRunId;
+
+    private Long positionId;
+
+    private Long watchingTaskId;
 
     /**
      * BUY / SELL / CANCEL / REBUY
@@ -56,6 +66,16 @@ public class RuleExecuteRecord {
      * 最后委托时间。
      */
     private Integer lastOrderTime;
+
+    private Integer quantity;
+
+    private BigDecimal tradeAmount;
+
+    private BigDecimal feeAmount;
+
+    private Integer tradeMode;
+
+    private Integer limitUpScore;
 
     /**
      * 下单价格。

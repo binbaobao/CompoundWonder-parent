@@ -5,6 +5,7 @@ import com.compoundwonder.hxdata.entity.StockTradeCalendar;
 
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * 股票交易日历服务。
@@ -29,4 +30,9 @@ public interface StockTradeCalendarService extends IService<StockTradeCalendar> 
      * @return 后续没有交易日数据时返回 {@code null}
      */
     LocalDate findNextTradeDay(LocalDate tradeDate);
+
+    /**
+     * 查询闭区间内的全部交易日并按日期升序返回。
+     */
+    List<LocalDate> findTradeDays(LocalDate startDate, LocalDate endDate);
 }
