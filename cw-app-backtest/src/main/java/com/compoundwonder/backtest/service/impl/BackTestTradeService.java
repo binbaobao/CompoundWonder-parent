@@ -115,14 +115,9 @@ public class BackTestTradeService {
 
         TickNode head = limitUpLevel.getBuyHead();
         TickNode tail = limitUpLevel.getBuyTail();
-        int orderCount = 0;
         int printedCount = 0;
         StringBuilder quantities = new StringBuilder();
-        for (TickNode node = head; node != null; node = node.getNext()) {
-            orderCount++;
-            if (printedCount >= 200) {
-                continue;
-            }
+        for (TickNode node = head; node != null && printedCount < 200; node = node.getNext()) {
             if (printedCount > 0 && printedCount % 10 != 0) {
                 quantities.append(',');
             }
@@ -136,7 +131,7 @@ public class BackTestTradeService {
         log.info("股票 {} 涨停封单共计：{} 单，共计：{} 股，"
                         + "队首委托(剩余数量:{},时间:{},订单号:{})，"
                         + "队尾委托(剩余数量:{},时间:{},订单号:{})",
-                orderBook.getSymbol(), orderCount, limitUpLevel.getBuyQuantity(),
+                orderBook.getSymbol(), limitUpLevel.getBuyOrderCount(), limitUpLevel.getBuyQuantity(),
                 head.getQuantity(), head.getTime(), head.getOrderId(),
                 tail.getQuantity(), tail.getTime(), tail.getOrderId());
         log.info("股票 {} 涨停封单前 {} 单（队首到队尾）：{}{}",

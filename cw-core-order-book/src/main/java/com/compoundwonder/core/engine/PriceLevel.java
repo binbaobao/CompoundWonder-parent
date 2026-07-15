@@ -16,6 +16,8 @@ public final class PriceLevel {
     private TickNode sellTail;
     private long buyQuantity;
     private long sellQuantity;
+    private int buyOrderCount;
+    private int sellOrderCount;
 
     /**
      * 将委托追加到对应买卖队列的尾部。
@@ -32,6 +34,7 @@ public final class PriceLevel {
             }
             buyTail = node;
             buyQuantity += node.getQuantity();
+            buyOrderCount++;
             return;
         }
         if (node.getDirection() == 2) {
@@ -43,6 +46,7 @@ public final class PriceLevel {
             }
             sellTail = node;
             sellQuantity += node.getQuantity();
+            sellOrderCount++;
             return;
         }
         throw new IllegalArgumentException("不支持的委托方向: " + node.getDirection());
@@ -78,10 +82,6 @@ public final class PriceLevel {
         return remaining;
     }
 
-    boolean isEmpty() {
-        return buyHead == null && sellHead == null;
-    }
-
     private void decreaseQuantity(byte direction, int quantity) {
         if (direction == 1) {
             buyQuantity -= quantity;
@@ -107,6 +107,11 @@ public final class PriceLevel {
         }
         node.setPrevious(null);
         node.setNext(null);
+        if (node.getDirection() == 1) {
+            buyOrderCount--;
+        } else {
+            sellOrderCount--;
+        }
     }
 
     private void setHead(byte direction, TickNode node) {

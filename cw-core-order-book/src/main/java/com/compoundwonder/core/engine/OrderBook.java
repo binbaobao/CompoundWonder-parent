@@ -2,8 +2,9 @@ package com.compoundwonder.core.engine;
 
 import com.compoundwonder.constant.MarketEnum;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.ToString;
 
 import java.util.Arrays;
@@ -12,23 +13,34 @@ import java.util.function.Consumer;
 /**
  * 股票订单簿
  */
-@Data
-@EqualsAndHashCode(callSuper = false)
+@Getter
+@ToString
 public class OrderBook {
+
+    private static final int DEFAULT_ACTIVE_ORDER_CAPACITY = 5_000;
+
+    public enum AddOrderResult {
+        ADDED,
+        DUPLICATE,
+        INVALID_PRICE,
+        INVALID_DIRECTION
+    }
 
     /**
      * 证券代码
      */
-    private String symbol;
+    private final String symbol;
 
+    @Setter
     private String securityName;
     /**
      * 市场分类
      */
-    private MarketEnum market;
+    private final MarketEnum market;
     /**
      * 交易日期
      */
+    @Setter
     private String date;
 
     // 股票状态 1涨停 2.炸板 3回封涨停
@@ -36,10 +48,12 @@ public class OrderBook {
 
     //
     // 0 任务暂时不执行 或 任务已经执行(已经买入或者已经卖出)， 1 待买入，2 买入待撤单  -1待卖出 -2 卖出待撤单
+    @Setter
     private int transactionStatus = 0;
     /**
      * 连班次数
      */
+    @Setter
     private int lbcs;
 
     /**
@@ -53,6 +67,7 @@ public class OrderBook {
     /**
      * 最新价格
      */
+    @Setter
     private int lastPrice;
     /**
      * 最低
@@ -105,60 +120,71 @@ public class OrderBook {
     /**
      * 成交额
      */
+    @Setter
     private long turnover;
     /**
      * 成交量
      */
+    @Setter
     private long volume;
     /**
      * 最大成交量
      */
-    private long maxVolume;
+    private final long maxVolume;
     /**
      * 最大换手
      */
+    @Setter
     private double maxHs;
     /**
      * 流通股
      */
-    private long circulation;
+    private final long circulation;
     /**
      * 启动市值 万
      */
+    @Setter
     private int initialMarketValue;
     /**
      * 前两日换手率
      * 判断是否连续缩量
      * 15.5% 为界限
      */
+    @Setter
     private double threeDaysTurnover;
     /**
      * 前两日换手率
      * 判断是否连续缩量
      * 15.5% 为界限
      */
+    @Setter
     private double twoDaysTurnover;
     /**
      * 昨天换手
      */
+    @Setter
     private double yesterdayTurnover;
     /**
      * 一字板涨停
      */
+    @Setter
     private int oneWordLimitUp;
     /**
      * 查询最近 15 天 平均高度
      */
+    @Setter
     private int averageLimitUpHeight;
     /**
      * 距离下个交易日的天数
      */
+    @Setter
     private int nextTradingDay;
 
     /**
      * 涨停买总金额，不涨停没有这个字段
      *
      */
+    @Setter
     private long limitUpBuyAmount;
     /**
      * 最新涨停时间
@@ -166,9 +192,11 @@ public class OrderBook {
     private int lastLimitUptime;
 
     // 主索引：快速 orderId 删除
+    @Getter(AccessLevel.NONE)
     @ToString.Exclude
     private Int2ObjectOpenHashMap<TickNode> idIndex;
     // 二级索引：连续价格档位 + 档位内买卖双向队列
+    @Getter(AccessLevel.NONE)
     @ToString.Exclude
     private PriceLevel[] priceLevels;
     // 均价 ，每一分钟采集一次
@@ -177,19 +205,12 @@ public class OrderBook {
     @ToString.Exclude
     public final int[] price = new int[60 * 4];
 
-    public int totalBuyVolume = 0;
+    private long totalBuyVolume = 0;
 
-    public int totalSellVolume = 0;
+    private long totalSellVolume = 0;
     @ToString.Exclude
-    public TickNode buyMaxOrder;
+    public final TickNode buyMaxOrder;
 //    public TickNode sellMaxOrder;
-    /**
-     * 上一次的快照
-     */
-    @ToString.Exclude
-    private TickData snapshot;
-
-
     public OrderBook(String symbol, long circulation, double closePrice, long maxVolume) {
         this.symbol = symbol;
         this.market = MarketEnum.getMarketEnum(symbol);
@@ -199,7 +220,7 @@ public class OrderBook {
         this.limitUpPrice = ((this.closePrice * (market ? 110 : 120)) + 50) / 100;
         this.limitDownPrice = ((this.closePrice * (market ? 90 : 80)) + 50) / 100;
         this.maxVolume = maxVolume;
-        this.idIndex = new Int2ObjectOpenHashMap<>();
+        this.idIndex = new Int2ObjectOpenHashMap<>(DEFAULT_ACTIVE_ORDER_CAPACITY);
         this.limitUpBreakLowestPrice = this.limitUpPrice;
         // 价格档位对象在首笔委托到达时按需创建
         int range = limitUpPrice - limitDownPrice + 1;
@@ -223,7 +244,7 @@ public class OrderBook {
         this.closePrice = (int) Math.round(closePrice * 100);
         this.limitUpPrice = (int) Math.round(limitUpPrice * 100);
         this.limitDownPrice = (int) Math.round(limitDownPrice * 100);
-        this.idIndex = new Int2ObjectOpenHashMap<>(5000);
+        this.idIndex = new Int2ObjectOpenHashMap<>(DEFAULT_ACTIVE_ORDER_CAPACITY);
         // 价格区间变化后重新建立连续价位索引
         int range = this.limitUpPrice - this.limitDownPrice + 1;
         this.priceLevels = new PriceLevel[range];
@@ -235,14 +256,17 @@ public class OrderBook {
     /**
      * 新增委托，并同步维护订单编号索引、价位队列和全盘口数量。
      */
-    public boolean addOrder(TickNode node) {
-        int priceIndex = priceToIndex(node.getPrice());
+    public AddOrderResult addOrder(TickNode node) {
         if (node.getDirection() != 1 && node.getDirection() != 2) {
-            throw new IllegalArgumentException("不支持的委托方向: " + node.getDirection());
+            return AddOrderResult.INVALID_DIRECTION;
+        }
+        int priceIndex = priceToIndexIfValid(node.getPrice());
+        if (priceIndex < 0) {
+            return AddOrderResult.INVALID_PRICE;
         }
         TickNode existing = idIndex.putIfAbsent(node.getOrderId(), node);
         if (existing != null) {
-            return false;
+            return AddOrderResult.DUPLICATE;
         }
         PriceLevel level = priceLevels[priceIndex];
         if (level == null) {
@@ -251,7 +275,7 @@ public class OrderBook {
         }
         level.add(node);
         increaseTotalVolume(node.getDirection(), node.getQuantity());
-        return true;
+        return AddOrderResult.ADDED;
     }
 
     /**
@@ -272,7 +296,6 @@ public class OrderBook {
             return null;
         }
         idIndex.remove(orderId);
-        removeEmptyPriceLevel(priceIndex, level);
         return node;
     }
 
@@ -290,7 +313,6 @@ public class OrderBook {
         PriceLevel level = priceLevels[priceIndex];
         int cancelled = level.remove(node);
         decreaseTotalVolume(node.getDirection(), cancelled);
-        removeEmptyPriceLevel(priceIndex, level);
         return node;
     }
 
@@ -330,18 +352,31 @@ public class OrderBook {
         return level == null ? 0 : level.getSellQuantity();
     }
 
+    /**
+     * 当前仍在订单簿中的有效委托数量。
+     */
+    public int getActiveOrderCount() {
+        return idIndex.size();
+    }
+
+    /**
+     * 判断订单号是否仍在订单簿中，不暴露可修改的主索引。
+     */
+    public boolean containsOrder(int orderId) {
+        return idIndex.containsKey(orderId);
+    }
+
     private int priceToIndex(int price) {
-        int index = price - limitDownPrice;
-        if (index < 0 || index >= priceLevels.length) {
+        int index = priceToIndexIfValid(price);
+        if (index < 0) {
             throw new IllegalArgumentException("委托价格超出订单簿范围: " + price);
         }
         return index;
     }
 
-    private void removeEmptyPriceLevel(int priceIndex, PriceLevel level) {
-        if (level.isEmpty()) {
-            priceLevels[priceIndex] = null;
-        }
+    private int priceToIndexIfValid(int price) {
+        int index = price - limitDownPrice;
+        return index < 0 || index >= priceLevels.length ? -1 : index;
     }
 
     private void increaseTotalVolume(byte direction, int quantity) {
@@ -397,7 +432,7 @@ public class OrderBook {
     private static final double ALPHA = 0.25;
 
     /**
-     * 每50笔逐笔数据更新一次EMA
+     * 每20笔逐笔数据更新一次EMA
      */
     @ToString.Exclude
     private static final int EMA_UPDATE_INTERVAL = 20;
@@ -412,7 +447,7 @@ public class OrderBook {
      * EMA封单量
      */
     @ToString.Exclude
-    private int lastEmaVolume = 0;
+    private double lastEmaVolume = 0;
 
     /**
      * EMA变化率
@@ -423,34 +458,38 @@ public class OrderBook {
     /**
      * 封单变化100万立即更新一次EMA
      */
-    private static final int EMA_AMOUNT_CHANGE = 100;
+    private static final long EMA_AMOUNT_CHANGE = 100L;
 
     /**
      * 上次计算EMA时的封单金额
      */
-    private int lastSealAmount = 0;
+    private long lastSealAmount = 0;
 
 
     public void updateLimitUpStatus() {
         if (this.time == 0) {
             return;
         }
+        long limitUpOrderVolume = getBuyQuantity(limitUpPrice);
+        long currentLimitUpBuyAmount = limitUpOrderVolume / 100L * limitUpPrice / 10000L;
         // 一笔砸穿的情况，涨停买还有，但是价格可能已经不是涨停价了
         if (this.lastLimitUptime != 0 && lastPrice != limitUpPrice) {
             this.lastLimitUptime = 0;
         }
         // 在没涨停的时候，一个大的委托买单会吃掉笼子内所有卖单
-        if (this.status % 2 == 0 && lastPrice == limitUpPrice && getBuyQuantity(limitUpPrice) > 0) {
+        if (this.status % 2 == 0 && lastPrice == limitUpPrice && limitUpOrderVolume > 0) {
             // 封单
             // 涨停买一总金额，不涨停这个字段是 0
-            this.limitUpBuyAmount = getBuyQuantity(limitUpPrice) / 100L * limitUpPrice / 10000L;
+            this.limitUpBuyAmount = currentLimitUpBuyAmount;
             // 封单大于 100万 视为一次涨停封单
             if (this.limitUpBuyAmount > 100) {
                 this.status++;
                 this.lastLimitUptime = time;
                 this.lastEmaVolume = 0;
+                this.emaCounter = 0;
             }
         } else if (this.status % 2 == 1) {
+            this.limitUpBuyAmount = currentLimitUpBuyAmount;
             // 如果是涨停的状态，但是成交价已经不是涨停价，视为破板
             // 如果涨停封单金额小于 100万
             if (lastPrice != limitUpPrice || this.limitUpBuyAmount < 100) {
@@ -459,20 +498,17 @@ public class OrderBook {
                 this.lastEmaVolume = 0;
                 this.changePercent = 0;
                 this.lastSealAmount = 0;
+                this.emaCounter = 0;
             } else {
-                long limitUpOrderVolume = getBuyQuantity(limitUpPrice);
-                // 涨停买一总金额，不涨停这个字段是 0
-                this.limitUpBuyAmount = limitUpOrderVolume / 100L * limitUpPrice / 10000L;
-
-                int currentSealAmount = (int) this.limitUpBuyAmount;
+                long currentSealAmount = this.limitUpBuyAmount;
 
                 // 触发条件：
-                // 1. 达到50笔
+                // 1. 达到20笔
                 // 2. 封单变化超过100万
                 boolean needUpdate =
                         ++emaCounter >= EMA_UPDATE_INTERVAL
                                 || Math.abs(currentSealAmount - lastSealAmount) >= EMA_AMOUNT_CHANGE;
-                this.lastSealAmount = (int) this.limitUpBuyAmount;
+                this.lastSealAmount = this.limitUpBuyAmount;
 
 
                 if (needUpdate && limitUpBuyAmount > 100) {
@@ -490,7 +526,7 @@ public class OrderBook {
                         changePercent = Math.round((currentEma - lastEmaVolume) / lastEmaVolume * 10000.0) / 100.0;
                     }
 
-                    lastEmaVolume = (int) currentEma;
+                    lastEmaVolume = currentEma;
 
                     // 记录本次计算使用的封单金额
                     lastSealAmount = currentSealAmount;

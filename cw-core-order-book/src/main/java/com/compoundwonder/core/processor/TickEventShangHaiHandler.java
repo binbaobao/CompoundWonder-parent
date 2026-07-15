@@ -133,13 +133,6 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 long limitUpBuyAmount = order.buyerOrderId / 100L * limitUpPrice / 10000L;
 
                 long circulation = orderBook.getCirculation();
-                TickData snapshot = orderBook.getSnapshot();
-                // 将这一次的快照放入
-                orderBook.setSnapshot(order);
-                if (snapshot == null) {
-                    snapshot = new TickData();
-                    snapshot.quantity = 0;
-                }
                 double increase = (order.price - orderBook.getClosePrice()) * 100.0 / orderBook.getClosePrice();
                 // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
                 int buyVolume = Math.toIntExact(Math.min(circulation / 20, orderBook.getMaxVolume() / 5));
@@ -299,12 +292,13 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
         }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
-        if (orderBook.addOrder(tickNode)) {
+        OrderBook.AddOrderResult result = orderBook.addOrder(tickNode);
+        if (result == OrderBook.AddOrderResult.ADDED) {
             return true;
         }
         tickNodePool.release(tickNode);
-        log.warn("上海重复委托已忽略 symbolId={}, orderId={}, price={}, quantity={}, time={}",
-                order.symbolId, order.orderId, order.price, order.quantity, order.time);
+        log.warn("上海委托已忽略 reason={}, symbolId={}, orderId={}, direction={}, price={}, quantity={}, time={}",
+                result, order.symbolId, order.orderId, order.direction, order.price, order.quantity, order.time);
         return false;
     }
 

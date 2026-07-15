@@ -68,7 +68,7 @@ class DisruptorOrderBookEngineTest {
 
         engine.reset();
 
-        assertEquals(0, orderBook.getIdIndex().size());
+        assertEquals(0, orderBook.getActiveOrderCount());
         assertEquals(0, orderBook.getBuyQuantity(1000));
         assertEquals(0, orderBook.getTotalBuyVolume());
 

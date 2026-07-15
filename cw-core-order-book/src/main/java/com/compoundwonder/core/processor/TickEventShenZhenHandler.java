@@ -180,7 +180,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             int limitUpPrice = orderBook.getLimitUpPrice();
             // 涨停总买手数
             long limitUpBuyVolume = orderBook.getBuyQuantity(limitUpPrice);
-            int totalSellVolume = orderBook.getTotalSellVolume();
+            long totalSellVolume = orderBook.getTotalSellVolume();
             // 总涨停买 金额 单位 W
             long limitUpBuyAmount = limitUpBuyVolume / 100L * limitUpPrice / 10000L;
             // 流通股
@@ -262,12 +262,13 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         }
         TickNode tickNode = tickNodePool.borrowNode();
         tickNode.copyFrom(order);
-        if (orderBook.addOrder(tickNode)) {
+        OrderBook.AddOrderResult result = orderBook.addOrder(tickNode);
+        if (result == OrderBook.AddOrderResult.ADDED) {
             return true;
         }
         tickNodePool.release(tickNode);
-        log.warn("深圳重复委托已忽略 symbolId={}, orderId={}, price={}, quantity={}, time={}",
-                order.symbolId, order.orderId, order.price, order.quantity, order.time);
+        log.warn("深圳委托已忽略 reason={}, symbolId={}, orderId={}, direction={}, price={}, quantity={}, time={}",
+                result, order.symbolId, order.orderId, order.direction, order.price, order.quantity, order.time);
         return false;
     }
 
