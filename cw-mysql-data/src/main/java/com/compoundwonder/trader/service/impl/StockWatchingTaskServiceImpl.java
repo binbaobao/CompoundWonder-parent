@@ -104,6 +104,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         List<StockWatchingTask> eligibleTasks = new ArrayList<>();
         for (StockSelectionAssistDTO dto : assistList) {
+            int priorTwentyDayAbnormalCount = Objects.requireNonNullElse(
+                    dto.getPriorTwentyDayAbnormalKlineStateCount(), 0);
+            if (!isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount)) {
+                logSelectionFiltered("首板", dto, "前20日非正常K线次数",
+                        "actual=" + priorTwentyDayAbnormalCount + ", required<4");
+                continue;
+            }
+
             int abnormalCount = Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0);
             if (abnormalCount > 20) {
                 logSelectionFiltered("首板", dto, "非正常状态次数", "actual=" + abnormalCount + ", required<20");
@@ -261,6 +269,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         for (StockSelectionAssistDTO dto : assistList) {
             log.info("连板------:{}:{}", calculateSelectionScore(dto), dto);
 
+            int priorTwentyDayAbnormalCount = Objects.requireNonNullElse(
+                    dto.getPriorTwentyDayAbnormalKlineStateCount(), 0);
+            if (!isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount)) {
+                logSelectionFiltered("连板", dto, "前20日非正常K线次数",
+                        "actual=" + priorTwentyDayAbnormalCount + ", required<4");
+                continue;
+            }
+
             int oneWordLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0);
             if (oneWordLimitUpDays >= 2) {
                 logSelectionFiltered("连板", dto, "一字板次数", "actual=" + oneWordLimitUpDays + ", required<2");
@@ -286,7 +302,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
             double fiveDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
 
-            if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 50){
+            if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 48){
                 logSelectionFiltered("3连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<50");
                 continue;
             }
@@ -297,8 +313,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
-            if (consecutiveLimitUpDays == 2 && fiveDayAmplitude >= 35){
-                logSelectionFiltered("2连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<35");
+            if (consecutiveLimitUpDays == 2 && fiveDayAmplitude >= 34){
+                logSelectionFiltered("2连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<34");
                 continue;
             }
 
@@ -591,6 +607,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 findRecentThreeMonthHighestConsecutiveLimitUpDays(
                         selectionWindowDailyList, recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
+        assist.setPriorTwentyDayAbnormalKlineStateCount(
+                countPriorTwentyDayAbnormalKlineState(
+                        recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setSelectionAmplitude(calculateSelectionAdjustedAmplitude(
                 ascRecentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setTenDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 10));
@@ -598,14 +617,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 查询当前交易日前 10 个交易日和当天，用于计算选股振幅、10 日涨跌幅等辅助指标。
+     * 查询当前交易日及之前最多 22 个交易日：最多跳过本轮 3 个连板日后，再统计前 20 个交易日。
      */
     private List<StockDailyEntity> listRecentDaily(StockDailyEntity stockDaily) {
         return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getStockCode, stockDaily.getStockCode())
                 .le(StockDailyEntity::getTradeDate, stockDaily.getTradeDate())
                 .orderByDesc(StockDailyEntity::getTradeDate)
-                .last("LIMIT 11"));
+                .last("LIMIT 23"));
     }
 
     /**
@@ -765,6 +784,29 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .filter(klineState -> klineState != 0)
                 .count();
         return Math.max(0, Math.toIntExact(abnormalCount) - currentConsecutiveDays);
+    }
+
+    /**
+     * 统计本轮连续涨停开始前 20 个交易日中 klineState != 0 的日 K 数量。
+     * recentDailyList 按交易日倒序排列，先按当前连板数跳过本轮涨停日，再读取之前 20 根日 K。
+     */
+    static int countPriorTwentyDayAbnormalKlineState(
+            List<StockDailyEntity> recentDailyList, Integer consecutiveLimitUpDays) {
+        int currentConsecutiveDays = Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 0));
+        return Math.toIntExact(recentDailyList.stream()
+                .skip(currentConsecutiveDays)
+                .limit(20)
+                .map(StockDailyEntity::getKlineState)
+                .filter(Objects::nonNull)
+                .filter(klineState -> klineState != 0)
+                .count());
+    }
+
+    /**
+     * 前 20 个交易日非正常 K 线少于 4 次才允许进入后续筛选。
+     */
+    static boolean isRecentAbnormalKlineCountAllowed(Integer abnormalCount) {
+        return Objects.requireNonNullElse(abnormalCount, 0) < 4;
     }
 
     /**

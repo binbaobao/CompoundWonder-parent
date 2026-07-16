@@ -92,6 +92,12 @@ public class StockSelectionAssistDTO {
     private Integer abnormalKlineStateCount;
 
     /**
+     * 本轮连续涨停开始前 20 个交易日的非正常 K 线数量，不包含本轮连板；
+     * 非正常 K 线口径为 klineState != 0。
+     */
+    private Integer priorTwentyDayAbnormalKlineStateCount;
+
+    /**
      * 选股振幅：首板使用包含当日在内的 3 个交易日，连板使用 5 个交易日；
      * 以窗口内最低复权价为基准，计算到当日复权收盘价的涨幅。
      */
