@@ -71,6 +71,38 @@ public class BacktestPersistenceService {
         return runMapper.selectById(runId);
     }
 
+    /** 查询最近创建的历史回测任务。 */
+    public List<BacktestRun> findRecentRuns(int limit) {
+        return runMapper.selectList(Wrappers.<BacktestRun>lambdaQuery()
+                .orderByDesc(BacktestRun::getId)
+                .last("LIMIT " + limit));
+    }
+
+    /** 查询任务的每日权益记录，按交易日正序返回。 */
+    public List<BacktestDailyRecord> findDailyRecords(long runId) {
+        return dailyRecordMapper.selectList(Wrappers.<BacktestDailyRecord>lambdaQuery()
+                .eq(BacktestDailyRecord::getBacktestRunId, runId)
+                .orderByAsc(BacktestDailyRecord::getTradeDate));
+    }
+
+    /** 查询任务的持仓生命周期，按买入日期和主键正序返回。 */
+    public List<BacktestPosition> findPositions(long runId) {
+        return positionMapper.selectList(Wrappers.<BacktestPosition>lambdaQuery()
+                .eq(BacktestPosition::getBacktestRunId, runId)
+                .orderByAsc(BacktestPosition::getBuyDate)
+                .orderByAsc(BacktestPosition::getId));
+    }
+
+    /** 查询任务中实际执行的交易规则，按交易日期、时间和主键正序返回。 */
+    public List<RuleExecuteRecord> findRules(long runId) {
+        return ruleRecordMapper.selectList(Wrappers.<RuleExecuteRecord>lambdaQuery()
+                .eq(RuleExecuteRecord::getBacktestRunId, runId)
+                .eq(RuleExecuteRecord::getExecutionSource, EXECUTION_SOURCE_BACKTEST)
+                .orderByAsc(RuleExecuteRecord::getTradeDate)
+                .orderByAsc(RuleExecuteRecord::getTime)
+                .orderByAsc(RuleExecuteRecord::getId));
+    }
+
     public List<StockWatchingTask> findWatchingTasks(LocalDate tradeDate) {
         return watchingTaskMapper.selectList(Wrappers.<StockWatchingTask>lambdaQuery()
                 .eq(StockWatchingTask::getTradeDate, tradeDate)

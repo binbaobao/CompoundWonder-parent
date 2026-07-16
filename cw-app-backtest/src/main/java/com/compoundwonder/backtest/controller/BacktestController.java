@@ -6,7 +6,10 @@ import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.*;
+import com.compoundwonder.trader.entity.BacktestDailyRecord;
+import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
+import com.compoundwonder.trader.entity.RuleExecuteRecord;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -157,12 +160,36 @@ public class BacktestController {
                 historicalBacktestTradeService.startRange(startDate, endDate));
     }
 
+    /** 查询最近创建的完整历史回测任务，供前端选择查看。 */
+    @GetMapping("trade-runs")
+    public Result<List<BacktestRun>> historicalTradingBacktestRuns(@RequestParam(defaultValue = "20") Integer limit) {
+        return new Result<List<BacktestRun>>().ok(historicalBacktestTradeService.findRecentRuns(limit));
+    }
+
     /**
      * 查询回测任务进度和最终结果。
      */
     @GetMapping("trade-runs/{runId}")
     public Result<BacktestRun> historicalTradingBacktestRun(@PathVariable Long runId) {
         return new Result<BacktestRun>().ok(historicalBacktestTradeService.findRun(runId));
+    }
+
+    /** 查询完整历史回测的每日权益记录。 */
+    @GetMapping("trade-runs/{runId}/daily-records")
+    public Result<List<BacktestDailyRecord>> historicalTradingBacktestDailyRecords(@PathVariable Long runId) {
+        return new Result<List<BacktestDailyRecord>>().ok(historicalBacktestTradeService.findDailyRecords(runId));
+    }
+
+    /** 查询完整历史回测的持仓生命周期。 */
+    @GetMapping("trade-runs/{runId}/positions")
+    public Result<List<BacktestPosition>> historicalTradingBacktestPositions(@PathVariable Long runId) {
+        return new Result<List<BacktestPosition>>().ok(historicalBacktestTradeService.findPositions(runId));
+    }
+
+    /** 查询完整历史回测中实际生效的交易规则。 */
+    @GetMapping("trade-runs/{runId}/rules")
+    public Result<List<RuleExecuteRecord>> historicalTradingBacktestRules(@PathVariable Long runId) {
+        return new Result<List<RuleExecuteRecord>>().ok(historicalBacktestTradeService.findRules(runId));
     }
 
 

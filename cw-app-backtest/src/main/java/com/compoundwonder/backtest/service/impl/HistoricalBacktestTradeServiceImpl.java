@@ -11,6 +11,7 @@ import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.trader.entity.BacktestDailyRecord;
 import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
+import com.compoundwonder.trader.entity.RuleExecuteRecord;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.TradeCalculator;
@@ -109,6 +110,34 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             throw new IllegalArgumentException("回测任务不存在: " + runId);
         }
         return run;
+    }
+
+    /** 查询最近创建的历史回测任务。 */
+    @Override
+    public List<BacktestRun> findRecentRuns(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        return persistenceService.findRecentRuns(safeLimit);
+    }
+
+    /** 查询任务的每日账户权益快照。 */
+    @Override
+    public List<BacktestDailyRecord> findDailyRecords(long runId) {
+        findRun(runId);
+        return persistenceService.findDailyRecords(runId);
+    }
+
+    /** 查询任务的完整持仓生命周期。 */
+    @Override
+    public List<BacktestPosition> findPositions(long runId) {
+        findRun(runId);
+        return persistenceService.findPositions(runId);
+    }
+
+    /** 查询任务中实际生效的交易规则。 */
+    @Override
+    public List<RuleExecuteRecord> findRules(long runId) {
+        findRun(runId);
+        return persistenceService.findRules(runId);
     }
 
     private void processDay(long runId, LocalDate tradeDate, AccountState account) {
