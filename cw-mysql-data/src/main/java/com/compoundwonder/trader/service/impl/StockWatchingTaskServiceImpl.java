@@ -282,10 +282,28 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                         + ", nonStMonthCount=" + nonStMonthCount + ", listingMonthCount=" + listingMonthCount);
                 continue;
             }
-
+            int consecutiveLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveLimitUpDays(), 2);
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
-            if (tenDayChangeRate >= 60) {
-                logSelectionFiltered("连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<60");
+            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getFiveDayAmplitude(), 0D);
+
+            if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 50){
+                logSelectionFiltered("3连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<50");
+                continue;
+            }
+
+
+            if (consecutiveLimitUpDays == 3 && tenDayChangeRate >= 50) {
+                logSelectionFiltered("3连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<50");
+                continue;
+            }
+
+            if (consecutiveLimitUpDays == 2 && fiveDayAmplitude >= 35){
+                logSelectionFiltered("2连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<35");
+                continue;
+            }
+
+            if (consecutiveLimitUpDays == 2 && tenDayChangeRate >= 35) {
+                logSelectionFiltered("2连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<35");
                 continue;
             }
 
@@ -308,7 +326,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 5);
         replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
         return tasks;
-
     }
 
     /**
@@ -765,11 +782,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 计算包含当日在内的 3 日振幅：
-     * （当日复权收盘价 - 近 3 个交易日最低复权价）/ 近 3 个交易日最低复权价。
+     * 计算包含当日在内的 5 日振幅：
+     * （当日复权收盘价 - 近 5 个交易日最低复权价）/ 近 5 个交易日最低复权价。
      */
     static Double calculateFiveDayAdjustedAmplitude(List<StockDailyEntity> ascRecentDailyList) {
-        int windowDays = 3;
+        int windowDays = 5;
         if (ascRecentDailyList.size() < windowDays) {
             return 0.0;
         }
