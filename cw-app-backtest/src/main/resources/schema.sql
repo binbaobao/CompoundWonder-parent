@@ -68,6 +68,7 @@ CREATE TABLE `backtest_run`
     `last_completed_date` date DEFAULT NULL COMMENT '最后完成交易日',
     `final_asset` decimal(18,2) DEFAULT NULL COMMENT '最终资产',
     `total_return_rate` decimal(18,8) DEFAULT NULL COMMENT '累计收益率',
+    `limit_up_break_count` int NOT NULL DEFAULT '0' COMMENT '实际买入后当日炸板次数',
     `error_message` varchar(1000) DEFAULT NULL COMMENT '失败原因',
     `started_time` datetime DEFAULT NULL COMMENT '开始时间',
     `finished_time` datetime DEFAULT NULL COMMENT '完成时间',

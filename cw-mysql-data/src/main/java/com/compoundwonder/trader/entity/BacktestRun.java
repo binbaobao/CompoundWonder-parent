@@ -28,6 +28,9 @@ public class BacktestRun {
     private LocalDate lastCompletedDate;
     private BigDecimal finalAsset;
     private BigDecimal totalReturnRate;
+    /** 实际买入后，当日发生炸板的次数。 */
+    private Integer limitUpBreakCount;
+
     private String errorMessage;
     private LocalDateTime startedTime;
     private LocalDateTime finishedTime;

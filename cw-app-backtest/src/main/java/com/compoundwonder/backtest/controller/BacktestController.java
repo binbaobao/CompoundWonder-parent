@@ -140,7 +140,7 @@ public class BacktestController {
      *
      * @param stockCode 股票代码
      * @param date 回放日期
-     * @param direction 交易方向：1 买入，2 卖出
+     * @param direction 交易方向：1 买入（包含集合竞价撤单），2 卖出
      * @return 回放过程中触发的规则记录
      */
     @GetMapping("order-book/replay")

@@ -7,6 +7,7 @@ import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.core.service.CacheService;
+import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
@@ -149,6 +150,32 @@ class BackTestTradeServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.backTest("2026-07-15", "600000", 3));
+    }
+
+    @Test
+    void buyReplayReturnsCancellationRecordsForFrontendDisplay() {
+        LocalDate tradeDate = LocalDate.of(2026, 7, 15);
+        RuleRecordDTO buy = new RuleRecordDTO();
+        buy.setActionType(RuleConstant.TRADING_MODE_BUY);
+        buy.setSymbol("001388");
+        RuleRecordDTO cancel = new RuleRecordDTO();
+        cancel.setActionType(RuleConstant.TRADING_MODE_CANCEL);
+        cancel.setSymbol("001388");
+        BackTestTradeService service = new BackTestTradeService(
+                null, null, null, null, null, new BacktestOrderExecutionGateway(), 1) {
+            @Override
+            public synchronized BacktestReplayResult replay(LocalDate date, String stockCode,
+                                                             BacktestReplayMode mode,
+                                                             Integer allowedAfterTime) {
+                return new BacktestReplayResult(
+                        date, stockCode, "测试股票", mode, List.of(buy, cancel),
+                        1, 0, 0, 0, 2);
+            }
+        };
+
+        List<RuleRecordDTO> records = service.backTest("2026-07-15", "001388", 1);
+
+        assertEquals(List.of(buy, cancel), records);
     }
 
     @Test

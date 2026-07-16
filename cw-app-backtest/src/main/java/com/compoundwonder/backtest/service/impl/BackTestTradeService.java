@@ -70,7 +70,7 @@ public class BackTestTradeService {
      * @param date 回测交易日，格式 yyyy-MM-dd
      * @param stockCode 60 或 00 开头的六位主板代码
      * @param direction 1 表示测试买入规则，2 表示测试卖出规则
-     * @return 本轮对应方向触发的规则记录
+     * @return 本轮对应方向触发的规则记录；买入回放同时返回集合竞价撤单记录
      */
     public List<RuleRecordDTO> backTest(String date, String stockCode, int direction) {
         validateDirection(direction);
@@ -332,9 +332,11 @@ public class BackTestTradeService {
     }
 
     private boolean matchesDirection(RuleRecordDTO record, int direction) {
+        Integer actionType = record.getActionType();
         return direction == 1
-                ? Integer.valueOf(RuleConstant.TRADING_MODE_BUY).equals(record.getActionType())
-                : Integer.valueOf(RuleConstant.TRADING_MODE_SELL).equals(record.getActionType());
+                ? Integer.valueOf(RuleConstant.TRADING_MODE_BUY).equals(actionType)
+                    || Integer.valueOf(RuleConstant.TRADING_MODE_CANCEL).equals(actionType)
+                : Integer.valueOf(RuleConstant.TRADING_MODE_SELL).equals(actionType);
     }
 
     private void validateDirection(int direction) {

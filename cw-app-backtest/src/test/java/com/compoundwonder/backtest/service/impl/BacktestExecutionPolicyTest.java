@@ -37,6 +37,12 @@ class BacktestExecutionPolicyTest {
     }
 
     @Test
+    void overnightBuyAlsoFillsWhenDailyTurnoverExceedsFortyMillionYuan() {
+        assertFalse(BacktestExecutionPolicy.isOvernightBuyFillable(91501000, 4000D));
+        assertTrue(BacktestExecutionPolicy.isOvernightBuyFillable(91501000, 4000.01D));
+    }
+
+    @Test
     void choosesEarliestFillableBuyAndIgnoresUnfillableEarlierSignal() {
         RuleRecordDTO unfillable = buyRecord("600001", 100000000, 100000400);
         RuleRecordDTO later = buyRecord("000001", 100001000, 100001200);

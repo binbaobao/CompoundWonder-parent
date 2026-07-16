@@ -42,6 +42,16 @@ final class BacktestExecutionPolicy {
     }
 
     /**
+     * 隔夜委托满足队首时间，或者回测当日成交额超过 4000 万元时，均认为能够成交。
+     *
+     * @param dailyTurnoverInTenThousands 日 K 成交额，单位万元
+     */
+    static boolean isOvernightBuyFillable(int lastOrderTime, Double dailyTurnoverInTenThousands) {
+        return isOvernightBuyFillable(lastOrderTime)
+                || dailyTurnoverInTenThousands != null && dailyTurnoverInTenThousands > 4_000D;
+    }
+
+    /**
      * 先过滤不能成交的候选规则，再选择下单时间最早的一条。
      */
     static Optional<RuleRecordDTO> findEarliestFillableBuy(List<RuleRecordDTO> records) {

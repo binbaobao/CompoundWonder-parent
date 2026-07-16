@@ -6,6 +6,7 @@ import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * 一个交易日需要原子落库的全部结果。
@@ -17,5 +18,10 @@ record BacktestDayWrite(long runId,
                         RuleRecordDTO sellRule,
                         RuleRecordDTO buyRule,
                         StockWatchingTask buyTask,
+                        List<BacktestRuleAction> actionRules,
                         BacktestDailyRecord dailyRecord) {
+
+    BacktestDayWrite {
+        actionRules = List.copyOf(actionRules);
+    }
 }

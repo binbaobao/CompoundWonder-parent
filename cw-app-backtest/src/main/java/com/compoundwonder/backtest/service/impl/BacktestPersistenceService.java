@@ -60,6 +60,7 @@ public class BacktestPersistenceService {
         run.setShanghaiDelayMs(500);
         run.setShenzhenDelayMs(100);
         run.setOvernightFillTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
+        run.setLimitUpBreakCount(0);
         run.setStatus(RUNNING);
         run.setStartedTime(LocalDateTime.now());
         run.setCreatedTime(LocalDateTime.now());
@@ -123,6 +124,10 @@ public class BacktestPersistenceService {
                     write.runId(), closingPosition, write.sellRule(), closingPosition.getWatchingTaskId()));
         }
 
+        for (BacktestRuleAction action : write.actionRules()) {
+            ruleRecordMapper.insert(toRuleEntity(write.runId(), write.tradeDate(), action));
+        }
+
         BacktestPosition currentPosition = closingPosition != null
                 && Integer.valueOf(1).equals(closingPosition.getStatus()) ? closingPosition : null;
         if (write.newPosition() != null) {
@@ -144,12 +149,14 @@ public class BacktestPersistenceService {
         runMapper.updateById(progress);
     }
 
-    public void completeRun(long runId, BigDecimal finalAsset, BigDecimal totalReturnRate) {
+    public void completeRun(long runId, BigDecimal finalAsset, BigDecimal totalReturnRate,
+                            int limitUpBreakCount) {
         BacktestRun run = new BacktestRun();
         run.setId(runId);
         run.setStatus(COMPLETED);
         run.setFinalAsset(finalAsset);
         run.setTotalReturnRate(totalReturnRate);
+        run.setLimitUpBreakCount(limitUpBreakCount);
         run.setFinishedTime(LocalDateTime.now());
         runMapper.updateById(run);
     }
@@ -184,6 +191,31 @@ public class BacktestPersistenceService {
         entity.setFeeAmount(buy ? position.getBuyFee() : position.getSellFee());
         entity.setTradeMode(position.getTradeMode());
         entity.setLimitUpScore(position.getLimitUpScore());
+        entity.setPrice(dto.getPrice());
+        entity.setIncrease(dto.getIncrease());
+        entity.setRemark(dto.getRemark());
+        entity.setCreatedTime(LocalDateTime.now());
+        return entity;
+    }
+
+    private RuleExecuteRecord toRuleEntity(long runId, LocalDate tradeDate,
+                                           BacktestRuleAction action) {
+        StockWatchingTask task = action.task();
+        RuleRecordDTO dto = action.rule();
+        RuleExecuteRecord entity = new RuleExecuteRecord();
+        entity.setExecutionSource(EXECUTION_SOURCE_BACKTEST);
+        entity.setBacktestRunId(runId);
+        entity.setWatchingTaskId(task.getId());
+        entity.setActionType(dto.getActionType());
+        entity.setRuleCode(dto.getRuleCode());
+        entity.setSymbol(dto.getSymbol());
+        entity.setSymbolName(task.getStockName());
+        entity.setTradeDate(tradeDate);
+        entity.setTime(dto.getTime());
+        entity.setLastOrderTime(dto.getLastOrderTime());
+        entity.setFeeAmount(BigDecimal.ZERO);
+        entity.setTradeMode(task.getTradeMode());
+        entity.setLimitUpScore(task.getLimitUpScore());
         entity.setPrice(dto.getPrice());
         entity.setIncrease(dto.getIncrease());
         entity.setRemark(dto.getRemark());

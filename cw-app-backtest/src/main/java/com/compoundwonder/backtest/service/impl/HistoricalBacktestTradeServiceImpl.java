@@ -6,6 +6,7 @@ import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
+import com.compoundwonder.hxdata.entity.StockTradeCalendar;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.trader.entity.BacktestDailyRecord;
@@ -13,6 +14,7 @@ import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
 import com.compoundwonder.trader.entity.RuleExecuteRecord;
 import com.compoundwonder.trader.entity.StockWatchingTask;
+import com.compoundwonder.trader.service.StockWatchingTaskService;
 import com.compoundwonder.util.SymbolUtil;
 import com.compoundwonder.util.TradeCalculator;
 import lombok.extern.slf4j.Slf4j;
@@ -48,17 +50,20 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     private final BacktestPersistenceService persistenceService;
     private final StockTradeCalendarService calendarService;
     private final StockDailyService stockDailyService;
+    private final StockWatchingTaskService stockWatchingTaskService;
     private final Executor backtestExecutor;
 
     public HistoricalBacktestTradeServiceImpl(BackTestTradeService replayService,
                                               BacktestPersistenceService persistenceService,
                                               StockTradeCalendarService calendarService,
                                               StockDailyService stockDailyService,
+                                              StockWatchingTaskService stockWatchingTaskService,
                                               @Qualifier("historicalBacktestExecutor") Executor backtestExecutor) {
         this.replayService = replayService;
         this.persistenceService = persistenceService;
         this.calendarService = calendarService;
         this.stockDailyService = stockDailyService;
+        this.stockWatchingTaskService = stockWatchingTaskService;
         this.backtestExecutor = backtestExecutor;
     }
 
@@ -91,11 +96,19 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 throw new IllegalArgumentException("回测区间没有交易日: "
                         + run.getStartDate() + " 至 " + run.getEndDate());
             }
+            LocalDate recommendDate = findPreviousTradeDate(tradeDays.get(0));
             for (LocalDate tradeDate : tradeDays) {
+                int taskCount = stockWatchingTaskService
+                        .createPostCloseWatchingTasks(recommendDate).size();
+                log.info("回测前重新选股 recommendDate={}, tradeDate={}, taskCount={}",
+                        recommendDate, tradeDate, taskCount);
                 processDay(run.getId(), tradeDate, account);
+                recommendDate = tradeDate;
             }
             BigDecimal totalReturnRate = rate(account.previousTotalAsset.subtract(INITIAL_CAPITAL), INITIAL_CAPITAL);
-            persistenceService.completeRun(run.getId(), account.previousTotalAsset, totalReturnRate);
+            persistenceService.completeRun(
+                    run.getId(), account.previousTotalAsset, totalReturnRate,
+                    account.limitUpBreakCount);
         } catch (RuntimeException exception) {
             persistenceService.failRun(run.getId(), exception);
             log.error("历史回测失败 runId={}, startDate={}, endDate={}",
@@ -147,6 +160,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         RuleRecordDTO buyRule = null;
         StockWatchingTask buyTask = null;
         BacktestPosition newPosition = null;
+        List<BacktestRuleAction> actionRules = new ArrayList<>();
 
         if (previousPosition != null) {
             if (tradeDate.isAfter(previousPosition.getBuyDate())) {
@@ -165,7 +179,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 account.position = null;
                 account.positionBuyKlineState = null;
                 BuyCandidate candidate = findEarliestBuy(
-                        tradeDate, tasks, sellRule.getTime(), Set.of(soldSymbol));
+                        tradeDate, tasks, sellRule.getTime(), Set.of(soldSymbol), actionRules);
                 if (candidate != null) {
                     buyTask = candidate.task();
                     buyRule = candidate.rule();
@@ -177,7 +191,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             if (nonBuyableSymbols.contains(overnightTask.getStockCode())) {
                 BuyCandidate candidate = findEarliestBuy(
                         tradeDate, tasks, BacktestReplayMode.BUY, null,
-                        Set.of(), nonBuyableSymbols);
+                        Set.of(), nonBuyableSymbols, actionRules);
                 if (candidate != null) {
                     buyTask = candidate.task();
                     buyRule = candidate.rule();
@@ -187,16 +201,22 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                         tradeDate, overnightTask.getStockCode(), BacktestReplayMode.OVERNIGHT_BUY, null);
                 RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
                 if (cancelRule != null) {
+                    actionRules.add(new BacktestRuleAction(overnightTask, cancelRule));
                     BuyCandidate candidate = findEarliestBuy(
                             tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
-                            cancelRule.getTime(), Set.of(), nonBuyableSymbols);
+                            cancelRule.getTime(), Set.of(), nonBuyableSymbols, actionRules);
                     if (candidate != null) {
                         buyTask = candidate.task();
                         buyRule = candidate.rule();
                     }
-                } else if (BacktestExecutionPolicy.isOvernightBuyFillable(overnightResult.lastOrderTime())) {
-                    buyTask = overnightTask;
-                    buyRule = overnightBuyRule(overnightResult);
+                } else {
+                    Double dailyTurnover = findDailyTurnover(
+                            tradeDate, overnightTask.getStockCode());
+                    if (BacktestExecutionPolicy.isOvernightBuyFillable(
+                            overnightResult.lastOrderTime(), dailyTurnover)) {
+                        buyTask = overnightTask;
+                        buyRule = overnightBuyRule(overnightResult, dailyTurnover);
+                    }
                 }
             }
         }
@@ -213,10 +233,13 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         BacktestDailyRecord dailyRecord = buildDailyRecord(tradeDate, account);
         if (newPosition != null) {
             account.positionBuyKlineState = dailyRecord.getKlineState();
+            if (isLimitUpBreakState(dailyRecord.getKlineState())) {
+                account.limitUpBreakCount++;
+            }
         }
         persistenceService.saveDay(new BacktestDayWrite(
                 runId, tradeDate, previousPosition, newPosition,
-                sellRule, buyRule, buyTask, dailyRecord));
+                sellRule, buyRule, buyTask, actionRules, dailyRecord));
         account.previousTotalAsset = dailyRecord.getTotalAsset();
         log.info("完成单日回测 runId={}, date={}, tasks={}, sell={}, buy={}, holding={}, totalAsset={}",
                 runId, tradeDate, tasks.size(), sellRule == null ? null : sellRule.getSymbol(),
@@ -225,16 +248,45 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     }
 
     private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
-                                         int allowedAfterTime, Set<String> excludedSymbols) {
+                                         int allowedAfterTime, Set<String> excludedSymbols,
+                                         List<BacktestRuleAction> actionRules) {
         return findEarliestBuy(tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
-                allowedAfterTime, excludedSymbols, findNonBuyableSymbols(tradeDate, tasks));
+                allowedAfterTime, excludedSymbols, findNonBuyableSymbols(tradeDate, tasks),
+                actionRules);
     }
 
     private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
                                          BacktestReplayMode replayMode, Integer allowedAfterTime,
                                          Set<String> excludedSymbols,
-                                         Set<String> nonBuyableSymbols) {
-        List<BuyCandidate> candidates = new ArrayList<>();
+                                         Set<String> nonBuyableSymbols,
+                                         List<BacktestRuleAction> actionRules) {
+        BacktestReplayMode currentMode = replayMode;
+        Integer currentAllowedAfterTime = allowedAfterTime;
+        while (true) {
+            List<ReplayBuyCandidate> candidates = findReplayBuyCandidates(
+                    tradeDate, tasks, currentMode, currentAllowedAfterTime,
+                    excludedSymbols, nonBuyableSymbols);
+            ReplayBuyCandidate earliest = candidates.stream()
+                    .min(java.util.Comparator.comparingInt(candidate -> candidate.buyRule().getTime()))
+                    .orElse(null);
+            if (earliest == null) {
+                return null;
+            }
+            if (earliest.cancelRule() == null) {
+                return new BuyCandidate(earliest.task(), earliest.buyRule());
+            }
+            actionRules.add(new BacktestRuleAction(earliest.task(), earliest.buyRule()));
+            actionRules.add(new BacktestRuleAction(earliest.task(), earliest.cancelRule()));
+            currentAllowedAfterTime = earliest.cancelRule().getTime();
+            currentMode = BacktestReplayMode.BUY_AFTER_TIME;
+        }
+    }
+
+    private List<ReplayBuyCandidate> findReplayBuyCandidates(
+            LocalDate tradeDate, List<StockWatchingTask> tasks,
+            BacktestReplayMode replayMode, Integer allowedAfterTime,
+            Set<String> excludedSymbols, Set<String> nonBuyableSymbols) {
+        List<ReplayBuyCandidate> candidates = new ArrayList<>();
         Set<String> replayedSymbols = new HashSet<>();
         for (StockWatchingTask task : tasks) {
             String symbol = task.getStockCode();
@@ -248,21 +300,41 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             try {
                 BacktestReplayResult result = replayService.replay(
                         tradeDate, symbol, replayMode, allowedAfterTime);
-                for (RuleRecordDTO record : result.records()) {
-                    if (Integer.valueOf(RuleConstant.TRADING_MODE_BUY).equals(record.getActionType())
-                            && BacktestExecutionPolicy.isIntradayBuyFillable(record)) {
-                        record.setPrice(result.limitUpPrice());
-                        candidates.add(new BuyCandidate(task, record));
-                    }
+                ReplayBuyCandidate candidate = firstReplayBuyCandidate(
+                        task, result, allowedAfterTime);
+                if (candidate != null) {
+                    candidates.add(candidate);
                 }
             } catch (IllegalArgumentException exception) {
                 log.warn("跳过缺少回测数据的候选股票 date={}, symbol={}, reason={}",
                         tradeDate, symbol, exception.getMessage());
             }
         }
-        return candidates.stream()
-                .min(java.util.Comparator.comparingInt(candidate -> candidate.rule().getTime()))
-                .orElse(null);
+        return candidates;
+    }
+
+    private ReplayBuyCandidate firstReplayBuyCandidate(
+            StockWatchingTask task, BacktestReplayResult result, Integer allowedAfterTime) {
+        List<RuleRecordDTO> records = result.records();
+        for (RuleRecordDTO buyRule : records.stream()
+                .filter(record -> Integer.valueOf(RuleConstant.TRADING_MODE_BUY)
+                        .equals(record.getActionType()))
+                .filter(record -> record.getTime() != null
+                        && (allowedAfterTime == null || record.getTime() > allowedAfterTime))
+                .sorted(java.util.Comparator.comparingInt(RuleRecordDTO::getTime))
+                .toList()) {
+            RuleRecordDTO cancelRule = records.stream()
+                    .filter(record -> Integer.valueOf(RuleConstant.TRADING_MODE_CANCEL)
+                            .equals(record.getActionType()))
+                    .filter(record -> record.getTime() != null && record.getTime() > buyRule.getTime())
+                    .min(java.util.Comparator.comparingInt(RuleRecordDTO::getTime))
+                    .orElse(null);
+            if (cancelRule != null || BacktestExecutionPolicy.isIntradayBuyFillable(buyRule)) {
+                buyRule.setPrice(result.limitUpPrice());
+                return new ReplayBuyCandidate(task, buyRule, cancelRule);
+            }
+        }
+        return null;
     }
 
     /**
@@ -283,17 +355,28 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
 
         List<StockDailyEntity> dailyRows = stockDailyService.list(
                 Wrappers.<StockDailyEntity>query()
-                        .select("stock_code")
+                        .select("stock_code", "kline_state")
                         .eq("trade_date", tradeDate)
-                        .in("stock_code", symbols)
-                        .le("kline_state", 0));
+                        .in("stock_code", symbols));
         Set<String> nonBuyableSymbols = new HashSet<>(dailyRows.size());
         for (StockDailyEntity daily : dailyRows) {
-            if (daily.getStockCode() != null) {
+            if (daily.getStockCode() != null && daily.getKlineState() != null
+                    && daily.getKlineState() <= 0) {
                 nonBuyableSymbols.add(daily.getStockCode());
             }
         }
         return nonBuyableSymbols;
+    }
+
+    /** 查询当日日 K 成交额，单位万元，供隔夜委托成交判定使用。 */
+    private Double findDailyTurnover(LocalDate tradeDate, String symbol) {
+        List<StockDailyEntity> rows = stockDailyService.list(
+                Wrappers.<StockDailyEntity>query()
+                        .select("turnover")
+                        .eq("trade_date", tradeDate)
+                        .eq("stock_code", symbol)
+                        .last("LIMIT 1"));
+        return rows.isEmpty() ? null : rows.get(0).getTurnover();
     }
 
     /**
@@ -331,7 +414,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         return klineState != null && klineState >= 11 && klineState <= 13;
     }
 
-    private RuleRecordDTO overnightBuyRule(BacktestReplayResult result) {
+    private RuleRecordDTO overnightBuyRule(BacktestReplayResult result, Double dailyTurnover) {
         RuleRecordDTO rule = new RuleRecordDTO();
         rule.setActionType(RuleConstant.TRADING_MODE_BUY);
         rule.setRuleCode(OVERNIGHT_BUY_RULE_CODE);
@@ -339,8 +422,27 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         rule.setTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
         rule.setLastOrderTime(result.lastOrderTime());
         rule.setPrice(result.limitUpPrice());
-        rule.setRemark("隔夜涨停买单未撤单，回放结束队首时间满足成交条件");
+        if (BacktestExecutionPolicy.isOvernightBuyFillable(result.lastOrderTime())) {
+            rule.setRemark("隔夜涨停买单未撤单，回放结束队首时间满足成交条件");
+        } else {
+            rule.setRemark("隔夜涨停买单未撤单，当日成交额超过4000万元，默认成交；成交额="
+                    + dailyTurnover + "万元");
+        }
         return rule;
+    }
+
+    /** 查询回测首日的前一交易日，用该日收盘数据重新生成首日推荐任务。 */
+    private LocalDate findPreviousTradeDate(LocalDate tradeDate) {
+        StockTradeCalendar previous = calendarService.getOne(
+                Wrappers.<StockTradeCalendar>query()
+                        .select("trade_date")
+                        .lt("trade_date", tradeDate)
+                        .orderByDesc("trade_date")
+                        .last("LIMIT 1"));
+        if (previous == null || previous.getTradeDate() == null) {
+            throw new IllegalStateException(tradeDate + " 之前没有交易日历数据，无法执行回测前选股");
+        }
+        return previous.getTradeDate();
     }
 
     private BacktestPosition openPosition(long runId, LocalDate tradeDate, StockWatchingTask task,
@@ -509,11 +611,17 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     private record BuyCandidate(StockWatchingTask task, RuleRecordDTO rule) {
     }
 
+    private record ReplayBuyCandidate(StockWatchingTask task,
+                                      RuleRecordDTO buyRule,
+                                      RuleRecordDTO cancelRule) {
+    }
+
     private static final class AccountState {
         private BigDecimal cash;
         private BigDecimal previousTotalAsset;
         private BacktestPosition position;
         private Integer positionBuyKlineState;
+        private int limitUpBreakCount;
 
         private AccountState(BigDecimal cash, BigDecimal previousTotalAsset) {
             this.cash = cash;

@@ -5,6 +5,9 @@ import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.trader.entity.BacktestRun;
+import com.compoundwonder.trader.entity.BacktestDailyRecord;
+import com.compoundwonder.trader.entity.BacktestPosition;
+import com.compoundwonder.trader.entity.RuleExecuteRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -65,6 +68,26 @@ class BacktestControllerTest {
             @Override
             public BacktestRun findRun(long runId) {
                 throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public List<BacktestRun> findRecentRuns(int limit) {
+                return List.of();
+            }
+
+            @Override
+            public List<BacktestDailyRecord> findDailyRecords(long runId) {
+                return List.of();
+            }
+
+            @Override
+            public List<BacktestPosition> findPositions(long runId) {
+                return List.of();
+            }
+
+            @Override
+            public List<RuleExecuteRecord> findRules(long runId) {
+                return List.of();
             }
         };
         BacktestController controller = new BacktestController(
