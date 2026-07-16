@@ -4,10 +4,10 @@ package com.compoundwonder.backtest.controller;
 import com.compoundwonder.backtest.service.BacktestService;
 import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
-import com.compoundwonder.backtest.service.StockSelectionBacktestService;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.*;
 import com.compoundwonder.trader.entity.BacktestRun;
+import com.compoundwonder.trader.service.StockWatchingTaskService;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,7 +28,7 @@ public class BacktestController {
 
     private final Level2MinuteBarService level2MinuteBarService;
 
-    private final StockSelectionBacktestService stockSelectionBacktestService;
+    private final StockWatchingTaskService stockWatchingTaskService;
 
     private final BackTestTradeService backTestTradeService;
 
@@ -40,12 +40,12 @@ public class BacktestController {
      */
     public BacktestController(BacktestService backtestService,
                               Level2MinuteBarService level2MinuteBarService,
-                              StockSelectionBacktestService stockSelectionBacktestService,
+                              StockWatchingTaskService stockWatchingTaskService,
                               BackTestTradeService backTestTradeService,
                               HistoricalBacktestTradeService historicalBacktestTradeService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
-        this.stockSelectionBacktestService = stockSelectionBacktestService;
+        this.stockWatchingTaskService = stockWatchingTaskService;
         this.backTestTradeService = backTestTradeService;
         this.historicalBacktestTradeService = historicalBacktestTradeService;
     }
@@ -128,7 +128,7 @@ public class BacktestController {
      */
     @GetMapping("stock-selection-backtest")
     public Result<String> stockSelectionBacktest(@RequestParam String date) {
-        stockSelectionBacktestService.stockSelectionBacktest(date);
+        stockWatchingTaskService.createPostCloseWatchingTasks(LocalDate.parse(date));
         return new Result<String>().ok("ss");
     }
 

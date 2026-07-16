@@ -96,27 +96,51 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .eq(StockDailyEntity::getConsecutiveLimitUpDays, 1));
         // 过滤包含可转债的股票
-        stockDailyList = stockDailyList.stream()
-                .filter(stockDaily -> !convertibleBondStockCodes.contains(stockDaily.getStockCode()))
-                .toList();
+        stockDailyList = filterConvertibleBondStocks("首板", stockDailyList, convertibleBondStockCodes);
 
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(stockDailyList);
         for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
             log.info("首板------:{}:{}", calculateSelectionScore(stockSelectionAssistDTO), stockSelectionAssistDTO);
         }
-        List<StockWatchingTask> tasks = assistList.stream()
-                .filter(dto -> Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0) < 20) // 首板选择质地更好的股票，太多非正常 k 线的股性不好
-                .filter(dto -> Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D) > 25
-                        || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= 18
-                        || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= Objects.requireNonNullElse(dto.getListingMonthCount(), 0))// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                .filter(dto -> Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) > 2
-                        && Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) < 25
-                        && Objects.requireNonNullElse(dto.getStartPrice(), 0D) > 3)
-                .map(assist -> buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, calculateSelectionScore(assist)))
-                .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
-                .filter(task -> task.getLimitUpScore() > 30)
-                .limit(3)//只取前三个
-                .toList();
+        List<StockWatchingTask> eligibleTasks = new ArrayList<>();
+        for (StockSelectionAssistDTO dto : assistList) {
+            int abnormalCount = Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0);
+            if (abnormalCount >= 20) {
+                logSelectionFiltered("首板", dto, "非正常状态次数", "actual=" + abnormalCount + ", required<20");
+                continue;
+            }
+
+            double maxTurnoverRate = Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D);
+            int nonStMonthCount = Objects.requireNonNullElse(dto.getNonStMonthCount(), 0);
+            int listingMonthCount = Objects.requireNonNullElse(dto.getListingMonthCount(), 0);
+            if (maxTurnoverRate <= 25 && nonStMonthCount < 18 && nonStMonthCount < listingMonthCount) {
+                logSelectionFiltered("首板", dto, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
+                        + ", nonStMonthCount=" + nonStMonthCount + ", listingMonthCount=" + listingMonthCount);
+                continue;
+            }
+
+            double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
+            if (tenDayChangeRate <= 2 || tenDayChangeRate >= 25) {
+                logSelectionFiltered("首板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required=(2,25)");
+                continue;
+            }
+
+            double startPrice = Objects.requireNonNullElse(dto.getStartPrice(), 0D);
+            if (startPrice <= 3) {
+                logSelectionFiltered("首板", dto, "启动价格", "actual=" + startPrice + ", required>3");
+                continue;
+            }
+
+            int score = calculateSelectionScore(dto);
+            if (score <= 30) {
+                logSelectionFiltered("首板", dto, "选股评分", "actual=" + score + ", required>30");
+                continue;
+            }
+            eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_FIRST_LIMIT_UP, score));
+        }
+
+        eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
+        List<StockWatchingTask> tasks = takeTopTasks("首板", eligibleTasks, 3);
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
     }
@@ -135,9 +159,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .lt(StockDailyEntity::getClosePrice, 40)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票
-        stockDailyEntities = stockDailyEntities.stream()
-                .filter(stockDaily -> !convertibleBondStockCodes.contains(stockDaily.getStockCode()))
-                .toList();
+        stockDailyEntities = filterConvertibleBondStocks("连板", stockDailyEntities, convertibleBondStockCodes);
 
         // 先查出 今天 昨天 前天 的最高板
         List<StockEmotionCycleDaily> entityList = stockEmotionCycleDailyService.list(Wrappers.<StockEmotionCycleDaily>lambdaQuery()
@@ -214,38 +236,121 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
-        List<StockDailyEntity> selectedStockDailyList = minConsecutiveLimitUpDays == null
-                ? List.of()
-                : stockDailyEntities.stream()
-                .filter(stockDaily -> stockDaily.getConsecutiveLimitUpDays() >= minLimitUpDays
-                        && stockDaily.getConsecutiveLimitUpDays() <= maxLimitUpDays)
-                .toList();
+        List<StockDailyEntity> selectedStockDailyList = new ArrayList<>();
+        for (StockDailyEntity stockDaily : stockDailyEntities) {
+            int consecutiveLimitUpDays = Objects.requireNonNullElse(stockDaily.getConsecutiveLimitUpDays(), 0);
+            if (minConsecutiveLimitUpDays == null
+                    || consecutiveLimitUpDays < minLimitUpDays
+                    || consecutiveLimitUpDays > maxLimitUpDays) {
+                log.info("连板选股过滤 tradeDate={} stockCode={} stockName={} step=情绪周期板数范围 detail=actual={}, required=[{},{}]",
+                        tradeDate, stockDaily.getStockCode(), stockDaily.getStockName(), consecutiveLimitUpDays,
+                        minConsecutiveLimitUpDays, maxConsecutiveLimitUpDays);
+                continue;
+            }
+            selectedStockDailyList.add(stockDaily);
+        }
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(selectedStockDailyList);
 
-        List<StockWatchingTask> tasks = new ArrayList<>();
-        if (!assistList.isEmpty()) {
+        List<StockWatchingTask> eligibleTasks = new ArrayList<>();
+        for (StockSelectionAssistDTO dto : assistList) {
+            log.info("连板------:{}:{}", calculateSelectionScore(dto), dto);
 
-            for (StockSelectionAssistDTO stockSelectionAssistDTO : assistList) {
-                log.info("连板------:{}:{}", calculateSelectionScore(stockSelectionAssistDTO), stockSelectionAssistDTO);
+            int oneWordLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0);
+            if (oneWordLimitUpDays >= 2) {
+                logSelectionFiltered("连板", dto, "一字板次数", "actual=" + oneWordLimitUpDays + ", required<2");
+                continue;
             }
 
-            tasks = assistList.stream()
-                    .filter(dto -> Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0) < 2
-                            && Objects.requireNonNullElse(dto.getRecentThreeMonthHighestConsecutiveLimitUpDays(), 0) < 3)// 一字板次数一定要小于 2 ，现在只推荐 2，3板的，就是说只能有一个一字板,近三个月不能有超过三板的高度
-                    .filter(dto -> Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D) > 25
-                            || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= 18
-                            || Objects.requireNonNullElse(dto.getNonStMonthCount(), 0) >= Objects.requireNonNullElse(dto.getListingMonthCount(), 0))// 最大换手大于 25的 或者 摘帽大于 18个月 或者新上市公司
-                    .filter(dto -> Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D) < 60
-                            && Objects.requireNonNullElse(dto.getStartPrice(), 0D) > 3)// 连板要对 5、10日涨幅做判断。不能是大深坑往外爬
-                    .map(assist -> buildWatchingTask(assist, TRADE_MODE_RELAY_LIMIT_UP, calculateSelectionScore(assist)))
-                    .filter(stockWatchingTask -> stockWatchingTask.getLimitUpScore() > 15)
-                    .sorted(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed())
-                    .limit(3)//只取前三个
-                    .toList();
-            replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
+            int recentThreeMonthHighest = Objects.requireNonNullElse(
+                    dto.getRecentThreeMonthHighestConsecutiveLimitUpDays(), 0);
+            if (recentThreeMonthHighest >= 3) {
+                logSelectionFiltered("连板", dto, "近3个月最高板", "actual=" + recentThreeMonthHighest + ", required<3");
+                continue;
+            }
+
+            double maxTurnoverRate = Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D);
+            int nonStMonthCount = Objects.requireNonNullElse(dto.getNonStMonthCount(), 0);
+            int listingMonthCount = Objects.requireNonNullElse(dto.getListingMonthCount(), 0);
+            if (maxTurnoverRate <= 25 && nonStMonthCount < 18 && nonStMonthCount < listingMonthCount) {
+                logSelectionFiltered("连板", dto, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
+                        + ", nonStMonthCount=" + nonStMonthCount + ", listingMonthCount=" + listingMonthCount);
+                continue;
+            }
+
+            double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
+            if (tenDayChangeRate >= 60) {
+                logSelectionFiltered("连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<60");
+                continue;
+            }
+
+            double startPrice = Objects.requireNonNullElse(dto.getStartPrice(), 0D);
+            if (startPrice <= 3) {
+                logSelectionFiltered("连板", dto, "启动价格", "actual=" + startPrice + ", required>3");
+                continue;
+            }
+
+            int score = calculateSelectionScore(dto);
+            if (score <= 15) {
+                logSelectionFiltered("连板", dto, "选股评分", "actual=" + score + ", required>15");
+                continue;
+            }
+            eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, score));
         }
+
+        eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
+        List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 3);
+        replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
         return tasks;
 
+    }
+
+    /**
+     * 按分数顺序保留指定数量任务，并记录因数量上限被过滤的股票。
+     */
+    private List<StockWatchingTask> takeTopTasks(String selectionMode,
+                                                 List<StockWatchingTask> sortedTasks,
+                                                 int limit) {
+        List<StockWatchingTask> selectedTasks = new ArrayList<>();
+        for (int i = 0; i < sortedTasks.size(); i++) {
+            StockWatchingTask task = sortedTasks.get(i);
+            if (i >= limit) {
+                log.info("{}选股过滤 tradeDate={} stockCode={} stockName={} step=数量上限 detail=rank={}, limit={}, score={}",
+                        selectionMode, task.getRecommendDate(), task.getStockCode(), task.getStockName(),
+                        i + 1, limit, task.getLimitUpScore());
+                continue;
+            }
+            selectedTasks.add(task);
+        }
+        return selectedTasks;
+    }
+
+    /**
+     * 使用循环排除有可转债的股票，并记录过滤原因。
+     */
+    private List<StockDailyEntity> filterConvertibleBondStocks(String selectionMode,
+                                                               List<StockDailyEntity> stockDailyList,
+                                                               Set<String> convertibleBondStockCodes) {
+        List<StockDailyEntity> selectedStockDailyList = new ArrayList<>();
+        for (StockDailyEntity stockDaily : stockDailyList) {
+            if (convertibleBondStockCodes.contains(stockDaily.getStockCode())) {
+                log.info("{}选股过滤 tradeDate={} stockCode={} stockName={} step=可转债 detail=当天存在有效可转债",
+                        selectionMode, stockDaily.getTradeDate(), stockDaily.getStockCode(), stockDaily.getStockName());
+                continue;
+            }
+            selectedStockDailyList.add(stockDaily);
+        }
+        return selectedStockDailyList;
+    }
+
+    /**
+     * 记录辅助对象在选股流程中被过滤的具体步骤和指标值。
+     */
+    private void logSelectionFiltered(String selectionMode,
+                                      StockSelectionAssistDTO dto,
+                                      String step,
+                                      String detail) {
+        log.info("{}选股过滤 tradeDate={} stockCode={} stockName={} step={} detail={}",
+                selectionMode, dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), step, detail);
     }
 
     /**
