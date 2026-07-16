@@ -17,32 +17,46 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class ConditionEvaluatorBuy {
 
+    /** 中高价股的大市值分档大单扫板规则编号。 */
     private static final int RULE_LARGE_HIGH_PRICE_ORDER = 11;
+    /** 中高价股的中市值分档大单扫板规则编号。 */
     private static final int RULE_MEDIUM_HIGH_PRICE_ORDER = 12;
+    /** 10 元及以下低价股的大数量扫板规则编号。 */
     private static final int RULE_LARGE_LOW_PRICE_ORDER = 13;
+    /** 未命中大单规则时，按封单金额分档判断的普通排板规则编号。 */
     private static final int RULE_NORMAL_LIMIT_UP_ORDER = 14;
 
     /** 价格单位为分，1000 表示 10 元。 */
     private static final int TEN_YUAN_PRICE_CENTS = 1_000;
 
-    /** 委托数量单位为股。 */
+    /** 大市值分档的最低大单委托数量，单位：股。 */
     private static final int LARGE_HIGH_PRICE_QUANTITY_SHARES = 990_000;
+    /** 中市值分档的最低大单委托数量，单位：股。 */
     private static final int MEDIUM_HIGH_PRICE_QUANTITY_SHARES = 900_000;
+    /** 10 元及以下低价股只看数量时的最低委托数量，单位：股。 */
     private static final int LARGE_LOW_PRICE_QUANTITY_SHARES = 888_800;
 
-    /** 委托金额单位为元。 */
+    /** 大市值分档的最低大单委托金额，单位：元。 */
     private static final int LARGE_HIGH_PRICE_AMOUNT_YUAN = 9_000_000;
+    /** 中市值分档的最低大单委托金额，单位：元。 */
     private static final int MEDIUM_HIGH_PRICE_AMOUNT_YUAN = 7_000_000;
 
-    /** 涨停封单金额和启动市值的单位均为万元。 */
+    /** 买入规则允许的最大涨停封单金额，单位：万元。 */
     private static final long MAX_LIMIT_UP_BUY_AMOUNT_WAN = 8_000L;
+    /** 规则 11 允许的启动市值上限，单位：万元。 */
     private static final long LARGE_ORDER_MAX_MARKET_VALUE_WAN = 198_000L;
+    /** 规则 12 允许的启动市值上限，单位：万元。 */
     private static final long MEDIUM_ORDER_MAX_MARKET_VALUE_WAN = 150_000L;
 
+    /** 无需历史量能补充条件即可买入的最低当前换手率，单位：%。 */
     private static final double MIN_NORMAL_TURNOVER_RATE = 12.5;
+    /** 所有买入规则允许的最大当前换手率，单位：%。 */
     private static final double MAX_TURNOVER_RATE = 35.0;
+    /** 低换手买入门槛为“历史最大换手率 ÷ 3.3”。 */
     private static final double MAX_TURNOVER_DIVISOR = 3.3;
+    /** 允许低换手买入的当日累计成交额补充条件，单位：元。 */
     private static final long HIGH_TRADING_AMOUNT_YUAN = 250_000_000L;
+    /** 最近一次封板后允许产生买入信号的时间窗口，单位：毫秒。 */
     private static final int RECENT_LIMIT_UP_WINDOW_MILLIS = 30_000;
 
     private ConditionEvaluatorBuy() {
@@ -56,12 +70,19 @@ public final class ConditionEvaluatorBuy {
      * @return 命中买入规则返回 {@code true}
      */
     public static boolean evaluate(OrderBook orderBook, RuleRecord ruleRecord) {
+        // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 当日截至当前时刻的累计换手率，单位：%。
         double turnoverRate = orderBook.getTurnoverRate();
+        // 最新成交价，单位：分。
         int lastPrice = orderBook.getLastPrice();
+        // 当日涨停价，单位：分。
         int limitUpPrice = orderBook.getLimitUpPrice();
+        // 当前涨停买单队列的总金额，单位：万元；非涨停状态通常为 0。
         long limitUpBuyAmount = orderBook.getLimitUpBuyAmount();
+        // 当前行情时间，紧凑格式 HHmmssSSS。
         int time = orderBook.getTime();
+        // 涨停买单数量 EMA 的环比变化率，单位：%；负数表示封单减弱。
         double sealChangePercent = orderBook.getChangePercent();
 
         if (limitUpBuyAmount > MAX_LIMIT_UP_BUY_AMOUNT_WAN) {
@@ -74,10 +95,12 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
 
+        // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
         TickNode largestBuyOrder = orderBook.buyMaxOrder;
         if (largestBuyOrder.getPrice() != 0
                 && largestBuyOrder.getPrice() == limitUpPrice
                 && sealChangePercent >= 0) {
+            // 由启动市值、涨停价和最大买单股数组合匹配出的规则编号；0 表示未命中。
             int largeOrderRule = matchLargeOrderRule(
                     marketValue, limitUpPrice, largestBuyOrder.getQuantity());
             if (largeOrderRule != 0) {
@@ -91,7 +114,9 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
 
+        // 最近一次封板时间转换后的当日毫秒值。
         int lastLimitUpMillis = CompactTimeUtil.compactToMillis(orderBook.getLastLimitUptime());
+        // 当前行情时间转换后的当日毫秒值。
         int updateMillis = CompactTimeUtil.compactToMillis(time);
         String remark = StrUtil.format(
                 "正常排板：启动市值 {} 万，涨停封单金额 {} 万，当前换手 {} %，封单变化EMA {} %，涨停下单时间差:{} ms",
@@ -114,6 +139,7 @@ public final class ConditionEvaluatorBuy {
             return true;
         }
 
+        // 首板、较大日内波动、较深炸板或高成交额任一成立，才允许降低换手门槛。
         boolean supportsLowerTurnoverEntry = orderBook.getLbcs() == 1
                 || orderBook.getAmplitude() > 7
                 || orderBook.getLimitUpBreakDepth() > 3
@@ -122,6 +148,7 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
 
+        // 历史最大成交量占当前流通股本的比例，换算为历史最大换手率，单位：%。
         double historicalMaxTurnover = orderBook.getMaxVolume() * 100.0
                 / orderBook.getCirculation();
         return turnoverRate >= historicalMaxTurnover / MAX_TURNOVER_DIVISOR;
@@ -131,6 +158,7 @@ public final class ConditionEvaluatorBuy {
      * 保持原有语义：没有涨停时间时直接通过，否则只接受涨停后 30 秒内的信号。
      */
     private static boolean isWithinLimitUpEntryWindow(int time, int lastLimitUpTime) {
+        // 紧凑时间转当日毫秒值；0 表示尚未记录过封板时间。
         int lastLimitUpMillis = CompactTimeUtil.compactToMillis(lastLimitUpTime);
         return lastLimitUpMillis == 0
                 || CompactTimeUtil.compactToMillis(time) - lastLimitUpMillis
@@ -147,6 +175,7 @@ public final class ConditionEvaluatorBuy {
                     : 0;
         }
 
+        // 股数先除以 100，再乘以“分”为单位的价格，结果单位为元。
         int orderAmount = orderQuantity / 100 * orderPrice;
         if (marketValue < LARGE_ORDER_MAX_MARKET_VALUE_WAN
                 && (orderQuantity >= LARGE_HIGH_PRICE_QUANTITY_SHARES
@@ -176,6 +205,7 @@ public final class ConditionEvaluatorBuy {
             return limitUpBuyAmount > 500;
         }
 
+        // 10:30 后普通排板允许使用更低的封单金额门槛。
         boolean afterTenThirty = time >= ConstantUtil.TIME_1030;
         if (marketValue < 155_000) {
             return limitUpBuyAmount > (afterTenThirty ? 500 : 1_000);
@@ -195,10 +225,15 @@ public final class ConditionEvaluatorBuy {
     private static void fillLargeOrderRecord(OrderBook orderBook,
                                              RuleRecord ruleRecord,
                                              int ruleCode) {
+        // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 当前涨停买单队列总金额，单位：万元。
         long limitUpBuyAmount = orderBook.getLimitUpBuyAmount();
+        // 当日截至当前时刻的累计换手率，单位：%。
         double turnoverRate = orderBook.getTurnoverRate();
+        // 涨停买单数量 EMA 的环比变化率，单位：%。
         double sealChangePercent = orderBook.getChangePercent();
+        // 当前仍在订单簿中的最大单笔买委托数量，单位：股。
         int orderQuantity = orderBook.buyMaxOrder.getQuantity();
         String remark;
         if (ruleCode == RULE_LARGE_HIGH_PRICE_ORDER) {

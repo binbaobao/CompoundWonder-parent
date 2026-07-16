@@ -19,22 +19,39 @@ final class LimitUpSellEvaluator {
     }
 
     static boolean evaluate(OrderBook orderBook, RuleRecord ruleRecord) {
+        // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 当日截至当前时刻的累计换手率，单位：%。
         double turnover = orderBook.getTurnoverRate();
+        // 最新成交价，单位：分。
         int lastPrice = orderBook.getLastPrice();
+        // 当日涨停价，单位：分。
         int limitUpPrice = orderBook.getLimitUpPrice();
+        // 当前涨停买单队列总金额，单位：万元；非涨停状态通常为 0。
         long limitUpBuyAmount = orderBook.getLimitUpBuyAmount();
+        // 涨停/炸板累计状态：奇数表示封板中，偶数表示未封板；数值越大表示炸板回封次数越多。
         int status = orderBook.getStatus();
+        // 涨停买单数量 EMA 的环比变化率，单位：%；负数表示封单减弱。
         double changePercent = orderBook.getChangePercent();
+        // 昨日与前日换手率的算术平均值，单位：%。
         double twoDaysTurnover = orderBook.getTwoDaysTurnover();
+        // 本轮连续涨停中一字板的数量。
         int oneWordLimitUp = orderBook.getOneWordLimitUp();
+        // 上一次 EMA 评估时记录的涨停封单金额，单位：万元。
         long lastSealAmount = orderBook.getLastSealAmount();
+        // 当前行情时间，紧凑格式 HHmmssSSS。
         int time = orderBook.getTime();
+        // 昨日已经完成的连续涨停天数，今日板数展示时通常使用 lbcs + 1。
         int lbcs = orderBook.getLbcs();
+        // 当日最高价与最低价相对昨收价形成的振幅，单位：%。
         double amplitude = orderBook.getAmplitude();
+        // 今日开盘价相对昨收价的涨跌幅，单位：%。
         double openIncrease = orderBook.getOpenIncrease();
+        // 涨停价到最近一次炸板最低价的价差占昨收价的比例，单位：%。
         double limitUpBreakDepth = orderBook.getLimitUpBreakDepth();
+        // 上一交易日换手率，单位：%。
         double yesterdayTurnover = orderBook.getYesterdayTurnover();
+        // 最新价相对昨收价的涨跌幅，单位：%。
         double increase = orderBook.getIncrease();
 
         if (changePercent < -1 && marketValue < 130_000 && lbcs > 3
@@ -55,6 +72,7 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
+        // 根据启动市值分档得到的基准最大换手率，单位：%。
         double maxTurnover = maxTurnover(marketValue);
         if (turnover > maxTurnover - 5 && isLimitUp(status)
                 && lbcs <= 7 && time < ConstantUtil.TIME_14563) {
@@ -142,6 +160,7 @@ final class LimitUpSellEvaluator {
         }
 
         if (lbcs >= 5 && lbcs < 7 && marketValue < 130_000) {
+            // 昨日起最近三个交易日换手率的算术平均值，单位：%。
             double threeDaysTurnover = orderBook.getThreeDaysTurnover();
             if (threeDaysTurnover <= 16.6 && changePercent < -2 && lastSealAmount < 2_500) {
                 String remark = StrUtil.format("高位连板缩量板炸板；条件：今日 {} 板，启动市值 {} 万，三日换手 {}%，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
@@ -158,6 +177,7 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
+        // 近 15 个交易日涨停股票的平均连板高度，单位：板。
         int averageLimitUpHeight = orderBook.getAverageLimitUpHeight();
         if (isLimitUp(status) && (orderBook.getLastLimitUptime() < ConstantUtil.TIME_932 || amplitude < 3)
                 && lbcs == averageLimitUpHeight && lastSealAmount < 2_500
@@ -188,10 +208,12 @@ final class LimitUpSellEvaluator {
         return false;
     }
 
+    /** 订单簿状态为奇数时表示当前处于涨停封板状态。 */
     private static boolean isLimitUp(int status) {
         return status % 2 == 1;
     }
 
+    /** 按启动市值（万元）返回卖出规则使用的换手率基准上限（%）。 */
     private static double maxTurnover(long marketValue) {
         if (marketValue < 80_000) {
             return 60;

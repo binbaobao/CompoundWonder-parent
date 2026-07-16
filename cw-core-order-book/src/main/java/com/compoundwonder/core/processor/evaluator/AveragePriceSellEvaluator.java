@@ -19,18 +19,30 @@ final class AveragePriceSellEvaluator {
     }
 
     static boolean evaluate(int calculateIndex, OrderBook orderBook, RuleRecord ruleRecord) {
+        // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 当日截至当前时刻的累计换手率，单位：%。
         double turnoverRate = orderBook.getTurnoverRate();
+        // 当日最高价与最低价相对昨收价形成的振幅，单位：%。
         double amplitude = orderBook.getAmplitude();
+        // 最新价相对昨收价的涨跌幅，单位：%。
         double increase = orderBook.getIncrease();
+        // 当日最高成交价，单位：分。
         int highestPrice = orderBook.getHighestPrice();
+        // 昨日收盘价，单位：分；本类涨跌幅和回撤统一以它为基准。
         int closePrice = orderBook.getClosePrice();
+        // 今日开盘价相对昨收价的涨跌幅，单位：%。
         double openIncrease = orderBook.getOpenIncrease();
+        // 当前行情时间，紧凑格式 HHmmssSSS，例如 09:31:00.000 为 93100000。
         int time = orderBook.getTime();
+        // 昨日已经完成的连续涨停天数，例如 2 表示今天处于“2进3”。
         int lbcs = orderBook.getLbcs();
+        // 当日截至当前时刻的累计成交额，单位：元。
         long turnover = orderBook.getTurnover();
 
+        // 当前分钟最新价，单位：分。
         int currentPrice = orderBook.price[calculateIndex];
+        // 根据启动市值分档得到的允许换手率上限，单位：%。
         double maxTurnover = maxTurnover(marketValue);
 
         // 小市值三班组早盘暂不使用均线策略。
@@ -49,15 +61,24 @@ final class AveragePriceSellEvaluator {
             return false;
         }
 
+        // 三分钟前的分钟均价，单位：分。
         int averagePrice3 = orderBook.avgPrice[calculateIndex - 3];
+        // 两分钟前的分钟均价，单位：分。
         int averagePrice2 = orderBook.avgPrice[calculateIndex - 2];
+        // 上一分钟的分钟均价，单位：分。
         int previousAveragePrice = orderBook.avgPrice[calculateIndex - 1];
+        // 当前分钟均价，单位：分。
         int currentAveragePrice = orderBook.avgPrice[calculateIndex];
+        // 三分钟前的分钟最新价，单位：分。
         int price3 = orderBook.price[calculateIndex - 3];
+        // 两分钟前的分钟最新价，单位：分。
         int price2 = orderBook.price[calculateIndex - 2];
+        // 上一分钟的分钟最新价，单位：分。
         int previousPrice = orderBook.price[calculateIndex - 1];
 
+        // 开盘涨幅减当前涨幅，表示从开盘位置回落了多少个百分点；正数表示回落。
         double openDropPercentage = openIncrease - increase;
+        // 上一分钟价格相对昨收价的涨跌幅，单位：%。
         double previousPriceIncrease = (previousPrice - closePrice) * 100.0 / closePrice;
 
         if ((lbcs == 2 || orderBook.getYesterdayTurnover() > 45)
@@ -73,6 +94,7 @@ final class AveragePriceSellEvaluator {
         }
 
         if (lbcs == 2 && increase <= -3 && calculateIndex >= 12) {
+            // 上一分钟均价相对昨收价的涨跌幅，单位：%。
             double movingAverageIncrease = (previousAveragePrice - closePrice) * 100.0 / closePrice;
             if (movingAverageIncrease <= -3
                     && averagePrice3 >= averagePrice2
@@ -85,7 +107,9 @@ final class AveragePriceSellEvaluator {
             }
         }
 
+        // 当日最高价相对昨收价的涨幅，单位：%。
         double highestIncrease = (highestPrice - closePrice) * 100.0 / closePrice;
+        // 最高价到当前价的回落幅度，分母仍为昨收价，表示回落了多少个百分点。
         double peakToCurrentDrawdown = (highestPrice - currentPrice) * 100.0 / closePrice;
 
         if (lbcs == 2 && highestIncrease >= 8
@@ -122,6 +146,7 @@ final class AveragePriceSellEvaluator {
 
         if (price2 > previousPrice && previousPrice > currentPrice
                 && increase > 0 && increase < 2.5 && amplitude > 9) {
+            // 当日最低价相对昨收价的涨跌幅，单位：%。
             double lowIncrease = (orderBook.getLowPrice() - closePrice) * 100.0 / closePrice;
             if (lowIncrease < -7) {
                 String remark = StrUtil.format("大振幅后涨幅偏弱且走势连续下降；条件：振幅 {}%，当前涨幅 {}%",
@@ -131,6 +156,7 @@ final class AveragePriceSellEvaluator {
             }
         }
 
+        // 价格由均线上方跌到均线下方，同时最近三分钟均价整体不抬升。
         boolean crossesBelowAverage = previousPrice > previousAveragePrice
                 && currentPrice < currentAveragePrice
                 && averagePrice3 >= averagePrice2
@@ -167,6 +193,7 @@ final class AveragePriceSellEvaluator {
         return false;
     }
 
+    /** 按启动市值（万元）返回均价卖出规则使用的换手率基准上限（%）。 */
     private static double maxTurnover(long marketValue) {
         if (marketValue < 80_000) {
             return 55;
