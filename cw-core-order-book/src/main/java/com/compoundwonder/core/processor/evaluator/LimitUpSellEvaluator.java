@@ -159,8 +159,8 @@ final class LimitUpSellEvaluator {
         }
 
         int averageLimitUpHeight = orderBook.getAverageLimitUpHeight();
-        if (status == 1 && orderBook.getLastLimitUptime() < ConstantUtil.TIME_932
-                && lbcs == averageLimitUpHeight && lastSealAmount < 9_500
+        if (isLimitUp(status) && (orderBook.getLastLimitUptime() < ConstantUtil.TIME_932 || amplitude < 3)
+                && lbcs == averageLimitUpHeight && lastSealAmount < 2_500
                 && changePercent <= -1.8) {
             String remark = StrUtil.format("达到近 15 日平均高度后秒板封单减弱；条件：平均高度 {} 板，昨日连板 {} 板，今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
                     averageLimitUpHeight, lbcs, lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent);
@@ -177,14 +177,14 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
-        if (isLimitUp(status) && lbcs == 2 && status >= 5
-                && lastSealAmount > 2_000 && lastSealAmount < 5_500
-                && changePercent <= -2.8) {
-            String remark = StrUtil.format("2进3 多次炸板骗炮；条件：昨日连板 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，涨停状态 {}",
-                    lbcs, marketValue, limitUpBuyAmount, turnover, changePercent, status);
-            return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_TWO_TO_THREE_MULTI_BREAK,
-                    lastPrice, increase, remark);
-        }
+//        if (isLimitUp(status) && lbcs == 2 && status >= 5
+//                && lastSealAmount > 2_000 && lastSealAmount < 5_500
+//                && changePercent <= -2.8) {
+//            String remark = StrUtil.format("2进3 多次炸板骗炮；条件：昨日连板 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，涨停状态 {}",
+//                    lbcs, marketValue, limitUpBuyAmount, turnover, changePercent, status);
+//            return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_TWO_TO_THREE_MULTI_BREAK,
+//                    lastPrice, increase, remark);
+//        }
         return false;
     }
 

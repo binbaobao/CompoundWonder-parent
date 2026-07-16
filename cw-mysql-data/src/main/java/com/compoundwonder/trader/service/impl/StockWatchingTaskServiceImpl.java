@@ -105,7 +105,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockWatchingTask> eligibleTasks = new ArrayList<>();
         for (StockSelectionAssistDTO dto : assistList) {
             int abnormalCount = Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0);
-            if (abnormalCount >= 20) {
+            if (abnormalCount > 20) {
                 logSelectionFiltered("首板", dto, "非正常状态次数", "actual=" + abnormalCount + ", required<20");
                 continue;
             }
@@ -297,7 +297,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
 
             int score = calculateSelectionScore(dto);
-            if (score <= 15) {
+            if (score < 15) {
                 logSelectionFiltered("连板", dto, "选股评分", "actual=" + score + ", required>15");
                 continue;
             }
@@ -305,7 +305,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
 
         eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
-        List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 3);
+        List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 5);
         replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
         return tasks;
 
