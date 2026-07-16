@@ -75,9 +75,11 @@ class HistoricalBacktestTradeServiceImplTest {
             }
             return result(tradeDate, request.symbol(), request.mode(), List.of());
         });
+        StockDailyEntity overnightDaily = daily("600001", tradeDate, 10D);
+        StockDailyEntity selectedDaily = daily("000001", tradeDate, 10D);
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(tradeDate)),
-                stockDailyService(daily("000001", tradeDate, 10D)),
+                stockDailyService(List.of(overnightDaily, selectedDaily), selectedDaily),
                 noOpSelectionService(), Runnable::run);
 
         service.runRange(tradeDate, tradeDate);
@@ -115,9 +117,13 @@ class HistoricalBacktestTradeServiceImplTest {
             }
             return result(tradeDate, request.symbol(), request.mode(), List.of());
         });
+        StockDailyEntity overnightDaily = daily("600001", tradeDate, 10D);
+        StockDailyEntity cancelledDaily = daily("000524", tradeDate, 10D);
+        StockDailyEntity selectedDaily = daily("600002", tradeDate, 10D);
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(tradeDate)),
-                stockDailyService(daily("600002", tradeDate, 10D)),
+                stockDailyService(
+                        List.of(overnightDaily, cancelledDaily, selectedDaily), selectedDaily),
                 noOpSelectionService(), Runnable::run);
 
         service.runRange(tradeDate, tradeDate);
@@ -158,9 +164,12 @@ class HistoricalBacktestTradeServiceImplTest {
             }
             return result(tradeDate, request.symbol(), request.mode(), List.of());
         });
+        StockDailyEntity overnightDaily = daily("600001", tradeDate, 10D);
+        StockDailyEntity cancelledDaily = daily("000524", tradeDate, 10D);
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(tradeDate)),
-                stockDailyService(), noOpSelectionService(), Runnable::run);
+                stockDailyService(List.of(overnightDaily, cancelledDaily)),
+                noOpSelectionService(), Runnable::run);
 
         service.runRange(tradeDate, tradeDate);
 
@@ -201,7 +210,7 @@ class HistoricalBacktestTradeServiceImplTest {
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(tradeDate)),
                 stockDailyService(
-                        List.of(overnightDaily, zeroStateDaily, negativeStateDaily),
+                        List.of(overnightDaily, zeroStateDaily, negativeStateDaily, positiveStateDaily),
                         positiveStateDaily), noOpSelectionService(), Runnable::run);
 
         BacktestRun result = service.runRange(tradeDate, tradeDate);
@@ -212,6 +221,36 @@ class HistoricalBacktestTradeServiceImplTest {
         assertEquals("000002", replay.requests.get(0).symbol());
         assertEquals(BacktestReplayMode.BUY, replay.requests.get(0).mode());
         assertEquals(1, result.getLimitUpBreakCount());
+    }
+
+    @Test
+    void skipsCandidateWithoutCurrentDailyAndContinuesWithOtherStocks() {
+        LocalDate tradeDate = LocalDate.of(2026, 7, 14);
+        StockWatchingTask missingDailyTask = watchingTask(1L, "600001", tradeDate);
+        StockWatchingTask availableTask = watchingTask(2L, "000001", tradeDate);
+        FakePersistenceService persistence = new FakePersistenceService(
+                date -> List.of(missingDailyTask, availableTask));
+        FakeReplayService replay = new FakeReplayService(request -> {
+            if ("600001".equals(request.symbol())) {
+                throw new IllegalArgumentException("缺少当日日K");
+            }
+            return result(tradeDate, request.symbol(), request.mode(), List.of(
+                    rule(RuleConstant.TRADING_MODE_BUY, request.symbol(),
+                            100_000_000, 100_000_101)));
+        });
+        StockDailyEntity availableDaily = daily("000001", tradeDate, 10D);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence, calendarService(List.of(tradeDate)),
+                stockDailyService(List.of(availableDaily), availableDaily),
+                noOpSelectionService(), Runnable::run);
+
+        BacktestRun result = service.runRange(tradeDate, tradeDate);
+
+        BacktestDayWrite write = persistence.savedDays.get(0);
+        assertEquals(BacktestPersistenceService.COMPLETED, result.getStatus());
+        assertEquals("000001", write.buyRule().getSymbol());
+        assertEquals(1, replay.requests.size());
+        assertEquals("000001", replay.requests.get(0).symbol());
     }
 
     @Test
@@ -308,7 +347,7 @@ class HistoricalBacktestTradeServiceImplTest {
         sellDay.setKlineState(0);
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(buyDate, sellDate)),
-                stockDailyService(buyDayForValuation, sellDay),
+                stockDailyService(List.of(buyDayForValuation), buyDayForValuation, sellDay),
                 noOpSelectionService(), Runnable::run);
 
         service.runRange(buyDate, sellDate);
@@ -410,7 +449,7 @@ class HistoricalBacktestTradeServiceImplTest {
     }
 
     private StockDailyService stockDailyService(StockDailyEntity... dailyRows) {
-        return stockDailyService(List.of(), dailyRows);
+        return stockDailyService(List.of(dailyRows), dailyRows);
     }
 
     private StockDailyService stockDailyService(List<StockDailyEntity> candidateDailyRows,

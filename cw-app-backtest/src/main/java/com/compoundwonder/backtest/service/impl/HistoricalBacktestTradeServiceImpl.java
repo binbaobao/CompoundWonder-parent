@@ -294,7 +294,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 continue;
             }
             if (nonBuyableSymbols.contains(symbol)) {
-                log.debug("跳过当日未触及涨停的候选股票 date={}, symbol={}", tradeDate, symbol);
+                log.debug("跳过当日不可买入或缺少日K的候选股票 date={}, symbol={}", tradeDate, symbol);
                 continue;
             }
             try {
@@ -341,7 +341,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
      * 一次性查询当天 {@code kline_state <= 0} 的候选股票，避免逐只查询日 K，
      * 也避免为全天没有触及涨停的股票读取并回放 Parquet。
      *
-     * <p>日 K 缺失或状态为空的股票不在跳过集合中，仍由原回放流程暴露数据问题。</p>
+     * <p>批量查询结果中缺少当日日 K 的股票按停牌处理，只跳过该股票，
+     * 不影响同一天其他候选股票继续回放。</p>
      */
     private Set<String> findNonBuyableSymbols(LocalDate tradeDate, List<StockWatchingTask> tasks) {
         List<String> symbols = tasks.stream()
@@ -358,11 +359,22 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                         .select("stock_code", "kline_state")
                         .eq("trade_date", tradeDate)
                         .in("stock_code", symbols));
-        Set<String> nonBuyableSymbols = new HashSet<>(dailyRows.size());
+        Set<String> existingDailySymbols = new HashSet<>(dailyRows.size());
+        Set<String> nonBuyableSymbols = new HashSet<>(symbols.size());
         for (StockDailyEntity daily : dailyRows) {
-            if (daily.getStockCode() != null && daily.getKlineState() != null
+            if (daily.getStockCode() == null) {
+                continue;
+            }
+            existingDailySymbols.add(daily.getStockCode());
+            if (daily.getKlineState() != null
                     && daily.getKlineState() <= 0) {
                 nonBuyableSymbols.add(daily.getStockCode());
+            }
+        }
+        for (String symbol : symbols) {
+            if (!existingDailySymbols.contains(symbol)) {
+                nonBuyableSymbols.add(symbol);
+                log.warn("跳过缺少当日日K的候选股票 date={}, symbol={}", tradeDate, symbol);
             }
         }
         return nonBuyableSymbols;

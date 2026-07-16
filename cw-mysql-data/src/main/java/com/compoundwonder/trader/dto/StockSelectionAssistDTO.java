@@ -92,9 +92,10 @@ public class StockSelectionAssistDTO {
     private Integer abnormalKlineStateCount;
 
     /**
-     * 5 日涨跌幅，使用复权收盘价计算。
+     * 5 日振幅：以包含当日在内的近 5 个交易日最低复权价为基准，
+     * 计算到当日复权收盘价的涨幅。
      */
-    private Double fiveDayChangeRate;
+    private Double fiveDayAmplitude;
 
     /**
      * 10 日涨跌幅，使用复权收盘价计算。

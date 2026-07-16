@@ -119,8 +119,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
+            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getFiveDayAmplitude(), 0D);
+            if (fiveDayAmplitude > 20){
+                logSelectionFiltered("首板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<20");
+                continue;
+            }
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
-            if (tenDayChangeRate <= 2 || tenDayChangeRate >= 25) {
+
+            if (tenDayChangeRate <= -2 || tenDayChangeRate >= 25) {
                 logSelectionFiltered("首板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required=(2,25)");
                 continue;
             }
@@ -155,7 +161,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
-                .lt(StockDailyEntity::getFloatMarketCap, 600_000)
+                .lt(StockDailyEntity::getFloatMarketCap, 400_000)
                 .lt(StockDailyEntity::getClosePrice, 40)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票
@@ -284,7 +290,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
 
             double startPrice = Objects.requireNonNullElse(dto.getStartPrice(), 0D);
-            if (startPrice <= 3) {
+            Double startMarketCap = dto.getStartMarketCap();
+            if (startPrice <= 3 && startMarketCap < 250_000) {
                 logSelectionFiltered("连板", dto, "启动价格", "actual=" + startPrice + ", required>3");
                 continue;
             }
@@ -567,13 +574,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 findRecentThreeMonthHighestConsecutiveLimitUpDays(
                         selectionWindowDailyList, recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
-        assist.setFiveDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 5));
+        assist.setFiveDayAmplitude(calculateFiveDayAdjustedAmplitude(ascRecentDailyList));
         assist.setTenDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 10));
         return assist;
     }
 
     /**
-     * 查询当前交易日前 10 个交易日和当天，用于计算 5/10 日涨跌幅等辅助指标。
+     * 查询当前交易日前 10 个交易日和当天，用于计算 5 日振幅、10 日涨跌幅等辅助指标。
      */
     private List<StockDailyEntity> listRecentDaily(StockDailyEntity stockDaily) {
         return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
@@ -755,5 +762,29 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             return 0.0;
         }
         return (currentPrice - basePrice) * 100 / basePrice;
+    }
+
+    /**
+     * 计算包含当日在内的 3 日振幅：
+     * （当日复权收盘价 - 近 3 个交易日最低复权价）/ 近 3 个交易日最低复权价。
+     */
+    static Double calculateFiveDayAdjustedAmplitude(List<StockDailyEntity> ascRecentDailyList) {
+        int windowDays = 3;
+        if (ascRecentDailyList.size() < windowDays) {
+            return 0.0;
+        }
+        int currentIndex = ascRecentDailyList.size() - 1;
+        Double currentClosePrice = ascRecentDailyList.get(currentIndex).getAdjustClosePrice();
+        Double lowestPrice = ascRecentDailyList.subList(
+                        ascRecentDailyList.size() - windowDays, ascRecentDailyList.size())
+                .stream()
+                .map(StockDailyEntity::getAdjustLowPrice)
+                .filter(Objects::nonNull)
+                .min(Double::compareTo)
+                .orElse(null);
+        if (currentClosePrice == null || lowestPrice == null || lowestPrice <= 0) {
+            return 0.0;
+        }
+        return (currentClosePrice - lowestPrice) * 100 / lowestPrice;
     }
 }

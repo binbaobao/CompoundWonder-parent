@@ -108,17 +108,17 @@ final class AveragePriceSellEvaluator {
                     currentPrice, remark);
         }
 
-        if ((highestPrice != orderBook.getLimitUpPrice() || time > ConstantUtil.TIME_1330)
-                && previousPriceIncrease < -3
-                && peakToCurrentDrawdown > 2 * lbcs
-                && openDropPercentage >= 2 * lbcs
-                && previousPrice < previousAveragePrice
-                && currentAveragePrice < previousAveragePrice) {
-            String remark = StrUtil.format("冲高回落后均线继续下压；条件：高点回落 {}%，当前涨幅 {}%",
-                    peakToCurrentDrawdown, increase);
-            return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_PEAK_DRAWDOWN,
-                    currentPrice, remark);
-        }
+//        if ((highestPrice != orderBook.getLimitUpPrice() || time > ConstantUtil.TIME_1330)
+//                && previousPriceIncrease < -3
+//                && peakToCurrentDrawdown > 2 * lbcs
+//                && openDropPercentage >= 2 * lbcs
+//                && previousPrice < previousAveragePrice
+//                && currentAveragePrice < previousAveragePrice) {
+//            String remark = StrUtil.format("冲高回落后均线继续下压；条件：高点回落 {}%，当前涨幅 {}%",
+//                    peakToCurrentDrawdown, increase);
+//            return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_PEAK_DRAWDOWN,
+//                    currentPrice, remark);
+//        }
 
         if (price2 > previousPrice && previousPrice > currentPrice
                 && increase > 0 && increase < 2.5 && amplitude > 9) {
