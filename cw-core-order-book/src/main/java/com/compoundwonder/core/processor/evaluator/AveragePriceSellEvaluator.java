@@ -132,17 +132,57 @@ final class AveragePriceSellEvaluator {
                     currentPrice, remark);
         }
 
-//        if ((highestPrice != orderBook.getLimitUpPrice() || time > ConstantUtil.TIME_1330)
-//                && previousPriceIncrease < -3
-//                && peakToCurrentDrawdown > 2 * lbcs
-//                && openDropPercentage >= 2 * lbcs
-//                && previousPrice < previousAveragePrice
-//                && currentAveragePrice < previousAveragePrice) {
-//            String remark = StrUtil.format("冲高回落后均线继续下压；条件：高点回落 {}%，当前涨幅 {}%",
-//                    peakToCurrentDrawdown, increase);
-//            return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_PEAK_DRAWDOWN,
-//                    currentPrice, remark);
-//        }
+        // 最近 15 个分钟采样的起点，窗口内只识别本轮“回落—再冲高”结构。
+        int patternStartIndex = Math.max(0, calculateIndex - 15);
+        // 当前分钟之前的最高采样位置，作为开盘回落后的二次冲高高点。
+        int secondPeakIndex = -1;
+        for (int i = patternStartIndex + 1; i < calculateIndex; i++) {
+            if (orderBook.price[i] > 0
+                    && (secondPeakIndex < 0 || orderBook.price[i] > orderBook.price[secondPeakIndex])) {
+                secondPeakIndex = i;
+            }
+        }
+        if (orderBook.getOpenPrice() > 0 && secondPeakIndex > patternStartIndex) {
+            // 开盘价与第二高点之间的最低采样位置，作为首次回落低点。
+            int pullbackLowIndex = -1;
+            for (int i = patternStartIndex; i < secondPeakIndex; i++) {
+                if (orderBook.price[i] > 0
+                        && (pullbackLowIndex < 0 || orderBook.price[i] < orderBook.price[pullbackLowIndex])) {
+                    pullbackLowIndex = i;
+                }
+            }
+            if (pullbackLowIndex >= 0) {
+                // 第一高点固定使用集合竞价形成的开盘价，不能使用 09:30 分钟结束价。
+                int firstPeakPrice = orderBook.getOpenPrice();
+                // 首次回落最低价，单位：分。
+                int pullbackLowPrice = orderBook.price[pullbackLowIndex];
+                // 二次冲高价格，单位：分。
+                int secondPeakPrice = orderBook.price[secondPeakIndex];
+                // 第一高点相对昨收价的涨幅，单位：%。
+                double firstPeakIncrease = (firstPeakPrice - closePrice) * 100.0 / closePrice;
+                // 二次高点相对昨收价的涨幅，单位：%。
+                double secondPeakIncrease = (secondPeakPrice - closePrice) * 100.0 / closePrice;
+                // 第一高点到首次低点的回落幅度，分母为昨收价，单位：%。
+                double firstPullback = (firstPeakPrice - pullbackLowPrice) * 100.0 / closePrice;
+                // 二次高点到当前价的回落幅度，分母为昨收价，单位：%。
+                double secondDrawdown = (secondPeakPrice - currentPrice) * 100.0 / closePrice;
+                if ((highestPrice != orderBook.getLimitUpPrice() || time > ConstantUtil.TIME_1330)
+                        && firstPeakIncrease >= 5
+                        && firstPullback >= 2.5
+                        && secondPeakPrice >= firstPeakPrice
+                        && secondPeakIncrease >= 8
+                        && secondDrawdown >= 3.5
+                        && increase <= 5.5
+                        && currentAveragePrice > 0
+                        && currentPrice < currentAveragePrice) {
+                    String remark = StrUtil.format(
+                            "高开回落后二次冲高失败；条件：首次回落 {}%，二次高点涨幅 {}%，二次回落 {}%，当前涨幅 {}%",
+                            firstPullback, secondPeakIncrease, secondDrawdown, increase);
+                    return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_PEAK_DRAWDOWN,
+                            currentPrice, remark);
+                }
+            }
+        }
 
         if (price2 > previousPrice && previousPrice > currentPrice
                 && increase > 0 && increase < 2.5 && amplitude > 9) {
