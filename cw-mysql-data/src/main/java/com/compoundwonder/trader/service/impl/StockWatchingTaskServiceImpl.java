@@ -119,9 +119,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
-            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getFiveDayAmplitude(), 0D);
-            if (fiveDayAmplitude > 20){
-                logSelectionFiltered("首板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<20");
+            double threeDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
+            if (threeDayAmplitude >= 20){
+                logSelectionFiltered("首板", dto, "3日振幅", "actual=" + threeDayAmplitude + ", required<20");
                 continue;
             }
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
@@ -284,7 +284,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
             int consecutiveLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveLimitUpDays(), 2);
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
-            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getFiveDayAmplitude(), 0D);
+            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
 
             if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 50){
                 logSelectionFiltered("3连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<50");
@@ -591,13 +591,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 findRecentThreeMonthHighestConsecutiveLimitUpDays(
                         selectionWindowDailyList, recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
-        assist.setFiveDayAmplitude(calculateFiveDayAdjustedAmplitude(ascRecentDailyList));
+        assist.setSelectionAmplitude(calculateSelectionAdjustedAmplitude(
+                ascRecentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setTenDayChangeRate(calculateAdjustedCloseChangeRate(ascRecentDailyList, 10));
         return assist;
     }
 
     /**
-     * 查询当前交易日前 10 个交易日和当天，用于计算 5 日振幅、10 日涨跌幅等辅助指标。
+     * 查询当前交易日前 10 个交易日和当天，用于计算选股振幅、10 日涨跌幅等辅助指标。
      */
     private List<StockDailyEntity> listRecentDaily(StockDailyEntity stockDaily) {
         return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
@@ -782,11 +783,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 计算包含当日在内的 5 日振幅：
-     * （当日复权收盘价 - 近 5 个交易日最低复权价）/ 近 5 个交易日最低复权价。
+     * 计算包含当日在内的选股振幅：首板使用 3 个交易日，连板使用 5 个交易日。
+     * 公式为（当日复权收盘价 - 窗口最低复权价）/ 窗口最低复权价。
      */
-    static Double calculateFiveDayAdjustedAmplitude(List<StockDailyEntity> ascRecentDailyList) {
-        int windowDays = 5;
+    static Double calculateSelectionAdjustedAmplitude(
+            List<StockDailyEntity> ascRecentDailyList, Integer consecutiveLimitUpDays) {
+        int windowDays = Objects.equals(consecutiveLimitUpDays, 1) ? 3 : 5;
         if (ascRecentDailyList.size() < windowDays) {
             return 0.0;
         }
