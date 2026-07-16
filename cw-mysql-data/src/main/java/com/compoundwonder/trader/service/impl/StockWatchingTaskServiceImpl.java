@@ -161,7 +161,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
-                .lt(StockDailyEntity::getFloatMarketCap, 400_000)
+                .lt(StockDailyEntity::getFloatMarketCap, 500_000)
                 .lt(StockDailyEntity::getClosePrice, 40)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票

@@ -151,7 +151,7 @@ final class LimitUpSellEvaluator {
             }
         }
 
-        if (isLimitUp(status) && lbcs >= 6 && orderBook.getNextTradingDay() >= 3) {
+        if (isLimitUp(status) && orderBook.getNextTradingDay() >= 3 && (lbcs >= 6 || orderBook.getLastLimitUptime() < ConstantUtil.TIME_931) && turnover < 12) {
             String remark = StrUtil.format("高位连板遇到长假先落袋；条件：今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，下个交易日间隔 {}",
                     lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent, orderBook.getNextTradingDay());
             return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_HOLIDAY_HIGH_BOARD,
