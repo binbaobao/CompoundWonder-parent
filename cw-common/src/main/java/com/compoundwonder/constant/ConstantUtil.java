@@ -19,6 +19,7 @@ public class ConstantUtil {
     public static final Integer TIME_1030 = 103000000;
     public static final Integer TIME_1130 = 113000000;
     public static final Integer TIME_1330 = 133000000;
+    public static final Integer TIME_1430 = 143000000;
     public static final Integer TIME_14563 = 145630000;
     public static final Integer TIME_1456 = 145655000;
     public static final Integer TIME_1457 = 145700000;

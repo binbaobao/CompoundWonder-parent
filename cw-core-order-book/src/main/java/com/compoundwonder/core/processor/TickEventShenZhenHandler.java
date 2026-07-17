@@ -242,8 +242,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                     executionGateway.enableFirstLimitUpTradingMode(orderBook.getSymbol());
                 }
             }
-            // 可交易状态 涨停价成交才能
-            if (transStatus == 1 && ConditionEvaluatorBuy.evaluate(orderBook, ruleRecordBuffer.nextRecord())) {
+            // 可交易状态 涨停价成交才能,14点半之后不打板，很可能是悟道偷鸡板
+            if (transStatus == 1 && order.time < ConstantUtil.TIME_1430 && ConditionEvaluatorBuy.evaluate(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                 orderBook.setTransactionStatus(2);
                 log.info("打板,股票代码 {} 触发单号 OrderId :{}，数据类型:({}) 封单变化：{},封单金额:{},换手:{}%", order.symbolId, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getLimitUpBuyAmount(), orderBook.getTurnoverRate());
