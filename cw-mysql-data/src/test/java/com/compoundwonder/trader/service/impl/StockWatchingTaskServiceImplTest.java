@@ -2,11 +2,13 @@ package com.compoundwonder.trader.service.impl;
 
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
+import com.compoundwonder.trader.entity.StockWatchingTask;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -134,6 +136,23 @@ class StockWatchingTaskServiceImplTest {
                 .isSmallMarketCapFirstBoardTenDayChangeAllowed(25D));
     }
 
+    @Test
+    void candidateTasksWithSameScorePreferLowerCurrentPrice() {
+        StockWatchingTask expensiveSameScore = watchingTask("600001", 50);
+        StockWatchingTask cheapSameScore = watchingTask("600002", 50);
+        StockWatchingTask higherScore = watchingTask("600003", 60);
+        List<StockWatchingTask> tasks = new ArrayList<>(List.of(
+                expensiveSameScore, cheapSameScore, higherScore));
+
+        StockWatchingTaskServiceImpl.sortSelectionTasks(tasks, Map.of(
+                "600001", 20D,
+                "600002", 10D,
+                "600003", 30D));
+
+        assertEquals(List.of("600003", "600002", "600001"),
+                tasks.stream().map(StockWatchingTask::getStockCode).toList());
+    }
+
     private StockDailyEntity daily(String tradeDate, double adjustedLow, double adjustedClose) {
         StockDailyEntity daily = new StockDailyEntity();
         daily.setTradeDate(LocalDate.parse(tradeDate));
@@ -154,5 +173,12 @@ class StockWatchingTaskServiceImplTest {
         assist.setConsecutiveLimitUpDays(1);
         assist.setStartMarketCap(startMarketCap);
         return assist;
+    }
+
+    private StockWatchingTask watchingTask(String stockCode, int score) {
+        StockWatchingTask task = new StockWatchingTask();
+        task.setStockCode(stockCode);
+        task.setLimitUpScore(score);
+        return task;
     }
 }

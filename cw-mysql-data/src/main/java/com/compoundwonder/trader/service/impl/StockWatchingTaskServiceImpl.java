@@ -26,8 +26,10 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -165,9 +167,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_FIRST_LIMIT_UP, score));
         }
 
-        eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
+        Map<String, Double> currentPriceByStockCode = indexCurrentPrices(assistList);
+        sortSelectionTasks(eligibleTasks, currentPriceByStockCode);
         List<StockWatchingTask> tasks = takeTopTasks("首板", eligibleTasks, 3);
         appendSmallMarketCapFirstBoardTasks(tasks, assistList, convertibleBondStockCodes);
+        sortSelectionTasks(tasks, currentPriceByStockCode);
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
     }
@@ -424,10 +428,36 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, score));
         }
 
-        eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
+        sortSelectionTasks(eligibleTasks, indexCurrentPrices(assistList));
         List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 5);
         replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
         return tasks;
+    }
+
+    /**
+     * 候选任务排序：优先按分数降序；分数相同时按选股当日收盘价升序；
+     * 分数和价格都相同时按股票代码升序，保证截断结果稳定。
+     */
+    static void sortSelectionTasks(List<StockWatchingTask> tasks,
+                                   Map<String, Double> currentPriceByStockCode) {
+        tasks.sort(Comparator
+                .comparing(StockWatchingTask::getLimitUpScore,
+                        Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(task -> currentPriceByStockCode.get(task.getStockCode()),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(StockWatchingTask::getStockCode,
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+    }
+
+    /**
+     * 建立股票代码到选股当日收盘价的索引，供候选任务同分排序使用。
+     */
+    private Map<String, Double> indexCurrentPrices(List<StockSelectionAssistDTO> assistList) {
+        Map<String, Double> currentPriceByStockCode = new HashMap<>();
+        for (StockSelectionAssistDTO assist : assistList) {
+            currentPriceByStockCode.put(assist.getStockCode(), assist.getCurrentPrice());
+        }
+        return currentPriceByStockCode;
     }
 
     /**
