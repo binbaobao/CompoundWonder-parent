@@ -72,19 +72,27 @@ public class StockSelectionAssistDTO {
     private Integer listingMonthCount;
 
     /**
-     * 最大换手率。
+     * 本轮连续涨停开始前 18 个自然月内的历史最大换手率；
+     * 排除股票上市后最早 10 根日 K，不包含本轮连板。
      */
     private Double maxTurnoverRate;
 
     /**
-     * 最高板。
+     * 本轮连续涨停开始前 18 个自然月内的历史最高板；
+     * 排除股票上市后最早 10 根日 K，不包含本轮连板。
      */
     private Integer highestConsecutiveLimitUpDays;
 
     /**
-     * 近 3 个自然月内的最高板。
+     * 本轮连续涨停开始前 90 个自然日内的历史最高板，不包含本轮连板。
      */
-    private Integer recentThreeMonthHighestConsecutiveLimitUpDays;
+    private Integer priorNinetyDayHighestConsecutiveLimitUpDays;
+
+    /**
+     * 本轮连续涨停开始前 18 个自然月内的历史最大成交量，单位：股；
+     * 排除股票上市后最早 10 根日 K，用于低换手、低筹码金额特殊通道。
+     */
+    private Long historicalMaxVolume;
 
     /**
      * 非正常状态次数，统计 klineState != 0 的交易日数量。

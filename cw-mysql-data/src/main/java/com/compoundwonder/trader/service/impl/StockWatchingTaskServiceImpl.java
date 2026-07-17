@@ -150,6 +150,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 logSelectionFiltered("首板", dto, "选股评分", "actual=" + score + ", required>30");
                 continue;
             }
+            StockChipFilter.Decision chipDecision = StockChipFilter.evaluate(dto);
+            if (!chipDecision.passed()) {
+                logSelectionFiltered("首板", dto, "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
+                continue;
+            }
             eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_FIRST_LIMIT_UP, score));
         }
 
@@ -286,13 +291,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
-            int recentThreeMonthHighest = Objects.requireNonNullElse(
-                    dto.getRecentThreeMonthHighestConsecutiveLimitUpDays(), 0);
-            if (recentThreeMonthHighest >= 3) {
-                logSelectionFiltered("连板", dto, "近3个月最高板", "actual=" + recentThreeMonthHighest + ", required<3");
-                continue;
-            }
-
             double maxTurnoverRate = Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D);
             int nonStMonthCount = Objects.requireNonNullElse(dto.getNonStMonthCount(), 0);
             int listingMonthCount = Objects.requireNonNullElse(dto.getListingMonthCount(), 0);
@@ -336,6 +334,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             int score = calculateSelectionScore(dto);
             if (score < 15) {
                 logSelectionFiltered("连板", dto, "选股评分", "actual=" + score + ", required>15");
+                continue;
+            }
+            StockChipFilter.Decision chipDecision = StockChipFilter.evaluate(dto);
+            if (!chipDecision.passed()) {
+                logSelectionFiltered("连板", dto, "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
                 continue;
             }
             eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, score));
@@ -588,6 +591,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockDailyEntity> ascRecentDailyList = recentDailyList.stream()
                 .sorted(Comparator.comparing(StockDailyEntity::getTradeDate))
                 .toList();
+        StockDailyEntity startDaily = findStartDaily(
+                recentDailyList, stockDaily.getConsecutiveLimitUpDays());
+        LocalDate chipHistoryEndDate = startDaily == null ? null : startDaily.getTradeDate();
+        StockChipFilter.HistoricalMetrics chipMetrics = StockChipFilter.calculateHistoricalMetrics(
+                listChipHistoryDaily(stockDaily.getStockCode(), chipHistoryEndDate),
+                listEarliestStoredDaily(stockDaily.getStockCode(), chipHistoryEndDate),
+                chipHistoryEndDate);
 
         StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
         assist.setStockCode(stockDaily.getStockCode());
@@ -598,17 +608,15 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setProvince(findProvince(stockDaily.getStockCode()));
         assist.setCurrentPrice(stockDaily.getClosePrice());
-        assist.setStartMarketCap(findStartMarketCap(recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
-        StockDailyEntity startDaily = findStartDaily(recentDailyList, stockDaily.getConsecutiveLimitUpDays());
+        assist.setStartMarketCap(startDaily == null ? null : startDaily.getFloatMarketCap());
         assist.setStartPrice(startDaily == null ? null : startDaily.getClosePrice());
         assist.setCurrentTurnoverRate(stockDaily.getTurnoverRate());
         assist.setNonStMonthCount(calculateNonStMonthCount(stockDaily));
         assist.setListingMonthCount(calculateListingMonthCount(stockDaily));
-        assist.setMaxTurnoverRate(findMaxTurnoverRate(selectionWindowDailyList));
-        assist.setHighestConsecutiveLimitUpDays(findHighestConsecutiveLimitUpDays(selectionWindowDailyList));
-        assist.setRecentThreeMonthHighestConsecutiveLimitUpDays(
-                findRecentThreeMonthHighestConsecutiveLimitUpDays(
-                        selectionWindowDailyList, recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
+        assist.setMaxTurnoverRate(chipMetrics.maxTurnoverRate());
+        assist.setHistoricalMaxVolume(chipMetrics.maxVolume());
+        assist.setHighestConsecutiveLimitUpDays(chipMetrics.eighteenMonthHighestBoard());
+        assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(chipMetrics.ninetyDayHighestBoard());
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setPriorTwentyDayAbnormalKlineStateCount(
                 countPriorTwentyDayAbnormalKlineState(
@@ -642,6 +650,36 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
+     * 查询本轮首板前一交易日往前 18 个自然月的原始日 K，供独立筹码过滤器计算历史指标。
+     */
+    private List<StockDailyEntity> listChipHistoryDaily(String stockCode, LocalDate historyEndDate) {
+        if (stockCode == null || historyEndDate == null) {
+            return List.of();
+        }
+        return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getStockCode, stockCode)
+                .ge(StockDailyEntity::getTradeDate, historyEndDate.minusMonths(18))
+                .le(StockDailyEntity::getTradeDate, historyEndDate)
+                .orderByDesc(StockDailyEntity::getTradeDate));
+    }
+
+    /**
+     * 查询数据库中该股票最早的 11 根日 K，用第 11 根确定历史筹码统计的首个有效交易日。
+     * 这样只排除新股上市最早 10 根日 K，不会误删老股票 18 个月窗口开头的数据。
+     */
+    private List<StockDailyEntity> listEarliestStoredDaily(String stockCode, LocalDate historyEndDate) {
+        if (stockCode == null || historyEndDate == null) {
+            return List.of();
+        }
+        return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .select(StockDailyEntity::getTradeDate)
+                .eq(StockDailyEntity::getStockCode, stockCode)
+                .le(StockDailyEntity::getTradeDate, historyEndDate)
+                .orderByAsc(StockDailyEntity::getTradeDate)
+                .last("LIMIT 11"));
+    }
+
+    /**
      * 查询省份属性。
      */
     private String findProvince(String stockCode) {
@@ -649,14 +687,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .eq(StockCurrentStatus::getStockCode, stockCode)
                 .last("LIMIT 1"));
         return status == null ? null : status.getRegionName();
-    }
-
-    /**
-     * 本轮首板前一交易日的流通市值作为启动市值。
-     */
-    private Double findStartMarketCap(List<StockDailyEntity> recentDailyList, Integer consecutiveLimitUpDays) {
-        StockDailyEntity startDaily = findStartDaily(recentDailyList, consecutiveLimitUpDays);
-        return startDaily == null ? null : startDaily.getFloatMarketCap();
     }
 
     /**
@@ -724,53 +754,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         return Math.toIntExact(ChronoUnit.MONTHS.between(
                 firstDaily.getTradeDate().withDayOfMonth(1),
                 stockDaily.getTradeDate().withDayOfMonth(1)));
-    }
-
-    /**
-     * 统计选股窗口内最大换手率，排除股票上市后最早的 10 根日 K，
-     * 避免新上市初期异常高换手干扰历史量能判断。
-     */
-    private Double findMaxTurnoverRate(List<StockDailyEntity> recentDailyList) {
-        return recentDailyList.stream()
-                .sorted(Comparator.comparing(StockDailyEntity::getTradeDate))
-                .skip(10)
-                .map(StockDailyEntity::getTurnoverRate)
-                .filter(Objects::nonNull)
-                .max(Double::compareTo)
-                .orElse(null);
-    }
-
-    /**
-     * 统计选股窗口内最高板。
-     */
-    private Integer findHighestConsecutiveLimitUpDays(List<StockDailyEntity> recentDailyList) {
-        return recentDailyList.stream()
-                .map(StockDailyEntity::getConsecutiveLimitUpDays)
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .orElse(null);
-    }
-
-    /**
-     * 排除本轮连板后，统计本轮首板前一个交易日往前 3 个自然月内的最高板。
-     */
-    private Integer findRecentThreeMonthHighestConsecutiveLimitUpDays(
-            List<StockDailyEntity> selectionWindowDailyList,
-            List<StockDailyEntity> recentDailyList,
-            Integer consecutiveLimitUpDays) {
-        int currentConsecutiveDays = Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 0));
-        if (recentDailyList.size() <= currentConsecutiveDays) {
-            return null;
-        }
-        LocalDate endDate = recentDailyList.get(currentConsecutiveDays).getTradeDate();
-        LocalDate startDate = endDate.minusMonths(3);
-        return selectionWindowDailyList.stream()
-                .filter(daily -> !daily.getTradeDate().isBefore(startDate))
-                .filter(daily -> !daily.getTradeDate().isAfter(endDate))
-                .map(StockDailyEntity::getConsecutiveLimitUpDays)
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .orElse(null);
     }
 
     /**
