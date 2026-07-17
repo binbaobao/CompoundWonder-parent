@@ -372,8 +372,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
             int consecutiveLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveLimitUpDays(), 2);
-            double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
-            double fiveDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
+
+            RelayRecentPatternFilter.Decision recentPatternDecision = RelayRecentPatternFilter.evaluate(dto);
+            if (!recentPatternDecision.passed()) {
+                logSelectionFiltered(consecutiveLimitUpDays + "连板", dto,
+                        "近期形态-" + recentPatternDecision.layer(), recentPatternDecision.detail());
+                continue;
+            }
 
             if (isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
                 IcePointThreeFourBoardFilter.Decision icePointDecision = IcePointThreeFourBoardFilter.evaluate(dto);
@@ -388,32 +393,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 log.info("冰点3/4板入选 tradeDate={} stockCode={} stockName={} score={} layer={} detail={}",
                         dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), icePointScore,
                         icePointDecision.layer(), icePointDecision.detail());
-                continue;
-            }
-
-            if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 48){
-                logSelectionFiltered("3连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<50");
-                continue;
-            }
-
-
-            if (consecutiveLimitUpDays == 3 && tenDayChangeRate >= 50) {
-                logSelectionFiltered("3连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<50");
-                continue;
-            }
-
-            if (consecutiveLimitUpDays == 2 && fiveDayAmplitude >= 34){
-                logSelectionFiltered("2连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<34");
-                continue;
-            }
-
-            if (consecutiveLimitUpDays == 2 && tenDayChangeRate >= 35) {
-                logSelectionFiltered("2连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<35");
-                continue;
-            }
-
-            if (consecutiveLimitUpDays == 2 &&  tenDayChangeRate <= 12.5) {
-                logSelectionFiltered("2连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required>12.5");
                 continue;
             }
 

@@ -94,38 +94,14 @@ class IcePointThreeFourBoardFilterTest {
     }
 
     @Test
-    void appliesThreeBoardAmplitudeAndMarketCapSpecificTenDayLimits() {
-        StockSelectionAssistDTO fiveDayBoundary = eligibleAssist(200_000D);
-        fiveDayBoundary.setSelectionAmplitude(45D);
-        assertFalse(IcePointThreeFourBoardFilter.evaluate(fiveDayBoundary).passed());
+    void doesNotDuplicateRecentPatternRules() {
+        StockSelectionAssistDTO assist = eligibleAssist(200_000D);
+        assist.setSelectionAmplitude(99D);
+        assist.setTenDayChangeRate(99D);
 
-        StockSelectionAssistDTO smallCapTenDayBoundary = eligibleAssist(120_000D);
-        smallCapTenDayBoundary.setTenDayChangeRate(45D);
-        assertFalse(IcePointThreeFourBoardFilter.evaluate(smallCapTenDayBoundary).passed());
+        IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
 
-        StockSelectionAssistDTO midCapTenDayBoundary = eligibleAssist(200_000D);
-        midCapTenDayBoundary.setTenDayChangeRate(55D);
-        assertFalse(IcePointThreeFourBoardFilter.evaluate(midCapTenDayBoundary).passed());
-    }
-
-    @Test
-    void twoBoardUsesThirtyFivePercentBaseAndFortyFivePercentMidCapTenDayLimit() {
-        StockSelectionAssistDTO passing = eligibleAssist(200_000D);
-        passing.setConsecutiveLimitUpDays(2);
-        passing.setSelectionAmplitude(34.99D);
-        passing.setTenDayChangeRate(44.99D);
-        assertTrue(IcePointThreeFourBoardFilter.evaluate(passing).passed());
-
-        StockSelectionAssistDTO fiveDayBoundary = eligibleAssist(200_000D);
-        fiveDayBoundary.setConsecutiveLimitUpDays(2);
-        fiveDayBoundary.setSelectionAmplitude(35D);
-        assertFalse(IcePointThreeFourBoardFilter.evaluate(fiveDayBoundary).passed());
-
-        StockSelectionAssistDTO tenDayBoundary = eligibleAssist(200_000D);
-        tenDayBoundary.setConsecutiveLimitUpDays(2);
-        tenDayBoundary.setSelectionAmplitude(34D);
-        tenDayBoundary.setTenDayChangeRate(45D);
-        assertFalse(IcePointThreeFourBoardFilter.evaluate(tenDayBoundary).passed());
+        assertTrue(decision.passed());
     }
 
     @Test

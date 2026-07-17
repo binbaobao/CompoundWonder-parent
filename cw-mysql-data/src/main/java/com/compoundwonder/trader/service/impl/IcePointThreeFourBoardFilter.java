@@ -40,10 +40,7 @@ final class IcePointThreeFourBoardFilter {
 
     /**
      * 按候选连板数和启动流通市值分档判断能否进入冰点 3/4 板宽松候选池。
-     *
-     * <p>2 连板以 35% 为涨幅基准，3 连板以 45% 为涨幅基准：
-     * 5 日复权振幅和 13 亿以下的 10 日涨幅不得达到基准值；
-     * 13 至 44 亿档的 10 日涨幅上限在基准值上增加 10 个百分点。</p>
+     * 近期形态由 {@link RelayRecentPatternFilter} 在进入本过滤器前统一判断。
      */
     static Decision evaluate(StockSelectionAssistDTO assist) {
         if (assist == null
@@ -51,11 +48,9 @@ final class IcePointThreeFourBoardFilter {
                 || assist.getStartMarketCap() == null
                 || assist.getCurrentPrice() == null
                 || assist.getCurrentAmplitude() == null
-                || assist.getSelectionAmplitude() == null
-                || assist.getTenDayChangeRate() == null
                 || assist.getMaxVolumeDayTurnoverRate() == null) {
             return Decision.rejected("冰点3/4板数据完整性",
-                    "缺少连板数、启动市值、价格、振幅、10日涨幅或最大成交量日换手率");
+                    "缺少连板数、启动市值、价格、当日振幅或最大成交量日换手率");
         }
 
         int consecutiveLimitUpDays = assist.getConsecutiveLimitUpDays();
@@ -72,10 +67,7 @@ final class IcePointThreeFourBoardFilter {
         double startMarketCap = assist.getStartMarketCap();
         double currentPrice = assist.getCurrentPrice();
         double currentAmplitude = assist.getCurrentAmplitude();
-        double fiveDayAmplitude = assist.getSelectionAmplitude();
-        double tenDayChangeRate = assist.getTenDayChangeRate();
         double maxVolumeDayTurnoverRate = assist.getMaxVolumeDayTurnoverRate();
-        double allowedPriceIncrease = consecutiveLimitUpDays == 3 ? 45D : 35D;
 
         if (startMarketCap >= MAX_START_MARKET_CAP) {
             return Decision.rejected("启动流通市值",
@@ -91,18 +83,7 @@ final class IcePointThreeFourBoardFilter {
         if (currentAmplitude >= MAX_CURRENT_AMPLITUDE) {
             return Decision.rejected("当日振幅", "actual=" + currentAmplitude + "%, required<15%");
         }
-        if (fiveDayAmplitude >= allowedPriceIncrease) {
-            return Decision.rejected("5日振幅",
-                    "actual=" + fiveDayAmplitude + "%, required<" + allowedPriceIncrease
-                            + "%, candidateLbc=" + consecutiveLimitUpDays);
-        }
-
         if (startMarketCap < SMALL_MARKET_CAP_BOUNDARY) {
-            if (tenDayChangeRate >= allowedPriceIncrease) {
-                return Decision.rejected("10日涨幅",
-                        "actual=" + tenDayChangeRate + "%, required<" + allowedPriceIncrease
-                                + "%, marketCapBand=<13亿, candidateLbc=" + consecutiveLimitUpDays);
-            }
             return Decision.passed("13亿以下冰点3/4板", commonDetail(assist));
         }
 
@@ -125,12 +106,6 @@ final class IcePointThreeFourBoardFilter {
                     "actual=" + assist.getMaxVolumeDayTurnover() + "万元, required<300000万元");
         }
 
-        double midCapMaxTenDayChangeRate = allowedPriceIncrease + 10D;
-        if (tenDayChangeRate >= midCapMaxTenDayChangeRate) {
-            return Decision.rejected("10日涨幅",
-                    "actual=" + tenDayChangeRate + "%, required<" + midCapMaxTenDayChangeRate
-                            + "%, marketCapBand=13至44亿, candidateLbc=" + consecutiveLimitUpDays);
-        }
         return Decision.passed("13至44亿冰点3/4板", commonDetail(assist));
     }
 
@@ -139,8 +114,6 @@ final class IcePointThreeFourBoardFilter {
                 + ", startMarketCap=" + assist.getStartMarketCap() + "万元"
                 + ", currentPrice=" + assist.getCurrentPrice() + "元"
                 + ", currentAmplitude=" + assist.getCurrentAmplitude() + "%"
-                + ", fiveDayAmplitude=" + assist.getSelectionAmplitude() + "%"
-                + ", tenDayChangeRate=" + assist.getTenDayChangeRate() + "%"
                 + ", maxTurnoverRate=" + assist.getMaxTurnoverRate() + "%"
                 + ", maxVolumeDayTurnoverRate=" + assist.getMaxVolumeDayTurnoverRate() + "%";
     }
