@@ -29,11 +29,11 @@ class RelayRecentPatternFilterTest {
 
     @Test
     void twoBoardKeepsCurrentFiveDayAmplitudeAndTenDayChangeRange() {
-        StockSelectionAssistDTO passing = assist(2, 33.99D, 12.51D);
+        StockSelectionAssistDTO passing = assist(2, 33.99D, 11.51D);
         assertTrue(RelayRecentPatternFilter.evaluate(passing).passed());
 
         assertFalse(RelayRecentPatternFilter.evaluate(assist(2, 34D, 20D)).passed());
-        assertFalse(RelayRecentPatternFilter.evaluate(assist(2, 30D, 12.5D)).passed());
+        assertFalse(RelayRecentPatternFilter.evaluate(assist(2, 30D, 11.5D)).passed());
         assertFalse(RelayRecentPatternFilter.evaluate(assist(2, 30D, 35D)).passed());
     }
 

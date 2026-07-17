@@ -67,7 +67,7 @@ final class RelayRecentPatternFilter {
             }
             if (tenDayChangeRate <= TWO_BOARD_MIN_TEN_DAY_CHANGE_RATE) {
                 return Decision.rejected("10日涨跌幅",
-                        "actual=" + tenDayChangeRate + "%, required>12.5%, candidateLbc=2");
+                        "actual=" + tenDayChangeRate + "%, required>11.5%, candidateLbc=2");
             }
             return Decision.passed(commonDetail(consecutiveLimitUpDays, fiveDayAmplitude, tenDayChangeRate));
         }

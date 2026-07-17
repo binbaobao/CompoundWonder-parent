@@ -52,6 +52,16 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     private static final int TRADE_MODE_FIRST_LIMIT_UP = 2;
 
     /**
+     * 常规连板推荐最多保留 4 只，避免回测调参时再次把业务上限误改成 5 只。
+     */
+    static final int NORMAL_RELAY_TASK_LIMIT = 4;
+
+    /**
+     * 唯一弱 5 板属于主观卡位预判，只允许严格过滤后的 2 板候选保留前 3 只。
+     */
+    static final int WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT = 3;
+
+    /**
      * 小市值首板补充分支的启动流通市值上限，单位：万元。
      * 启动流通市值取选股前一交易日的收盘流通市值，并与该值进行严格小于比较。
      */
@@ -253,7 +263,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 创建连板接力推荐任务。
-     * 实现逻辑：查询当天非 ST、涨幅小于 11、K 线为涨停、连续涨停天数为 2/3/4 的股票，批量插入任务表。
+     * 实现逻辑：先按照正常情绪周期处理当天非 ST 的 2/3 连板候选；
+     * 正常内存候选为空时，再判断是否需要启动唯一弱 5 板的严格 2 板兜底。
      */
     private List<StockWatchingTask> createRelayLimitUpTasks(LocalDate tradeDate,
                                                             Set<String> convertibleBondStockCodes) {
@@ -345,21 +356,78 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(selectedStockDailyList);
 
+        List<StockWatchingTask> eligibleTasks = selectEligibleRelayTasks(
+                assistList, todayMaxLbc, true, "连板");
+        int taskLimit = NORMAL_RELAY_TASK_LIMIT;
+        String selectionMode = "连板";
+        List<StockSelectionAssistDTO> rankingAssistList = assistList;
+
+        /*
+         * 唯一弱 5 板是常规选股完全没有内存候选后的兜底，不能在常规流程之前抢跑。
+         * 老项目先把任务插库再查询数量；现在任务统一在方法末尾 replaceTasks，
+         * 因此直接使用 eligibleTasks.isEmpty() 判断，避免历史旧记录影响当天重跑结果。
+         */
+        if (eligibleTasks.isEmpty() && todayMaxLbc == 5) {
+            List<StockDailyEntity> fiveBoardDailyList = listNonStFiveBoardDaily(tradeDate);
+            List<WeakFiveBoardFallbackPolicy.FiveBoardQuality> fiveBoardQualities =
+                    buildFiveBoardQualities(fiveBoardDailyList);
+            WeakFiveBoardFallbackPolicy.Decision fallbackDecision =
+                    WeakFiveBoardFallbackPolicy.evaluate(todayMaxLbc, false, fiveBoardQualities);
+
+            log.info("弱5板严格2板兜底判断 tradeDate={} triggered={} layer={} detail={}",
+                    tradeDate, fallbackDecision.triggered(), fallbackDecision.layer(), fallbackDecision.detail());
+
+            if (fallbackDecision.triggered()) {
+                /*
+                 * 只选择 2 板做低位卡位预判，不包含 3 板。
+                 * 这里必须保留真实市场高度 5，并显式关闭冰点通道：弱 5 板次日仍可能继续涨停，
+                 * 如果把它当作 4 板并放宽候选质地，低位票很容易在高位压制下炸板。
+                 */
+                List<StockDailyEntity> fallbackDailyList =
+                        selectWeakFiveBoardFallbackDailyCandidates(stockDailyEntities);
+                List<StockSelectionAssistDTO> fallbackAssistList =
+                        buildSelectionAssistListReusing(fallbackDailyList, assistList);
+                eligibleTasks = selectEligibleRelayTasks(
+                        fallbackAssistList, todayMaxLbc, false, "弱5板严格2板");
+                taskLimit = WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT;
+                selectionMode = "弱5板严格2板";
+                rankingAssistList = fallbackAssistList;
+            }
+        }
+
+        sortSelectionTasks(eligibleTasks, indexCurrentPrices(rankingAssistList));
+        List<StockWatchingTask> tasks = takeTopTasks(selectionMode, eligibleTasks, taskLimit);
+        replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
+        return tasks;
+    }
+
+    /**
+     * 执行连板候选共同过滤，并按开关决定是否允许冰点 3/4 板宽松通道。
+     *
+     * <p>弱 5 板兜底传入 {@code allowIcePoint=false}，其 2 板候选会完整经过
+     * 前 20 日异常、一字板、历史换手、近期形态、启动价格、最低评分和筹码过滤，
+     * 与正常严格通道保持一致。</p>
+     */
+    private List<StockWatchingTask> selectEligibleRelayTasks(List<StockSelectionAssistDTO> assistList,
+                                                              int todayMaxLbc,
+                                                              boolean allowIcePoint,
+                                                              String selectionMode) {
         List<StockWatchingTask> eligibleTasks = new ArrayList<>();
         for (StockSelectionAssistDTO dto : assistList) {
-            log.info("连板------:{}:{}", calculateSelectionScore(dto), dto);
+            log.info("{}------:{}:{}", selectionMode, calculateSelectionScore(dto), dto);
 
             int priorTwentyDayAbnormalCount = Objects.requireNonNullElse(
                     dto.getPriorTwentyDayAbnormalKlineStateCount(), 0);
             if (!isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount)) {
-                logSelectionFiltered("连板", dto, "前20日非正常K线次数",
+                logSelectionFiltered(selectionMode, dto, "前20日非正常K线次数",
                         "actual=" + priorTwentyDayAbnormalCount + ", required<4");
                 continue;
             }
 
             int oneWordLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0);
             if (oneWordLimitUpDays >= 2) {
-                logSelectionFiltered("连板", dto, "一字板次数", "actual=" + oneWordLimitUpDays + ", required<2");
+                logSelectionFiltered(selectionMode, dto, "一字板次数",
+                        "actual=" + oneWordLimitUpDays + ", required<2");
                 continue;
             }
 
@@ -367,7 +435,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             int nonStMonthCount = Objects.requireNonNullElse(dto.getNonStMonthCount(), 0);
             int listingMonthCount = Objects.requireNonNullElse(dto.getListingMonthCount(), 0);
             if (maxTurnoverRate <= 25 && nonStMonthCount < 18 && nonStMonthCount < listingMonthCount) {
-                logSelectionFiltered("连板", dto, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
+                logSelectionFiltered(selectionMode, dto, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
                         + ", nonStMonthCount=" + nonStMonthCount + ", listingMonthCount=" + listingMonthCount);
                 continue;
             }
@@ -375,12 +443,13 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
             RelayRecentPatternFilter.Decision recentPatternDecision = RelayRecentPatternFilter.evaluate(dto);
             if (!recentPatternDecision.passed()) {
-                logSelectionFiltered(consecutiveLimitUpDays + "连板", dto,
-                        "近期形态-" + recentPatternDecision.layer(), recentPatternDecision.detail());
+                logSelectionFiltered(selectionMode, dto,
+                        consecutiveLimitUpDays + "连板近期形态-" + recentPatternDecision.layer(),
+                        recentPatternDecision.detail());
                 continue;
             }
 
-            if (isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
+            if (allowIcePoint && isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
                 IcePointThreeFourBoardFilter.Decision icePointDecision = IcePointThreeFourBoardFilter.evaluate(dto);
                 if (!icePointDecision.passed()) {
                     logSelectionFiltered("冰点3/4板", dto,
@@ -399,27 +468,106 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             double startPrice = Objects.requireNonNullElse(dto.getStartPrice(), 0D);
             Double startMarketCap = dto.getStartMarketCap();
             if (startPrice <= 3 && startMarketCap < 250_000) {
-                logSelectionFiltered("连板", dto, "启动价格", "actual=" + startPrice + ", required>3");
+                logSelectionFiltered(selectionMode, dto, "启动价格", "actual=" + startPrice + ", required>3");
                 continue;
             }
 
             int score = calculateSelectionScore(dto);
             if (score < 15) {
-                logSelectionFiltered("连板", dto, "选股评分", "actual=" + score + ", required>15");
+                logSelectionFiltered(selectionMode, dto, "选股评分", "actual=" + score + ", required>15");
                 continue;
             }
             StockChipFilter.Decision chipDecision = StockChipFilter.evaluate(dto);
             if (!chipDecision.passed()) {
-                logSelectionFiltered("连板", dto, "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
+                logSelectionFiltered(selectionMode, dto,
+                        "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
                 continue;
             }
             eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, score));
         }
+        return eligibleTasks;
+    }
 
-        sortSelectionTasks(eligibleTasks, indexCurrentPrices(assistList));
-        List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 5);
-        replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
-        return tasks;
+    /**
+     * 查询当天过滤 ST 后的全部 5 板股票，不添加涨幅范围条件。
+     * 这里统计的是市场 5 板数量，不受可转债候选过滤影响；is_st 为空仍按非 ST 处理。
+     */
+    private List<StockDailyEntity> listNonStFiveBoardDaily(LocalDate tradeDate) {
+        return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+                .eq(StockDailyEntity::getTradeDate, tradeDate)
+                .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt)
+                        .or().eq(StockDailyEntity::getIsSt, false))
+                .eq(StockDailyEntity::getConsecutiveLimitUpDays, 5));
+    }
+
+    /**
+     * 构建 5 板质量快照。只有恰好一只 5 板时才计算完整辅助对象，
+     * 避免在数量条件已经失败时执行多余的历史日 K 查询。
+     */
+    private List<WeakFiveBoardFallbackPolicy.FiveBoardQuality> buildFiveBoardQualities(
+            List<StockDailyEntity> fiveBoardDailyList) {
+        if (fiveBoardDailyList == null || fiveBoardDailyList.isEmpty()) {
+            return List.of();
+        }
+        if (fiveBoardDailyList.size() != 1) {
+            return fiveBoardDailyList.stream()
+                    .map(daily -> toFiveBoardQuality(daily, null))
+                    .toList();
+        }
+
+        StockDailyEntity fiveBoardDaily = fiveBoardDailyList.get(0);
+        StockSelectionAssistDTO fiveBoardAssist = buildSelectionAssist(fiveBoardDaily);
+        return List.of(toFiveBoardQuality(fiveBoardDaily, fiveBoardAssist));
+    }
+
+    /**
+     * 组合 5 板质量数据：当日市值、换手和振幅取当天日 K；
+     * 启动价格必须取选股辅助对象中的本轮首板前一交易日收盘价，不能再用收盘价除以 1.6 估算。
+     */
+    static WeakFiveBoardFallbackPolicy.FiveBoardQuality toFiveBoardQuality(
+            StockDailyEntity fiveBoardDaily,
+            StockSelectionAssistDTO fiveBoardAssist) {
+        return new WeakFiveBoardFallbackPolicy.FiveBoardQuality(
+                fiveBoardDaily == null ? null : fiveBoardDaily.getStockCode(),
+                fiveBoardDaily == null ? null : fiveBoardDaily.getFloatMarketCap(),
+                fiveBoardDaily == null ? null : fiveBoardDaily.getTurnoverRate(),
+                fiveBoardDaily == null ? null : fiveBoardDaily.getAmplitude(),
+                fiveBoardAssist == null ? null : fiveBoardAssist.getStartPrice());
+    }
+
+    /**
+     * 弱 5 板兜底只允许 2 板股票，并继续使用正常严格通道的收盘价上限 40 元。
+     * 传入列表已经完成非 ST、可转债、基础市值和基础价格查询过滤。
+     */
+    static List<StockDailyEntity> selectWeakFiveBoardFallbackDailyCandidates(
+            List<StockDailyEntity> stockDailyEntities) {
+        if (stockDailyEntities == null || stockDailyEntities.isEmpty()) {
+            return List.of();
+        }
+        return stockDailyEntities.stream()
+                .filter(daily -> Integer.valueOf(2).equals(daily.getConsecutiveLimitUpDays()))
+                .filter(daily -> Objects.requireNonNullElse(daily.getClosePrice(), 0D) < 40D)
+                .toList();
+    }
+
+    /**
+     * 弱 5 板兜底是少数场景：优先复用常规流程已经构建的辅助对象，
+     * 只为尚未参与常规板数范围的 2 板补充查询，避免多年回测中重复计算历史指标。
+     */
+    private List<StockSelectionAssistDTO> buildSelectionAssistListReusing(
+            List<StockDailyEntity> stockDailyList,
+            List<StockSelectionAssistDTO> reusableAssistList) {
+        Map<String, StockSelectionAssistDTO> reusableAssistByCode = new HashMap<>();
+        for (StockSelectionAssistDTO assist : reusableAssistList) {
+            reusableAssistByCode.put(assist.getStockCode(), assist);
+        }
+
+        List<StockSelectionAssistDTO> result = new ArrayList<>();
+        for (StockDailyEntity stockDaily : stockDailyList) {
+            StockSelectionAssistDTO assist = reusableAssistByCode.get(stockDaily.getStockCode());
+            result.add(assist == null ? buildSelectionAssist(stockDaily) : assist);
+        }
+        return result;
     }
 
     /**

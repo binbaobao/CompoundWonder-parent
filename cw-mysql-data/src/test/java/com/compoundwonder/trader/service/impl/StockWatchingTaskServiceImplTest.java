@@ -165,6 +165,48 @@ class StockWatchingTaskServiceImplTest {
         assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 4));
     }
 
+    @Test
+    void normalRelayKeepsFourTasksAndWeakFiveBoardFallbackKeepsThree() {
+        assertEquals(4, StockWatchingTaskServiceImpl.NORMAL_RELAY_TASK_LIMIT);
+        assertEquals(3, StockWatchingTaskServiceImpl.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
+    }
+
+    @Test
+    void weakFiveBoardQualityUsesDailyCurrentMetricsAndAssistStartPrice() {
+        StockDailyEntity daily = new StockDailyEntity();
+        daily.setStockCode("600001");
+        daily.setFloatMarketCap(460_000D);
+        daily.setTurnoverRate(46D);
+        daily.setAmplitude(14D);
+        daily.setClosePrice(25D);
+
+        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+        assist.setStockCode("600001");
+        assist.setStartPrice(8D);
+
+        WeakFiveBoardFallbackPolicy.FiveBoardQuality quality =
+                StockWatchingTaskServiceImpl.toFiveBoardQuality(daily, assist);
+
+        assertEquals(460_000D, quality.currentMarketCap());
+        assertEquals(46D, quality.currentTurnoverRate());
+        assertEquals(14D, quality.currentAmplitude());
+        assertEquals(8D, quality.startPrice());
+    }
+
+    @Test
+    void weakFiveBoardFallbackOnlyKeepsStrictPriceTwoBoardCandidates() {
+        StockDailyEntity eligibleTwoBoard = relayDaily("600001", 2, 39.99D);
+        StockDailyEntity highPriceTwoBoard = relayDaily("600002", 2, 40D);
+        StockDailyEntity threeBoard = relayDaily("600003", 3, 20D);
+
+        List<StockDailyEntity> candidates = StockWatchingTaskServiceImpl
+                .selectWeakFiveBoardFallbackDailyCandidates(
+                        List.of(eligibleTwoBoard, highPriceTwoBoard, threeBoard));
+
+        assertEquals(List.of("600001"),
+                candidates.stream().map(StockDailyEntity::getStockCode).toList());
+    }
+
     private StockDailyEntity daily(String tradeDate, double adjustedLow, double adjustedClose) {
         StockDailyEntity daily = new StockDailyEntity();
         daily.setTradeDate(LocalDate.parse(tradeDate));
@@ -177,6 +219,16 @@ class StockWatchingTaskServiceImplTest {
         StockDailyEntity daily = new StockDailyEntity();
         daily.setTradeDate(LocalDate.parse(tradeDate));
         daily.setKlineState(klineState);
+        return daily;
+    }
+
+    private StockDailyEntity relayDaily(String stockCode,
+                                        int consecutiveLimitUpDays,
+                                        double closePrice) {
+        StockDailyEntity daily = new StockDailyEntity();
+        daily.setStockCode(stockCode);
+        daily.setConsecutiveLimitUpDays(consecutiveLimitUpDays);
+        daily.setClosePrice(closePrice);
         return daily;
     }
 
