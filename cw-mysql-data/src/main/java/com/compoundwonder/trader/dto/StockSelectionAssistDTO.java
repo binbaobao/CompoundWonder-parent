@@ -62,6 +62,18 @@ public class StockSelectionAssistDTO {
     private Double currentTurnoverRate;
 
     /**
+     * 选股当日成交额，单位：万元。
+     * 用于最高板为 3 板时的冰点三板流动性过滤。
+     */
+    private Double currentTurnover;
+
+    /**
+     * 选股当日振幅，单位：%。
+     * 与多日复权振幅分开，冰点三板要求当日振幅严格小于 15%。
+     */
+    private Double currentAmplitude;
+
+    /**
      * 非 ST 月份数，上次摘帽或新上市至今的自然月数。
      */
     private Integer nonStMonthCount;
@@ -93,6 +105,17 @@ public class StockSelectionAssistDTO {
      * 排除股票上市后最早 10 根日 K，用于低换手、低筹码金额特殊通道。
      */
     private Long historicalMaxVolume;
+
+    /**
+     * 本轮连续涨停开始前最近 200 根有效日 K 中，最大成交量那天的换手率，单位：%。
+     * 该字段不是 200 根 K 线中的最大换手率。
+     */
+    private Double maxVolumeDayTurnoverRate;
+
+    /**
+     * 本轮连续涨停开始前最近 200 根有效日 K 中，最大成交量那天的成交额，单位：万元。
+     */
+    private Double maxVolumeDayTurnover;
 
     /**
      * 非正常状态次数，统计 klineState != 0 的交易日数量。

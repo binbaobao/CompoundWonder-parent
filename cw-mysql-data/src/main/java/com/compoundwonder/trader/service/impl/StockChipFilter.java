@@ -57,7 +57,7 @@ final class StockChipFilter {
             LocalDate historicalEndDate) {
         if (rawWindowDailyList == null || earliestStoredDailyList == null
                 || historicalEndDate == null || earliestStoredDailyList.size() <= 10) {
-            return new HistoricalMetrics(null, null, null, null);
+            return new HistoricalMetrics(null, null, null, null, null, null);
         }
 
         LocalDate firstEligibleDate = earliestStoredDailyList.stream()
@@ -68,7 +68,7 @@ final class StockChipFilter {
                 .findFirst()
                 .orElse(null);
         if (firstEligibleDate == null) {
-            return new HistoricalMetrics(null, null, null, null);
+            return new HistoricalMetrics(null, null, null, null, null, null);
         }
 
         List<StockDailyEntity> eligibleHistory = rawWindowDailyList.stream()
@@ -84,17 +84,23 @@ final class StockChipFilter {
                 .filter(Objects::nonNull)
                 .max(Double::compareTo)
                 .orElse(null);
-        Long maxVolume = eligibleHistory.stream()
-                .map(StockDailyEntity::getVolume)
-                .filter(Objects::nonNull)
-                .max(Long::compareTo)
+        StockDailyEntity maxVolumeDaily = eligibleHistory.stream()
+                .filter(daily -> daily.getVolume() != null)
+                .max(Comparator.comparing(StockDailyEntity::getVolume)
+                        .thenComparing(StockDailyEntity::getTradeDate))
                 .orElse(null);
+        Long maxVolume = maxVolumeDaily == null ? null : maxVolumeDaily.getVolume();
         Integer twoHundredKlineHighestBoard = highestBoard(eligibleHistory);
         Integer ninetyDayHighestBoard = highestBoard(eligibleHistory.stream()
                 .filter(daily -> !daily.getTradeDate().isBefore(ninetyDayStartDate))
                 .toList());
         return new HistoricalMetrics(
-                maxTurnoverRate, maxVolume, twoHundredKlineHighestBoard, ninetyDayHighestBoard);
+                maxTurnoverRate,
+                maxVolume,
+                twoHundredKlineHighestBoard,
+                ninetyDayHighestBoard,
+                maxVolumeDaily == null ? null : maxVolumeDaily.getTurnoverRate(),
+                maxVolumeDaily == null ? null : maxVolumeDaily.getTurnover());
     }
 
     private static Integer highestBoard(List<StockDailyEntity> dailyList) {
@@ -109,33 +115,18 @@ final class StockChipFilter {
      * 按固定层级执行筹码过滤，并返回命中的层级与指标明细。
      */
     static Decision evaluate(StockSelectionAssistDTO assist) {
-        if (assist == null
-                || assist.getStartMarketCap() == null
-                || assist.getCurrentPrice() == null
-                || assist.getMaxTurnoverRate() == null
-                || assist.getHighestConsecutiveLimitUpDays() == null
-                || assist.getPriorNinetyDayHighestConsecutiveLimitUpDays() == null) {
+        if (assist == null || assist.getStartMarketCap() == null || assist.getCurrentPrice() == null) {
             return Decision.rejected("筹码数据完整性", "缺少启动市值、当前价格或历史筹码指标");
+        }
+
+        Decision historicalHardLimitDecision = evaluateHistoricalHardLimits(assist);
+        if (!historicalHardLimitDecision.passed()) {
+            return historicalHardLimitDecision;
         }
 
         double startMarketCap = assist.getStartMarketCap();
         double currentPrice = assist.getCurrentPrice();
         double maxTurnoverRate = assist.getMaxTurnoverRate();
-        int twoHundredKlineHighest = assist.getHighestConsecutiveLimitUpDays();
-        int ninetyDayHighest = assist.getPriorNinetyDayHighestConsecutiveLimitUpDays();
-
-        if (maxTurnoverRate > MAX_ALLOWED_HISTORICAL_TURNOVER_RATE) {
-            return Decision.rejected("历史最大换手",
-                    "actual=" + maxTurnoverRate + "%, required<=55%");
-        }
-        if (twoHundredKlineHighest > MAX_ALLOWED_TWO_HUNDRED_KLINE_BOARD) {
-            return Decision.rejected("200根K线历史最高板",
-                    "actual=" + twoHundredKlineHighest + ", required<=5");
-        }
-        if (ninetyDayHighest >= MAX_ALLOWED_NINETY_DAY_BOARD_EXCLUSIVE) {
-            return Decision.rejected("90日历史最高板",
-                    "actual=" + ninetyDayHighest + ", required<3");
-        }
 
         if (matchesMarketCapTurnoverPriceBand(
                 startMarketCap, maxTurnoverRate, currentPrice)) {
@@ -159,6 +150,40 @@ final class StockChipFilter {
         return Decision.rejected("市值换手价格阶梯及特殊通道",
                 commonDetail(startMarketCap, maxTurnoverRate, currentPrice)
                         + ", specialMaxVolumeChipAmount=" + maxVolumeChipAmount + "万元");
+    }
+
+    /**
+     * 执行所有选股通道共同遵守的历史筹码硬规则。
+     * 冰点三板可以绕过普通市值换手价格阶梯，但不能绕过 55% 历史最大换手、
+     * 200 根 K 线历史最高板和 90 日历史最高板限制。
+     */
+    static Decision evaluateHistoricalHardLimits(StockSelectionAssistDTO assist) {
+        if (assist == null
+                || assist.getMaxTurnoverRate() == null
+                || assist.getHighestConsecutiveLimitUpDays() == null
+                || assist.getPriorNinetyDayHighestConsecutiveLimitUpDays() == null) {
+            return Decision.rejected("筹码数据完整性", "缺少历史最大换手率或历史最高板指标");
+        }
+
+        double maxTurnoverRate = assist.getMaxTurnoverRate();
+        int twoHundredKlineHighest = assist.getHighestConsecutiveLimitUpDays();
+        int ninetyDayHighest = assist.getPriorNinetyDayHighestConsecutiveLimitUpDays();
+        if (maxTurnoverRate > MAX_ALLOWED_HISTORICAL_TURNOVER_RATE) {
+            return Decision.rejected("历史最大换手",
+                    "actual=" + maxTurnoverRate + "%, required<=55%");
+        }
+        if (twoHundredKlineHighest > MAX_ALLOWED_TWO_HUNDRED_KLINE_BOARD) {
+            return Decision.rejected("200根K线历史最高板",
+                    "actual=" + twoHundredKlineHighest + ", required<=5");
+        }
+        if (ninetyDayHighest >= MAX_ALLOWED_NINETY_DAY_BOARD_EXCLUSIVE) {
+            return Decision.rejected("90日历史最高板",
+                    "actual=" + ninetyDayHighest + ", required<3");
+        }
+        return Decision.passed("历史筹码硬规则",
+                "maxTurnoverRate=" + maxTurnoverRate
+                        + "%, twoHundredKlineHighest=" + twoHundredKlineHighest
+                        + ", ninetyDayHighest=" + ninetyDayHighest);
     }
 
     /**
@@ -236,10 +261,14 @@ final class StockChipFilter {
      * @param maxVolume                  最近 200 根有效日 K 的历史最大成交量，单位：股
      * @param twoHundredKlineHighestBoard 最近 200 根有效日 K 的历史最高板
      * @param ninetyDayHighestBoard      90 个自然日历史最高板
+     * @param maxVolumeDayTurnoverRate   最大成交量日换手率，单位：%
+     * @param maxVolumeDayTurnover       最大成交量日成交额，单位：万元
      */
     record HistoricalMetrics(Double maxTurnoverRate,
                              Long maxVolume,
                              Integer twoHundredKlineHighestBoard,
-                             Integer ninetyDayHighestBoard) {
+                             Integer ninetyDayHighestBoard,
+                             Double maxVolumeDayTurnoverRate,
+                             Double maxVolumeDayTurnover) {
     }
 }

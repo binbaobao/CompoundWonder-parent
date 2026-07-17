@@ -153,6 +153,13 @@ class StockWatchingTaskServiceImplTest {
                 tasks.stream().map(StockWatchingTask::getStockCode).toList());
     }
 
+    @Test
+    void icePointThreeBoardRequiresTodayAndCandidateToBothBeThreeBoards() {
+        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(3, 3));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(4, 3));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(3, 2));
+    }
+
     private StockDailyEntity daily(String tradeDate, double adjustedLow, double adjustedClose) {
         StockDailyEntity daily = new StockDailyEntity();
         daily.setTradeDate(LocalDate.parse(tradeDate));

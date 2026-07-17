@@ -217,6 +217,28 @@ class StockChipFilterTest {
         assertEquals(2, metrics.twoHundredKlineHighestBoard());
     }
 
+    @Test
+    void retainsTurnoverMetricsFromTheMaximumVolumeDay() {
+        List<StockDailyEntity> earliestStored = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            earliestStored.add(daily(
+                    LocalDate.of(2022, 1, 4).plusDays(i), 10D, 100_000L, 1));
+        }
+        StockDailyEntity lowerVolumeDay = daily(
+                LocalDate.of(2026, 6, 1), 20D, 1_000_000L, 2);
+        lowerVolumeDay.setTurnover(50_000D);
+        StockDailyEntity maximumVolumeDay = daily(
+                LocalDate.of(2026, 6, 2), 49D, 2_000_000L, 2);
+        maximumVolumeDay.setTurnover(280_000D);
+
+        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+                List.of(lowerVolumeDay, maximumVolumeDay), earliestStored, LocalDate.of(2026, 7, 1));
+
+        assertEquals(2_000_000L, metrics.maxVolume());
+        assertEquals(49D, metrics.maxVolumeDayTurnoverRate());
+        assertEquals(280_000D, metrics.maxVolumeDayTurnover());
+    }
+
     private StockSelectionAssistDTO eligibleAssist() {
         StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
         assist.setStockCode("600001");

@@ -262,7 +262,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
                 .lt(StockDailyEntity::getChangeRate, 11)
                 .lt(StockDailyEntity::getFloatMarketCap, 500_000)
-                .lt(StockDailyEntity::getClosePrice, 40)
+                .lt(StockDailyEntity::getClosePrice, 45)
                 .between(StockDailyEntity::getConsecutiveLimitUpDays, 2, 3));
         // 过滤包含可转债的股票
         stockDailyEntities = filterConvertibleBondStocks("连板", stockDailyEntities, convertibleBondStockCodes);
@@ -353,6 +353,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                         minConsecutiveLimitUpDays, maxConsecutiveLimitUpDays);
                 continue;
             }
+            if (!isIcePointThreeBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)
+                    && Objects.requireNonNullElse(stockDaily.getClosePrice(), 0D) >= 40D) {
+                log.info("连板选股过滤 tradeDate={} stockCode={} stockName={} step=当日价格 detail=actual={}, required<40",
+                        tradeDate, stockDaily.getStockCode(), stockDaily.getStockName(), stockDaily.getClosePrice());
+                continue;
+            }
             selectedStockDailyList.add(stockDaily);
         }
         List<StockSelectionAssistDTO> assistList = buildSelectionAssistList(selectedStockDailyList);
@@ -386,6 +392,22 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             int consecutiveLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveLimitUpDays(), 2);
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
             double fiveDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
+
+            if (isIcePointThreeBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
+                IcePointThreeBoardFilter.Decision icePointDecision = IcePointThreeBoardFilter.evaluate(dto);
+                if (!icePointDecision.passed()) {
+                    logSelectionFiltered("冰点三板", dto,
+                            "冰点三板-" + icePointDecision.layer(), icePointDecision.detail());
+                    continue;
+                }
+
+                int icePointScore = calculateSelectionScore(dto);
+                eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, icePointScore));
+                log.info("冰点三板入选 tradeDate={} stockCode={} stockName={} score={} layer={} detail={}",
+                        dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), icePointScore,
+                        icePointDecision.layer(), icePointDecision.detail());
+                continue;
+            }
 
             if (consecutiveLimitUpDays == 3 && fiveDayAmplitude > 48){
                 logSelectionFiltered("3连板", dto, "5日振幅", "actual=" + fiveDayAmplitude + ", required<50");
@@ -432,6 +454,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         List<StockWatchingTask> tasks = takeTopTasks("连板", eligibleTasks, 5);
         replaceTasks(tradeDate, TRADE_MODE_RELAY_LIMIT_UP, tasks);
         return tasks;
+    }
+
+    /**
+     * 只有市场当日最高板和候选股自身都为 3 板时，才启用冰点三板宽松通道。
+     */
+    static boolean isIcePointThreeBoardCandidate(int todayHighestLimitUp,
+                                                  Integer consecutiveLimitUpDays) {
+        return todayHighestLimitUp == 3 && Integer.valueOf(3).equals(consecutiveLimitUpDays);
     }
 
     /**
@@ -721,10 +751,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setStartMarketCap(startDaily == null ? null : startDaily.getFloatMarketCap());
         assist.setStartPrice(startDaily == null ? null : startDaily.getClosePrice());
         assist.setCurrentTurnoverRate(stockDaily.getTurnoverRate());
+        assist.setCurrentTurnover(stockDaily.getTurnover());
+        assist.setCurrentAmplitude(stockDaily.getAmplitude());
         assist.setNonStMonthCount(calculateNonStMonthCount(stockDaily));
         assist.setListingMonthCount(calculateListingMonthCount(stockDaily));
         assist.setMaxTurnoverRate(chipMetrics.maxTurnoverRate());
         assist.setHistoricalMaxVolume(chipMetrics.maxVolume());
+        assist.setMaxVolumeDayTurnoverRate(chipMetrics.maxVolumeDayTurnoverRate());
+        assist.setMaxVolumeDayTurnover(chipMetrics.maxVolumeDayTurnover());
         assist.setHighestConsecutiveLimitUpDays(chipMetrics.twoHundredKlineHighestBoard());
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(chipMetrics.ninetyDayHighestBoard());
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
