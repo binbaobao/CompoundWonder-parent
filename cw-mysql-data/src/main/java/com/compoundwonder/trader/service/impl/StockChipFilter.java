@@ -15,28 +15,28 @@ import java.util.Objects;
  * 类本身不读取数据库，便于独立验证每一层筹码规则。首板 30 亿、连板 50 亿的当日流通市值上限
  * 仍由候选查询负责，普通阶梯和特殊通道都不能绕过候选查询。</p>
  *
- * <p>过滤顺序固定为：数据完整性、历史最大换手、18 个月历史最高板、
+ * <p>过滤顺序固定为：数据完整性、历史最大换手、200 根日 K 历史最高板、
  * 90 日历史最高板、市值换手价格阶梯、低换手低筹码金额特殊通道。</p>
  */
 final class StockChipFilter {
 
-    /** 历史最大换手率超过 50% 时，不论当前是几板都直接过滤。 */
-    private static final double MAX_ALLOWED_HISTORICAL_TURNOVER_RATE = 50D;
+    /** 历史最大换手率超过 55% 时，不论当前是几板都直接过滤。 */
+    private static final double MAX_ALLOWED_HISTORICAL_TURNOVER_RATE = 55D;
 
-    /** 本轮连板前 18 个月内允许出现的最高板数，超过 5 板才过滤。 */
-    private static final int MAX_ALLOWED_EIGHTEEN_MONTH_BOARD = 5;
+    /** 本轮连板前 200 根有效日 K 内允许出现的最高板数，超过 5 板才过滤。 */
+    private static final int MAX_ALLOWED_TWO_HUNDRED_KLINE_BOARD = 5;
 
     /** 本轮连板前 90 个自然日内只要出现过 3 板就过滤。 */
     private static final int MAX_ALLOWED_NINETY_DAY_BOARD_EXCLUSIVE = 3;
 
-    /** 特殊通道要求历史最大换手率严格低于 18%。 */
-    private static final double SPECIAL_MAX_TURNOVER_RATE = 18D;
+    /** 特殊通道要求历史最大换手率严格低于 20%。 */
+    private static final double SPECIAL_MAX_TURNOVER_RATE = 20D;
 
     /** 特殊通道要求选股涨停日收盘价严格低于 17.5 元。 */
     private static final double SPECIAL_MAX_CURRENT_PRICE = 17.5D;
 
     /** 特殊通道最大筹码金额，单位：万元，即 3.98 亿元。 */
-    private static final double SPECIAL_MAX_CHIP_AMOUNT = 39_800D;
+    private static final double SPECIAL_MAX_CHIP_AMOUNT = 75_800D;
 
     private StockChipFilter() {
     }
@@ -44,10 +44,10 @@ final class StockChipFilter {
     /**
      * 计算本轮连板前的历史筹码指标。
      *
-     * <p>{@code rawWindowDailyList} 是本轮首板前一交易日往前 18 个自然月的原始日 K；
+     * <p>{@code rawWindowDailyList} 是本轮首板前一交易日之前的原始日 K；过滤新股
+     * 最早 10 根数据后，再按交易日倒序保留最近 200 根作为筹码窗口。
      * {@code earliestStoredDailyList} 是数据库中该股票最早的 11 根日 K。以前 10 根日 K
-     * 作为新股上市初期数据，不参与换手、成交量和历史板数统计。老股票的最早 10 根数据
-     * 位于 18 个月窗口之外，因此不会误删老股票窗口内的数据。</p>
+     * 作为新股上市初期数据，不参与换手、成交量和历史板数统计。</p>
      *
      * <p>90 日最高板使用自然日窗口，包含起止日期；历史最高达到 3 板即由过滤层剔除。</p>
      */
@@ -75,6 +75,8 @@ final class StockChipFilter {
                 .filter(daily -> daily.getTradeDate() != null)
                 .filter(daily -> !daily.getTradeDate().isBefore(firstEligibleDate))
                 .filter(daily -> !daily.getTradeDate().isAfter(historicalEndDate))
+                .sorted(Comparator.comparing(StockDailyEntity::getTradeDate).reversed())
+                .limit(200)
                 .toList();
         LocalDate ninetyDayStartDate = historicalEndDate.minusDays(90);
         Double maxTurnoverRate = eligibleHistory.stream()
@@ -87,12 +89,12 @@ final class StockChipFilter {
                 .filter(Objects::nonNull)
                 .max(Long::compareTo)
                 .orElse(null);
-        Integer eighteenMonthHighestBoard = highestBoard(eligibleHistory);
+        Integer twoHundredKlineHighestBoard = highestBoard(eligibleHistory);
         Integer ninetyDayHighestBoard = highestBoard(eligibleHistory.stream()
                 .filter(daily -> !daily.getTradeDate().isBefore(ninetyDayStartDate))
                 .toList());
         return new HistoricalMetrics(
-                maxTurnoverRate, maxVolume, eighteenMonthHighestBoard, ninetyDayHighestBoard);
+                maxTurnoverRate, maxVolume, twoHundredKlineHighestBoard, ninetyDayHighestBoard);
     }
 
     private static Integer highestBoard(List<StockDailyEntity> dailyList) {
@@ -119,16 +121,16 @@ final class StockChipFilter {
         double startMarketCap = assist.getStartMarketCap();
         double currentPrice = assist.getCurrentPrice();
         double maxTurnoverRate = assist.getMaxTurnoverRate();
-        int eighteenMonthHighest = assist.getHighestConsecutiveLimitUpDays();
+        int twoHundredKlineHighest = assist.getHighestConsecutiveLimitUpDays();
         int ninetyDayHighest = assist.getPriorNinetyDayHighestConsecutiveLimitUpDays();
 
         if (maxTurnoverRate > MAX_ALLOWED_HISTORICAL_TURNOVER_RATE) {
             return Decision.rejected("历史最大换手",
-                    "actual=" + maxTurnoverRate + "%, required<=50%");
+                    "actual=" + maxTurnoverRate + "%, required<=55%");
         }
-        if (eighteenMonthHighest > MAX_ALLOWED_EIGHTEEN_MONTH_BOARD) {
-            return Decision.rejected("18个月历史最高板",
-                    "actual=" + eighteenMonthHighest + ", required<=5");
+        if (twoHundredKlineHighest > MAX_ALLOWED_TWO_HUNDRED_KLINE_BOARD) {
+            return Decision.rejected("200根K线历史最高板",
+                    "actual=" + twoHundredKlineHighest + ", required<=5");
         }
         if (ninetyDayHighest >= MAX_ALLOWED_NINETY_DAY_BOARD_EXCLUSIVE) {
             return Decision.rejected("90日历史最高板",
@@ -227,14 +229,14 @@ final class StockChipFilter {
     /**
      * 本轮连板开始前的历史筹码指标。
      *
-     * @param maxTurnoverRate           18 个自然月历史最大换手率，单位：%
-     * @param maxVolume                 18 个自然月历史最大成交量，单位：股
-     * @param eighteenMonthHighestBoard 18 个自然月历史最高板
-     * @param ninetyDayHighestBoard     90 个自然日历史最高板
+     * @param maxTurnoverRate            最近 200 根有效日 K 的历史最大换手率，单位：%
+     * @param maxVolume                  最近 200 根有效日 K 的历史最大成交量，单位：股
+     * @param twoHundredKlineHighestBoard 最近 200 根有效日 K 的历史最高板
+     * @param ninetyDayHighestBoard      90 个自然日历史最高板
      */
     record HistoricalMetrics(Double maxTurnoverRate,
                              Long maxVolume,
-                             Integer eighteenMonthHighestBoard,
+                             Integer twoHundredKlineHighestBoard,
                              Integer ninetyDayHighestBoard) {
     }
 }

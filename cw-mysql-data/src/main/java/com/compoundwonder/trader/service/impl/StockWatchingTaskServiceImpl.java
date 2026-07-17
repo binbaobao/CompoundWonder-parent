@@ -615,7 +615,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setListingMonthCount(calculateListingMonthCount(stockDaily));
         assist.setMaxTurnoverRate(chipMetrics.maxTurnoverRate());
         assist.setHistoricalMaxVolume(chipMetrics.maxVolume());
-        assist.setHighestConsecutiveLimitUpDays(chipMetrics.eighteenMonthHighestBoard());
+        assist.setHighestConsecutiveLimitUpDays(chipMetrics.twoHundredKlineHighestBoard());
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(chipMetrics.ninetyDayHighestBoard());
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setPriorTwentyDayAbnormalKlineStateCount(
@@ -650,7 +650,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 查询本轮首板前一交易日往前 18 个自然月的原始日 K，供独立筹码过滤器计算历史指标。
+     * 查询本轮首板前最近 200 根日 K，供独立筹码过滤器计算历史指标。
+     * 其他异常状态、评分辅助指标仍使用原来的 18 个自然月窗口。
      */
     private List<StockDailyEntity> listChipHistoryDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) {
@@ -658,14 +659,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         }
         return stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getStockCode, stockCode)
-                .ge(StockDailyEntity::getTradeDate, historyEndDate.minusMonths(18))
                 .le(StockDailyEntity::getTradeDate, historyEndDate)
-                .orderByDesc(StockDailyEntity::getTradeDate));
+                .orderByDesc(StockDailyEntity::getTradeDate)
+                .last("LIMIT 200"));
     }
 
     /**
      * 查询数据库中该股票最早的 11 根日 K，用第 11 根确定历史筹码统计的首个有效交易日。
-     * 这样只排除新股上市最早 10 根日 K，不会误删老股票 18 个月窗口开头的数据。
+     * 这样只排除新股上市最早 10 根日 K，不会误删老股票最近 200 根筹码窗口的数据。
      */
     private List<StockDailyEntity> listEarliestStoredDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) {

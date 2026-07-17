@@ -15,9 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class StockChipFilterTest {
 
     @Test
-    void rejectsAnyStockWhenHistoricalMaxTurnoverExceedsFiftyPercent() {
+    void rejectsAnyStockWhenHistoricalMaxTurnoverExceedsFiftyFivePercent() {
         StockSelectionAssistDTO assist = eligibleAssist();
-        assist.setMaxTurnoverRate(50.01D);
+        assist.setMaxTurnoverRate(55.01D);
 
         StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
 
@@ -33,7 +33,7 @@ class StockChipFilterTest {
         StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
-        assertEquals("18个月历史最高板", decision.layer());
+        assertEquals("200根K线历史最高板", decision.layer());
     }
 
     @Test
@@ -72,12 +72,24 @@ class StockChipFilterTest {
     }
 
     @Test
-    void globalFiftyPercentBoundaryStillAllowsSmallestMarketCapBand() {
+    void smallestMarketCapBandAllowsTurnoverJustBelowFiftyFivePercent() {
         StockSelectionAssistDTO assist = eligibleAssist();
         assist.setStartMarketCap(93_000D);
-        assist.setMaxTurnoverRate(50D);
+        assist.setMaxTurnoverRate(54.99D);
 
         assertTrue(StockChipFilter.evaluate(assist).passed());
+    }
+
+    @Test
+    void smallestMarketCapBandStillRejectsExactlyFiftyFivePercent() {
+        StockSelectionAssistDTO assist = eligibleAssist();
+        assist.setStartMarketCap(93_000D);
+        assist.setMaxTurnoverRate(55D);
+
+        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+
+        assertFalse(decision.passed());
+        assertEquals("市值换手价格阶梯及特殊通道", decision.layer());
     }
 
     @Test
@@ -156,7 +168,7 @@ class StockChipFilterTest {
 
         assertEquals(20D, metrics.maxTurnoverRate());
         assertEquals(1_000_000L, metrics.maxVolume());
-        assertEquals(2, metrics.eighteenMonthHighestBoard());
+        assertEquals(2, metrics.twoHundredKlineHighestBoard());
     }
 
     @Test
@@ -175,8 +187,34 @@ class StockChipFilterTest {
 
         assertEquals(42D, metrics.maxTurnoverRate());
         assertEquals(8_000_000L, metrics.maxVolume());
-        assertEquals(5, metrics.eighteenMonthHighestBoard());
+        assertEquals(5, metrics.twoHundredKlineHighestBoard());
         assertEquals(3, metrics.ninetyDayHighestBoard());
+    }
+
+    @Test
+    void usesOnlyLatestTwoHundredKlinesBeforeCurrentLimitUpRun() {
+        List<StockDailyEntity> earliestStored = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            earliestStored.add(daily(
+                    LocalDate.of(2022, 1, 4).plusDays(i), 10D, 100_000L, 1));
+        }
+        LocalDate historyEndDate = LocalDate.of(2026, 7, 1);
+        List<StockDailyEntity> rawHistory = new ArrayList<>();
+        for (int i = 200; i >= 0; i--) {
+            boolean outsideLatestTwoHundred = i == 200;
+            rawHistory.add(daily(
+                    historyEndDate.minusDays(i),
+                    outsideLatestTwoHundred ? 80D : 20D,
+                    outsideLatestTwoHundred ? 99_000_000L : 1_000_000L,
+                    outsideLatestTwoHundred ? 6 : 2));
+        }
+
+        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+                rawHistory, earliestStored, historyEndDate);
+
+        assertEquals(20D, metrics.maxTurnoverRate());
+        assertEquals(1_000_000L, metrics.maxVolume());
+        assertEquals(2, metrics.twoHundredKlineHighestBoard());
     }
 
     private StockSelectionAssistDTO eligibleAssist() {
