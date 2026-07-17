@@ -132,6 +132,9 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
             // 集合竞价下单只适合小市值股票
             // 上交所集合竞价期间用三秒一次的快照数据 || ConstantUtil.TIME_1457 <= order.time
             if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
+                if (order.time > ConstantUtil.TIME_920) {
+                    orderBook.updateLowestPrice(order.price);
+                }
                 // 涨停价格 && transStatus >= 1 && transStatus <= 2
                 int limitUpPrice = orderBook.getLimitUpPrice();
                 // 总涨停买 金额 单位 W

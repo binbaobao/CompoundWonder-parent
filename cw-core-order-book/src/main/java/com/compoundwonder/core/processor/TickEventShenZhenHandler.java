@@ -112,6 +112,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             // 集合竞价期间 买卖撤单操作 ConstantUtil.TIME_1457
             double increase = (order.price - orderBook.getClosePrice()) * 100.0 / orderBook.getClosePrice();
             if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
+                if (order.time > ConstantUtil.TIME_920) {
+                    orderBook.updateLowestPrice(order.price);
+                }
                 orderBook.setLastPrice(order.price);
                 RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                 if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {

@@ -94,7 +94,10 @@ public final class ConditionEvaluatorBuy {
         if (!isWithinLimitUpEntryWindow(time, orderBook.getLastLimitUptime())) {
             return false;
         }
-
+        // 开盘比较高，但是最低比-3还低，就是比较弱，就不打板
+        if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < -4.5 && time < ConstantUtil.TIME_1000){
+            return false;
+        }
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
         TickNode largestBuyOrder = orderBook.buyMaxOrder;
         if (largestBuyOrder.getPrice() != 0
@@ -140,7 +143,7 @@ public final class ConditionEvaluatorBuy {
         }
 
         // 首板、较大日内波动、较深炸板或高成交额任一成立，才允许降低换手门槛。
-        boolean supportsLowerTurnoverEntry = orderBook.getLbcs() == 1
+        boolean supportsLowerTurnoverEntry = (orderBook.getLbcs() == 1 && orderBook.getOpenIncrease() < 3)
                 || orderBook.getAmplitude() > 7
                 || orderBook.getLimitUpBreakDepth() > 3
                 || orderBook.getTurnover() > HIGH_TRADING_AMOUNT_YUAN;

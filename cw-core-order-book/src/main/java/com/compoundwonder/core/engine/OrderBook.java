@@ -73,6 +73,12 @@ public class OrderBook {
      * 最低
      */
     private int lowPrice;
+
+    /**
+     * 最低价涨幅
+     */
+    private double lowPriceIncrease;
+
     /**
      * 最高
      */
@@ -218,6 +224,7 @@ public class OrderBook {
         this.circulation = circulation;
         this.closePrice = (int) Math.round(closePrice * 100);
         this.limitUpPrice = ((this.closePrice * (market ? 110 : 120)) + 50) / 100;
+        this.lowPrice = this.limitUpPrice;
         this.limitDownPrice = ((this.closePrice * (market ? 90 : 80)) + 50) / 100;
         this.maxVolume = maxVolume;
         this.idIndex = new Int2ObjectOpenHashMap<>(DEFAULT_ACTIVE_ORDER_CAPACITY);
@@ -244,6 +251,7 @@ public class OrderBook {
         this.closePrice = (int) Math.round(closePrice * 100);
         this.limitUpPrice = (int) Math.round(limitUpPrice * 100);
         this.limitDownPrice = (int) Math.round(limitDownPrice * 100);
+        this.lowPrice = this.limitUpPrice;
         this.idIndex = new Int2ObjectOpenHashMap<>(DEFAULT_ACTIVE_ORDER_CAPACITY);
         // 价格区间变化后重新建立连续价位索引
         int range = this.limitUpPrice - this.limitDownPrice + 1;
@@ -423,7 +431,10 @@ public class OrderBook {
         this.turnover += turnover;
         this.volume += volume;
         this.highestPrice = Math.max(this.highestPrice, tradePrice);
-        this.lowPrice = Math.min(this.lowPrice == 0 ? tradePrice : this.lowPrice, tradePrice);
+        this.lowPrice = Math.min(this.lowPrice, tradePrice);
+        if (this.lowPrice == tradePrice) {
+            this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
+        }
         this.lastPrice = tradePrice;
         if (this.openPrice == 0) {
             this.openPrice = tradePrice;
@@ -440,6 +451,17 @@ public class OrderBook {
         if (this.status > 1 && this.status % 2 == 0 && tradePrice < this.limitUpBreakLowestPrice) {
             this.limitUpBreakLowestPrice = tradePrice;
             this.limitUpBreakDepth = (this.limitUpPrice - tradePrice) * 100.0 / this.closePrice;
+        }
+    }
+
+    /**
+     * 集合竞价就开始，更新最低价格
+     * @param lowPrice
+     */
+    public void updateLowestPrice(int lowPrice){
+        this.lowPrice = Math.min(this.lowPrice, lowPrice);
+        if (this.lowPrice == lowPrice) {
+            this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
         }
     }
 
