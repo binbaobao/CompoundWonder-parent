@@ -188,8 +188,10 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 在普通首板 Top3 之后，从首板基础候选池追加小市值首板任务。
-     * 该分支检查首板、无可转债、市值、3 日振幅和 10 日涨跌幅，
-     * 不参与换手率、启动价格、综合评分及筹码过滤；已被普通首板选中的股票不会重复加入。
+     * 该分支检查首板、无可转债、市值、200 根 K 线历史最高板、非正常 K 线次数、
+     * 3 日振幅和 10 日涨跌幅。
+     * 它只放宽换手率、启动价格、综合评分和普通筹码阶梯，不能绕过历史高度硬限制；
+     * 已被普通首板选中的股票不会重复加入。
      */
     private void appendSmallMarketCapFirstBoardTasks(List<StockWatchingTask> selectedTasks,
                                                       List<StockSelectionAssistDTO> assistList,
@@ -205,6 +207,22 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
             boolean hasConvertibleBond = convertibleBondStockCodes.contains(assist.getStockCode());
             if (!isSmallMarketCapFirstBoardCandidate(assist, hasConvertibleBond)) {
+                continue;
+            }
+
+            int historicalHighestBoard = Objects.requireNonNullElse(
+                    assist.getHighestConsecutiveLimitUpDays(), 0);
+            if (!isSmallMarketCapFirstBoardHistoricalHeightAllowed(historicalHighestBoard)) {
+                logSelectionFiltered("小市值首板", assist, "200根K线历史最高板",
+                        "actual=" + historicalHighestBoard + ", required<3");
+                continue;
+            }
+
+            int abnormalKlineStateCount = Objects.requireNonNullElse(
+                    assist.getAbnormalKlineStateCount(), 0);
+            if (!isSmallMarketCapFirstBoardAbnormalCountAllowed(abnormalKlineStateCount)) {
+                logSelectionFiltered("小市值首板", assist, "非正常状态次数",
+                        "actual=" + abnormalKlineStateCount + ", required<=25");
                 continue;
             }
 
@@ -227,7 +245,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             selectedTasks.add(buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, marketCapScore));
             selectedStockCodes.add(assist.getStockCode());
             log.info("小市值首板补充分支入选 tradeDate={} stockCode={} stockName={} "
-                            + "startMarketCap={} score={} detail=使用首板前一交易日收盘流通市值，忽略换手及筹码过滤",
+                            + "startMarketCap={} score={} detail=使用首板前一交易日收盘流通市值，"
+                            + "放宽换手及普通筹码阶梯，但200根K线历史最高板必须小于3板，"
+                            + "非正常K线次数不能超过25次",
                     assist.getTradeDate(), assist.getStockCode(), assist.getStockName(),
                     startMarketCap, marketCapScore);
         }
@@ -244,6 +264,22 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 && !hasConvertibleBond
                 && assist.getStartMarketCap() != null
                 && assist.getStartMarketCap() < SMALL_MARKET_CAP_FIRST_BOARD_LIMIT;
+    }
+
+    /**
+     * 小市值首板虽然放宽换手和普通筹码阶梯，但本轮启动前最近 200 根有效日 K
+     * 不能出现过 3 板及以上高度；辅助对象已经排除本次首板，不会把当天涨停计入历史。
+     */
+    static boolean isSmallMarketCapFirstBoardHistoricalHeightAllowed(Integer historicalHighestBoard) {
+        return Objects.requireNonNullElse(historicalHighestBoard, 0) < 3;
+    }
+
+    /**
+     * 小市值首板补充分支允许适度放宽非正常 K 线次数，但最多只能有 25 次；
+     * 普通首板仍使用原来的最多 20 次限制，两条分支的口径不能混用。
+     */
+    static boolean isSmallMarketCapFirstBoardAbnormalCountAllowed(Integer abnormalKlineStateCount) {
+        return Objects.requireNonNullElse(abnormalKlineStateCount, 0) <= 25;
     }
 
     /**

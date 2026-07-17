@@ -117,6 +117,24 @@ class StockWatchingTaskServiceImplTest {
     }
 
     @Test
+    void smallMarketCapFirstBoardRejectsHistoricalThreeBoardOrHigherInPriorTwoHundredKlines() {
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(2));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(3));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(5));
+    }
+
+    @Test
+    void smallMarketCapFirstBoardAllowsAtMostTwentyFiveAbnormalKlines() {
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardAbnormalCountAllowed(25));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardAbnormalCountAllowed(26));
+    }
+
+    @Test
     void smallMarketCapFirstBoardRequiresThreeDayAmplitudeBelowTwentyPercent() {
         assertTrue(StockWatchingTaskServiceImpl
                 .isSmallMarketCapFirstBoardAmplitudeAllowed(19.999D));
