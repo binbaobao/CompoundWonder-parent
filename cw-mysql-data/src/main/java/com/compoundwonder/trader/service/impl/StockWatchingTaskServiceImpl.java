@@ -322,24 +322,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
         }
 
-//        if (todayMaxLbc == 5 && minConsecutiveLimitUpDays == null) {
-//            // 如果最高是 5 板执行特殊逻辑
-//            // 查询今天 5 板的股
-//            List<StockDailyEntity> stockDailyEntities1 = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
-//                    .eq(StockDailyEntity::getTradeDate, tradeDate)
-//                    .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
-//                    .eq(StockDailyEntity::getConsecutiveLimitUpDays, todayMaxLbc));
-//            if (stockDailyEntities1.size() == 1) {
-//                StockDailyEntity stockDailyEntity = stockDailyEntities1.get(0);
-//                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
-//                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
-//                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 3.5 || closePrice > 30) {
-//                    minConsecutiveLimitUpDays = 2;
-//                    maxConsecutiveLimitUpDays = 2;
-//                }
-//            }
-//        }
-
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
         List<StockDailyEntity> selectedStockDailyList = new ArrayList<>();
@@ -427,6 +409,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
             if (consecutiveLimitUpDays == 2 && tenDayChangeRate >= 35) {
                 logSelectionFiltered("2连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required<35");
+                continue;
+            }
+
+            if (consecutiveLimitUpDays == 2 &&  tenDayChangeRate <= 12.5) {
+                logSelectionFiltered("2连板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required>12.5");
                 continue;
             }
 
