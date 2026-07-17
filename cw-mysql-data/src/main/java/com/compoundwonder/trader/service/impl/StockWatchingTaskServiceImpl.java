@@ -353,7 +353,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                         minConsecutiveLimitUpDays, maxConsecutiveLimitUpDays);
                 continue;
             }
-            if (!isIcePointThreeBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)
+            if (!isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)
                     && Objects.requireNonNullElse(stockDaily.getClosePrice(), 0D) >= 40D) {
                 log.info("连板选股过滤 tradeDate={} stockCode={} stockName={} step=当日价格 detail=actual={}, required<40",
                         tradeDate, stockDaily.getStockCode(), stockDaily.getStockName(), stockDaily.getClosePrice());
@@ -393,17 +393,17 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
             double fiveDayAmplitude = Objects.requireNonNullElse(dto.getSelectionAmplitude(), 0D);
 
-            if (isIcePointThreeBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
-                IcePointThreeBoardFilter.Decision icePointDecision = IcePointThreeBoardFilter.evaluate(dto);
+            if (isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
+                IcePointThreeFourBoardFilter.Decision icePointDecision = IcePointThreeFourBoardFilter.evaluate(dto);
                 if (!icePointDecision.passed()) {
-                    logSelectionFiltered("冰点三板", dto,
-                            "冰点三板-" + icePointDecision.layer(), icePointDecision.detail());
+                    logSelectionFiltered("冰点3/4板", dto,
+                            "冰点3/4板-" + icePointDecision.layer(), icePointDecision.detail());
                     continue;
                 }
 
                 int icePointScore = calculateSelectionScore(dto);
                 eligibleTasks.add(buildWatchingTask(dto, TRADE_MODE_RELAY_LIMIT_UP, icePointScore));
-                log.info("冰点三板入选 tradeDate={} stockCode={} stockName={} score={} layer={} detail={}",
+                log.info("冰点3/4板入选 tradeDate={} stockCode={} stockName={} score={} layer={} detail={}",
                         dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), icePointScore,
                         icePointDecision.layer(), icePointDecision.detail());
                 continue;
@@ -457,11 +457,14 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 只有市场当日最高板和候选股自身都为 3 板时，才启用冰点三板宽松通道。
+     * 市场当日最高板为 3 板或 4 板时，所有 2、3 连板候选启用冰点宽松通道。
      */
-    static boolean isIcePointThreeBoardCandidate(int todayHighestLimitUp,
-                                                  Integer consecutiveLimitUpDays) {
-        return todayHighestLimitUp == 3 && Integer.valueOf(3).equals(consecutiveLimitUpDays);
+    static boolean isIcePointThreeFourBoardCandidate(int todayHighestLimitUp,
+                                                      Integer consecutiveLimitUpDays) {
+        boolean icePointMarket = todayHighestLimitUp == 3 || todayHighestLimitUp == 4;
+        boolean relayCandidate = Integer.valueOf(2).equals(consecutiveLimitUpDays)
+                || Integer.valueOf(3).equals(consecutiveLimitUpDays);
+        return icePointMarket && relayCandidate;
     }
 
     /**

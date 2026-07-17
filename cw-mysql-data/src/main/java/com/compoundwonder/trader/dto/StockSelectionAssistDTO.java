@@ -63,13 +63,13 @@ public class StockSelectionAssistDTO {
 
     /**
      * 选股当日成交额，单位：万元。
-     * 用于最高板为 3 板时的冰点三板流动性过滤。
+     * 用于市场最高板为 3 板或 4 板时的连板冰点宽松通道流动性过滤。
      */
     private Double currentTurnover;
 
     /**
      * 选股当日振幅，单位：%。
-     * 与多日复权振幅分开，冰点三板要求当日振幅严格小于 15%。
+     * 与多日复权振幅分开，冰点 3/4 板宽松通道要求当日振幅严格小于 15%。
      */
     private Double currentAmplitude;
 

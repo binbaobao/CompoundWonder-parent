@@ -3,63 +3,65 @@ package com.compoundwonder.trader.service.impl;
 import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 
 /**
- * 连板冰点三板过滤器。
+ * 连板冰点 3/4 板宽松通道过滤器。
  *
- * <p>仅供“今日市场最高板为 3 板，且候选股也是 3 连板”场景调用。
- * 冰点三板绕过普通的市值、历史最大换手和价格组合阶梯，但继续遵守
+ * <p>当日市场最高板为 3 板或 4 板时，由选股服务将所有 2、3 连板候选交给本过滤器。
+ * 本通道绕过普通的市值、历史最大换手和价格组合阶梯，但继续遵守
  * 55% 历史最大换手、200 根 K 线历史最高板和 90 日历史最高板硬规则。</p>
  */
-final class IcePointThreeBoardFilter {
+final class IcePointThreeFourBoardFilter {
 
-    /** 冰点三板允许的启动流通市值上限，单位：万元，即 33 亿元。 */
-    private static final double MAX_START_MARKET_CAP = 330_000D;
+    /** 宽松通道允许的启动流通市值上限，单位：万元，即 44 亿元。 */
+    private static final double MAX_START_MARKET_CAP = 440_000D;
 
     /** 小市值和中等市值分界线，单位：万元，即 13 亿元。 */
     private static final double SMALL_MARKET_CAP_BOUNDARY = 130_000D;
 
-    /** 冰点三板允许的选股日收盘价上限，单位：元。 */
+    /** 宽松通道允许的选股日收盘价上限，单位：元。 */
     private static final double MAX_CURRENT_PRICE = 45D;
 
-    /** 所有冰点三板的当日振幅上限，单位：%。 */
+    /** 宽松通道的当日振幅上限，单位：%。 */
     private static final double MAX_CURRENT_AMPLITUDE = 15D;
-
-    /** 所有冰点三板的 5 日复权振幅上限，单位：%。 */
-    private static final double MAX_FIVE_DAY_AMPLITUDE = 45D;
 
     /** 最大成交量日换手率上限，单位：%。 */
     private static final double MAX_VOLUME_DAY_TURNOVER_RATE = 50D;
 
-    /** 中等市值冰点三板的当日换手率上限，单位：%。 */
+    /** 13 至 44 亿元档的当日换手率上限，单位：%。 */
     private static final double MID_CAP_MAX_CURRENT_TURNOVER_RATE = 50D;
 
-    /** 中等市值冰点三板的当日成交额上限，单位：万元，即 15 亿元。 */
-    private static final double MID_CAP_MAX_CURRENT_TURNOVER = 150_000D;
+    /** 13 至 44 亿元档的当日成交额上限，单位：万元，即 25 亿元。 */
+    private static final double MID_CAP_MAX_CURRENT_TURNOVER = 250_000D;
 
-    /** 中等市值冰点三板最大成交量日成交额上限，单位：万元，即 30 亿元。 */
+    /** 13 至 44 亿元档最大成交量日成交额上限，单位：万元，即 30 亿元。 */
     private static final double MID_CAP_MAX_VOLUME_DAY_TURNOVER = 300_000D;
 
-    /** 13 亿元以下冰点三板的 10 日涨幅上限，单位：%。 */
-    private static final double SMALL_CAP_MAX_TEN_DAY_CHANGE_RATE = 45D;
-
-    /** 13 至 33 亿元冰点三板的 10 日涨幅上限，单位：%。 */
-    private static final double MID_CAP_MAX_TEN_DAY_CHANGE_RATE = 55D;
-
-    private IcePointThreeBoardFilter() {
+    private IcePointThreeFourBoardFilter() {
     }
 
     /**
-     * 按启动流通市值分档判断冰点三板是否可以进入候选池。
+     * 按候选连板数和启动流通市值分档判断能否进入冰点 3/4 板宽松候选池。
+     *
+     * <p>2 连板以 35% 为涨幅基准，3 连板以 45% 为涨幅基准：
+     * 5 日复权振幅和 13 亿以下的 10 日涨幅不得达到基准值；
+     * 13 至 44 亿档的 10 日涨幅上限在基准值上增加 10 个百分点。</p>
      */
     static Decision evaluate(StockSelectionAssistDTO assist) {
         if (assist == null
+                || assist.getConsecutiveLimitUpDays() == null
                 || assist.getStartMarketCap() == null
                 || assist.getCurrentPrice() == null
                 || assist.getCurrentAmplitude() == null
                 || assist.getSelectionAmplitude() == null
                 || assist.getTenDayChangeRate() == null
                 || assist.getMaxVolumeDayTurnoverRate() == null) {
-            return Decision.rejected("冰点三板数据完整性",
-                    "缺少启动市值、价格、振幅、10日涨幅或最大成交量日换手率");
+            return Decision.rejected("冰点3/4板数据完整性",
+                    "缺少连板数、启动市值、价格、振幅、10日涨幅或最大成交量日换手率");
+        }
+
+        int consecutiveLimitUpDays = assist.getConsecutiveLimitUpDays();
+        if (consecutiveLimitUpDays != 2 && consecutiveLimitUpDays != 3) {
+            return Decision.rejected("候选连板数",
+                    "actual=" + consecutiveLimitUpDays + ", required=2或3");
         }
 
         StockChipFilter.Decision hardLimitDecision = StockChipFilter.evaluateHistoricalHardLimits(assist);
@@ -73,10 +75,11 @@ final class IcePointThreeBoardFilter {
         double fiveDayAmplitude = assist.getSelectionAmplitude();
         double tenDayChangeRate = assist.getTenDayChangeRate();
         double maxVolumeDayTurnoverRate = assist.getMaxVolumeDayTurnoverRate();
+        double allowedPriceIncrease = consecutiveLimitUpDays == 3 ? 45D : 35D;
 
         if (startMarketCap >= MAX_START_MARKET_CAP) {
             return Decision.rejected("启动流通市值",
-                    "actual=" + startMarketCap + "万元, required<330000万元");
+                    "actual=" + startMarketCap + "万元, required<440000万元");
         }
         if (currentPrice >= MAX_CURRENT_PRICE) {
             return Decision.rejected("当日价格", "actual=" + currentPrice + "元, required<45元");
@@ -88,23 +91,26 @@ final class IcePointThreeBoardFilter {
         if (currentAmplitude >= MAX_CURRENT_AMPLITUDE) {
             return Decision.rejected("当日振幅", "actual=" + currentAmplitude + "%, required<15%");
         }
-        if (fiveDayAmplitude >= MAX_FIVE_DAY_AMPLITUDE) {
-            return Decision.rejected("5日振幅", "actual=" + fiveDayAmplitude + "%, required<45%");
+        if (fiveDayAmplitude >= allowedPriceIncrease) {
+            return Decision.rejected("5日振幅",
+                    "actual=" + fiveDayAmplitude + "%, required<" + allowedPriceIncrease
+                            + "%, candidateLbc=" + consecutiveLimitUpDays);
         }
 
         if (startMarketCap < SMALL_MARKET_CAP_BOUNDARY) {
-            if (tenDayChangeRate >= SMALL_CAP_MAX_TEN_DAY_CHANGE_RATE) {
+            if (tenDayChangeRate >= allowedPriceIncrease) {
                 return Decision.rejected("10日涨幅",
-                        "actual=" + tenDayChangeRate + "%, required<45%, marketCapBand=<13亿");
+                        "actual=" + tenDayChangeRate + "%, required<" + allowedPriceIncrease
+                                + "%, marketCapBand=<13亿, candidateLbc=" + consecutiveLimitUpDays);
             }
-            return Decision.passed("13亿以下冰点三板", commonDetail(assist));
+            return Decision.passed("13亿以下冰点3/4板", commonDetail(assist));
         }
 
         if (assist.getCurrentTurnoverRate() == null
                 || assist.getCurrentTurnover() == null
                 || assist.getMaxVolumeDayTurnover() == null) {
-            return Decision.rejected("冰点三板数据完整性",
-                    "13至33亿档缺少当日换手率、当日成交额或最大成交量日成交额");
+            return Decision.rejected("冰点3/4板数据完整性",
+                    "13至44亿档缺少当日换手率、当日成交额或最大成交量日成交额");
         }
         if (assist.getCurrentTurnoverRate() >= MID_CAP_MAX_CURRENT_TURNOVER_RATE) {
             return Decision.rejected("当日换手率",
@@ -112,21 +118,25 @@ final class IcePointThreeBoardFilter {
         }
         if (assist.getCurrentTurnover() >= MID_CAP_MAX_CURRENT_TURNOVER) {
             return Decision.rejected("当日成交额",
-                    "actual=" + assist.getCurrentTurnover() + "万元, required<150000万元");
+                    "actual=" + assist.getCurrentTurnover() + "万元, required<250000万元");
         }
         if (assist.getMaxVolumeDayTurnover() >= MID_CAP_MAX_VOLUME_DAY_TURNOVER) {
             return Decision.rejected("最大成交量日成交额",
                     "actual=" + assist.getMaxVolumeDayTurnover() + "万元, required<300000万元");
         }
-        if (tenDayChangeRate >= MID_CAP_MAX_TEN_DAY_CHANGE_RATE) {
+
+        double midCapMaxTenDayChangeRate = allowedPriceIncrease + 10D;
+        if (tenDayChangeRate >= midCapMaxTenDayChangeRate) {
             return Decision.rejected("10日涨幅",
-                    "actual=" + tenDayChangeRate + "%, required<55%, marketCapBand=13至33亿");
+                    "actual=" + tenDayChangeRate + "%, required<" + midCapMaxTenDayChangeRate
+                            + "%, marketCapBand=13至44亿, candidateLbc=" + consecutiveLimitUpDays);
         }
-        return Decision.passed("13至33亿冰点三板", commonDetail(assist));
+        return Decision.passed("13至44亿冰点3/4板", commonDetail(assist));
     }
 
     private static String commonDetail(StockSelectionAssistDTO assist) {
-        return "startMarketCap=" + assist.getStartMarketCap() + "万元"
+        return "candidateLbc=" + assist.getConsecutiveLimitUpDays()
+                + ", startMarketCap=" + assist.getStartMarketCap() + "万元"
                 + ", currentPrice=" + assist.getCurrentPrice() + "元"
                 + ", currentAmplitude=" + assist.getCurrentAmplitude() + "%"
                 + ", fiveDayAmplitude=" + assist.getSelectionAmplitude() + "%"
@@ -136,7 +146,7 @@ final class IcePointThreeBoardFilter {
     }
 
     /**
-     * 冰点三板过滤结果。
+     * 冰点 3/4 板宽松通道过滤结果。
      *
      * @param passed 是否通过
      * @param layer  通过或被过滤的规则层级

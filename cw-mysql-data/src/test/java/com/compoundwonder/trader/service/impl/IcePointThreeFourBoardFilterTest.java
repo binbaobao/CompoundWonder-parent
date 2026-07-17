@@ -7,25 +7,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class IcePointThreeBoardFilterTest {
+class IcePointThreeFourBoardFilterTest {
 
     @Test
-    void allowsMidCapThreeBoardAtConfirmedRelaxedBoundaries() {
-        StockSelectionAssistDTO assist = eligibleAssist(200_000D);
+    void allowsMidCapThreeBoardAtExpandedRelaxedBoundaries() {
+        StockSelectionAssistDTO assist = eligibleAssist(439_999.99D);
         assist.setMaxTurnoverRate(55D);
         assist.setCurrentPrice(44.99D);
         assist.setCurrentTurnoverRate(49.99D);
-        assist.setCurrentTurnover(149_999.99D);
+        assist.setCurrentTurnover(249_999.99D);
         assist.setCurrentAmplitude(14.99D);
         assist.setSelectionAmplitude(44.99D);
         assist.setTenDayChangeRate(54.99D);
         assist.setMaxVolumeDayTurnoverRate(49.99D);
         assist.setMaxVolumeDayTurnover(299_999.99D);
 
-        IcePointThreeBoardFilter.Decision decision = IcePointThreeBoardFilter.evaluate(assist);
+        IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
 
         assertTrue(decision.passed());
-        assertEquals("13至33亿冰点三板", decision.layer());
+        assertEquals("13至44亿冰点3/4板", decision.layer());
     }
 
     @Test
@@ -33,7 +33,7 @@ class IcePointThreeBoardFilterTest {
         StockSelectionAssistDTO assist = eligibleAssist(200_000D);
         assist.setMaxTurnoverRate(55.01D);
 
-        IcePointThreeBoardFilter.Decision decision = IcePointThreeBoardFilter.evaluate(assist);
+        IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("历史最大换手", decision.layer());
@@ -44,12 +44,12 @@ class IcePointThreeBoardFilterTest {
         StockSelectionAssistDTO twoHundredKlineBoundary = eligibleAssist(200_000D);
         twoHundredKlineBoundary.setHighestConsecutiveLimitUpDays(6);
         assertEquals("200根K线历史最高板",
-                IcePointThreeBoardFilter.evaluate(twoHundredKlineBoundary).layer());
+                IcePointThreeFourBoardFilter.evaluate(twoHundredKlineBoundary).layer());
 
         StockSelectionAssistDTO ninetyDayBoundary = eligibleAssist(200_000D);
         ninetyDayBoundary.setPriorNinetyDayHighestConsecutiveLimitUpDays(3);
         assertEquals("90日历史最高板",
-                IcePointThreeBoardFilter.evaluate(ninetyDayBoundary).layer());
+                IcePointThreeFourBoardFilter.evaluate(ninetyDayBoundary).layer());
     }
 
     @Test
@@ -60,66 +60,97 @@ class IcePointThreeBoardFilterTest {
         assist.setMaxVolumeDayTurnover(500_000D);
         assist.setTenDayChangeRate(44.99D);
 
-        IcePointThreeBoardFilter.Decision decision = IcePointThreeBoardFilter.evaluate(assist);
+        IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
 
         assertTrue(decision.passed());
-        assertEquals("13亿以下冰点三板", decision.layer());
+        assertEquals("13亿以下冰点3/4板", decision.layer());
     }
 
     @Test
-    void midCapThreeBoardRejectsConfirmedTurnoverAmountBoundaries() {
+    void midCapThreeBoardRejectsExpandedTurnoverAmountBoundaries() {
         StockSelectionAssistDTO currentTurnoverRateBoundary = eligibleAssist(200_000D);
         currentTurnoverRateBoundary.setCurrentTurnoverRate(50D);
         assertEquals("当日换手率",
-                IcePointThreeBoardFilter.evaluate(currentTurnoverRateBoundary).layer());
+                IcePointThreeFourBoardFilter.evaluate(currentTurnoverRateBoundary).layer());
 
         StockSelectionAssistDTO maxVolumeTurnoverRateBoundary = eligibleAssist(200_000D);
         maxVolumeTurnoverRateBoundary.setMaxVolumeDayTurnoverRate(50D);
         assertEquals("最大成交量日换手率",
-                IcePointThreeBoardFilter.evaluate(maxVolumeTurnoverRateBoundary).layer());
+                IcePointThreeFourBoardFilter.evaluate(maxVolumeTurnoverRateBoundary).layer());
 
         StockSelectionAssistDTO currentAmountBoundary = eligibleAssist(200_000D);
-        currentAmountBoundary.setCurrentTurnover(150_000D);
-        IcePointThreeBoardFilter.Decision currentAmountDecision =
-                IcePointThreeBoardFilter.evaluate(currentAmountBoundary);
+        currentAmountBoundary.setCurrentTurnover(250_000D);
+        IcePointThreeFourBoardFilter.Decision currentAmountDecision =
+                IcePointThreeFourBoardFilter.evaluate(currentAmountBoundary);
         assertFalse(currentAmountDecision.passed());
         assertEquals("当日成交额", currentAmountDecision.layer());
 
         StockSelectionAssistDTO maxVolumeAmountBoundary = eligibleAssist(200_000D);
         maxVolumeAmountBoundary.setMaxVolumeDayTurnover(300_000D);
-        IcePointThreeBoardFilter.Decision maxVolumeAmountDecision =
-                IcePointThreeBoardFilter.evaluate(maxVolumeAmountBoundary);
+        IcePointThreeFourBoardFilter.Decision maxVolumeAmountDecision =
+                IcePointThreeFourBoardFilter.evaluate(maxVolumeAmountBoundary);
         assertFalse(maxVolumeAmountDecision.passed());
         assertEquals("最大成交量日成交额", maxVolumeAmountDecision.layer());
     }
 
     @Test
-    void appliesFiveDayAmplitudeAndMarketCapSpecificTenDayLimits() {
+    void appliesThreeBoardAmplitudeAndMarketCapSpecificTenDayLimits() {
         StockSelectionAssistDTO fiveDayBoundary = eligibleAssist(200_000D);
         fiveDayBoundary.setSelectionAmplitude(45D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(fiveDayBoundary).passed());
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(fiveDayBoundary).passed());
 
         StockSelectionAssistDTO smallCapTenDayBoundary = eligibleAssist(120_000D);
         smallCapTenDayBoundary.setTenDayChangeRate(45D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(smallCapTenDayBoundary).passed());
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(smallCapTenDayBoundary).passed());
 
         StockSelectionAssistDTO midCapTenDayBoundary = eligibleAssist(200_000D);
         midCapTenDayBoundary.setTenDayChangeRate(55D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(midCapTenDayBoundary).passed());
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(midCapTenDayBoundary).passed());
+    }
+
+    @Test
+    void twoBoardUsesThirtyFivePercentBaseAndFortyFivePercentMidCapTenDayLimit() {
+        StockSelectionAssistDTO passing = eligibleAssist(200_000D);
+        passing.setConsecutiveLimitUpDays(2);
+        passing.setSelectionAmplitude(34.99D);
+        passing.setTenDayChangeRate(44.99D);
+        assertTrue(IcePointThreeFourBoardFilter.evaluate(passing).passed());
+
+        StockSelectionAssistDTO fiveDayBoundary = eligibleAssist(200_000D);
+        fiveDayBoundary.setConsecutiveLimitUpDays(2);
+        fiveDayBoundary.setSelectionAmplitude(35D);
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(fiveDayBoundary).passed());
+
+        StockSelectionAssistDTO tenDayBoundary = eligibleAssist(200_000D);
+        tenDayBoundary.setConsecutiveLimitUpDays(2);
+        tenDayBoundary.setSelectionAmplitude(34D);
+        tenDayBoundary.setTenDayChangeRate(45D);
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(tenDayBoundary).passed());
     }
 
     @Test
     void rejectsDailyAmplitudePriceAndMarketCapUpperBoundaries() {
         StockSelectionAssistDTO dailyAmplitudeBoundary = eligibleAssist(200_000D);
         dailyAmplitudeBoundary.setCurrentAmplitude(15D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(dailyAmplitudeBoundary).passed());
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(dailyAmplitudeBoundary).passed());
 
         StockSelectionAssistDTO priceBoundary = eligibleAssist(200_000D);
         priceBoundary.setCurrentPrice(45D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(priceBoundary).passed());
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(priceBoundary).passed());
 
-        StockSelectionAssistDTO marketCapBoundary = eligibleAssist(330_000D);
-        assertFalse(IcePointThreeBoardFilter.evaluate(marketCapBoundary).passed());
+        StockSelectionAssistDTO marketCapBoundary = eligibleAssist(440_000D);
+        assertFalse(IcePointThreeFourBoardFilter.evaluate(marketCapBoundary).passed());
+    }
+
+    @Test
+    void rejectsCandidatesOutsideTwoAndThreeBoards() {
+        StockSelectionAssistDTO fourBoard = eligibleAssist(200_000D);
+        fourBoard.setConsecutiveLimitUpDays(4);
+
+        IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(fourBoard);
+
+        assertFalse(decision.passed());
+        assertEquals("候选连板数", decision.layer());
     }
 
     private StockSelectionAssistDTO eligibleAssist(double startMarketCap) {

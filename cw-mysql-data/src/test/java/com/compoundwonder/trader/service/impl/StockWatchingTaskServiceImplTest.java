@@ -154,10 +154,15 @@ class StockWatchingTaskServiceImplTest {
     }
 
     @Test
-    void icePointThreeBoardRequiresTodayAndCandidateToBothBeThreeBoards() {
-        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(3, 3));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(4, 3));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeBoardCandidate(3, 2));
+    void icePointThreeFourBoardMarketRelaxesAllRelayCandidates() {
+        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 2));
+        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 3));
+        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 2));
+        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 3));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(2, 2));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(5, 3));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 1));
+        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 4));
     }
 
     private StockDailyEntity daily(String tradeDate, double adjustedLow, double adjustedClose) {

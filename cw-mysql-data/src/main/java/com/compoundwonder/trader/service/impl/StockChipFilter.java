@@ -154,7 +154,7 @@ final class StockChipFilter {
 
     /**
      * 执行所有选股通道共同遵守的历史筹码硬规则。
-     * 冰点三板可以绕过普通市值换手价格阶梯，但不能绕过 55% 历史最大换手、
+     * 冰点 3/4 板宽松通道可以绕过普通市值换手价格阶梯，但不能绕过 55% 历史最大换手、
      * 200 根 K 线历史最高板和 90 日历史最高板限制。
      */
     static Decision evaluateHistoricalHardLimits(StockSelectionAssistDTO assist) {
