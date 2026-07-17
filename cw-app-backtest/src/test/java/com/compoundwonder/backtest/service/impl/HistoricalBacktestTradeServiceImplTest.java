@@ -71,7 +71,7 @@ class HistoricalBacktestTradeServiceImplTest {
             }
             if ("000001".equals(request.symbol())) {
                 return result(tradeDate, request.symbol(), request.mode(), List.of(
-                        rule(RuleConstant.TRADING_MODE_BUY, request.symbol(), 100_000_000, 100_000_101)));
+                        rule(RuleConstant.TRADING_MODE_BUY, request.symbol(), 93_200_000, 93_200_101)));
             }
             return result(tradeDate, request.symbol(), request.mode(), List.of());
         });
@@ -91,6 +91,105 @@ class HistoricalBacktestTradeServiceImplTest {
         assertEquals(1, write.actionRules().size());
         assertEquals(RuleConstant.TRADING_MODE_CANCEL,
                 write.actionRules().get(0).rule().getActionType());
+    }
+
+    @Test
+    void reusesSameStockBuyTriggeredAfterOvernightCancel() {
+        LocalDate tradeDate = LocalDate.of(2026, 6, 18);
+        StockWatchingTask overnightTask = watchingTask(1L, "600876", tradeDate);
+        FakePersistenceService persistence = new FakePersistenceService(
+                date -> List.of(overnightTask));
+        FakeReplayService replay = new FakeReplayService(request -> {
+            if (request.mode() == BacktestReplayMode.OVERNIGHT_BUY) {
+                RuleRecordDTO cancel = rule(
+                        RuleConstant.TRADING_MODE_CANCEL, request.symbol(), 91_827_000, 0);
+                cancel.setRuleCode(2);
+                RuleRecordDTO intradayBuy = rule(
+                        RuleConstant.TRADING_MODE_BUY, request.symbol(), 93_457_270, 93_457_771);
+                intradayBuy.setRuleCode(14);
+                return result(tradeDate, request.symbol(), request.mode(),
+                        List.of(cancel, intradayBuy));
+            }
+            return result(tradeDate, request.symbol(), request.mode(), List.of());
+        });
+        StockDailyEntity currentDaily = daily("600876", tradeDate, 10.36D);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence, calendarService(List.of(tradeDate)),
+                stockDailyService(List.of(currentDaily), currentDaily),
+                noOpSelectionService(), Runnable::run);
+
+        service.runRange(tradeDate, tradeDate);
+
+        BacktestDayWrite write = persistence.savedDays.get(0);
+        assertNotNull(write.newPosition());
+        assertEquals("600876", write.newPosition().getSymbol());
+        assertEquals(14, write.buyRule().getRuleCode());
+        assertEquals(93_457_270, write.buyRule().getTime());
+        assertEquals(List.of(RuleConstant.TRADING_MODE_CANCEL),
+                write.actionRules().stream()
+                        .map(action -> action.rule().getActionType())
+                        .toList());
+        assertEquals(1, replay.requests.size());
+    }
+
+    @Test
+    void fillsIntradayLimitUpBuyAfterEarlierAuctionCancelWhenBoardLaterBreaks() {
+        LocalDate tradeDate = LocalDate.of(2026, 6, 18);
+        StockWatchingTask skippedTopTask = watchingTask(1L, "600615", tradeDate);
+        StockWatchingTask targetTask = watchingTask(2L, "600876", tradeDate);
+        FakePersistenceService persistence = new FakePersistenceService(
+                date -> List.of(skippedTopTask, targetTask));
+        FakeReplayService replay = new FakeReplayService(request -> {
+            if (!"600876".equals(request.symbol())) {
+                throw new AssertionError("kline_state <= 0 的股票不应执行回放");
+            }
+            RuleRecordDTO intradayBuy = rule(
+                    RuleConstant.TRADING_MODE_BUY, request.symbol(), 93_457_270, 0);
+            intradayBuy.setRuleCode(14);
+            if (request.mode() == BacktestReplayMode.BUY) {
+                RuleRecordDTO auctionBuy = rule(
+                        RuleConstant.TRADING_MODE_BUY, request.symbol(), 91_500_000, 0);
+                auctionBuy.setRuleCode(2);
+                RuleRecordDTO auctionCancel = rule(
+                        RuleConstant.TRADING_MODE_CANCEL, request.symbol(), 91_827_000, 0);
+                auctionCancel.setRuleCode(2);
+                return new BacktestReplayResult(
+                        tradeDate, request.symbol(), "凯盛新能", request.mode(),
+                        List.of(auctionBuy, auctionCancel, intradayBuy),
+                        1, 0, 1_036, 993, 10);
+            }
+            if (request.mode() == BacktestReplayMode.BUY_AFTER_TIME) {
+                return new BacktestReplayResult(
+                        tradeDate, request.symbol(), "凯盛新能", request.mode(),
+                        List.of(intradayBuy), 1, 0, 1_036, 993, 10);
+            }
+            throw new AssertionError("未预期的回放模式: " + request.mode());
+        });
+        StockDailyEntity skippedTopDaily = daily("600615", tradeDate, 10D);
+        skippedTopDaily.setKlineState(0);
+        StockDailyEntity targetDaily = daily("600876", tradeDate, 9.93D);
+        targetDaily.setKlineState(11);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence, calendarService(List.of(tradeDate)),
+                stockDailyService(List.of(skippedTopDaily, targetDaily), targetDaily),
+                noOpSelectionService(), Runnable::run);
+
+        service.runRange(tradeDate, tradeDate);
+
+        BacktestDayWrite write = persistence.savedDays.get(0);
+        assertNotNull(write.newPosition());
+        assertEquals("600876", write.newPosition().getSymbol());
+        assertEquals(14, write.buyRule().getRuleCode());
+        assertEquals(93_457_270, write.buyRule().getTime());
+        assertEquals(1_036, write.buyRule().getPrice());
+        assertEquals(List.of(
+                        RuleConstant.TRADING_MODE_BUY,
+                        RuleConstant.TRADING_MODE_CANCEL),
+                write.actionRules().stream()
+                        .map(action -> action.rule().getActionType())
+                        .toList());
+        assertEquals(List.of(BacktestReplayMode.BUY, BacktestReplayMode.BUY_AFTER_TIME),
+                replay.requests.stream().map(ReplayRequest::mode).toList());
     }
 
     @Test

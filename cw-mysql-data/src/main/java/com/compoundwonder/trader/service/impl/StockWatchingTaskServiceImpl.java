@@ -196,7 +196,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         // 高度压制到 3 板以下就推荐
         //2.高度压制 2板，推荐2板股票
         //3.高度压制 3板，推荐2/3板股票
-        if (todayMaxLbc <= 4) {
+        if (todayMaxLbc <= 3) {
             minConsecutiveLimitUpDays = 2;
             maxConsecutiveLimitUpDays = 3;
         } else if (yesterdayHighestLimitUp <= dayBeforeYesterdayHighestLimitUp) {
@@ -228,6 +228,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 minConsecutiveLimitUpDays = 2;
                 maxConsecutiveLimitUpDays = 3;
             }
+        }else if (todayMaxLbc == 4) {
+            minConsecutiveLimitUpDays = 2;
+            maxConsecutiveLimitUpDays = 3;
         }
 
         if (todayMaxLbc == 5 && minConsecutiveLimitUpDays == null) {

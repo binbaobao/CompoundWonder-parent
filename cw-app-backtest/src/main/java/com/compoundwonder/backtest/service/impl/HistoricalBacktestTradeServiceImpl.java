@@ -204,7 +204,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                     actionRules.add(new BacktestRuleAction(overnightTask, cancelRule));
                     BuyCandidate candidate = findEarliestBuy(
                             tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
-                            cancelRule.getTime(), Set.of(), nonBuyableSymbols, actionRules);
+                            cancelRule.getTime(), Set.of(), nonBuyableSymbols, actionRules,
+                            new ReusableReplayResult(overnightTask, overnightResult));
                     if (candidate != null) {
                         buyTask = candidate.task();
                         buyRule = candidate.rule();
@@ -260,12 +261,22 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                                          Set<String> excludedSymbols,
                                          Set<String> nonBuyableSymbols,
                                          List<BacktestRuleAction> actionRules) {
+        return findEarliestBuy(tradeDate, tasks, replayMode, allowedAfterTime,
+                excludedSymbols, nonBuyableSymbols, actionRules, null);
+    }
+
+    private BuyCandidate findEarliestBuy(LocalDate tradeDate, List<StockWatchingTask> tasks,
+                                         BacktestReplayMode replayMode, Integer allowedAfterTime,
+                                         Set<String> excludedSymbols,
+                                         Set<String> nonBuyableSymbols,
+                                         List<BacktestRuleAction> actionRules,
+                                         ReusableReplayResult reusableResult) {
         BacktestReplayMode currentMode = replayMode;
         Integer currentAllowedAfterTime = allowedAfterTime;
         while (true) {
             List<ReplayBuyCandidate> candidates = findReplayBuyCandidates(
                     tradeDate, tasks, currentMode, currentAllowedAfterTime,
-                    excludedSymbols, nonBuyableSymbols);
+                    excludedSymbols, nonBuyableSymbols, reusableResult);
             ReplayBuyCandidate earliest = candidates.stream()
                     .min(java.util.Comparator.comparingInt(candidate -> candidate.buyRule().getTime()))
                     .orElse(null);
@@ -285,9 +296,22 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     private List<ReplayBuyCandidate> findReplayBuyCandidates(
             LocalDate tradeDate, List<StockWatchingTask> tasks,
             BacktestReplayMode replayMode, Integer allowedAfterTime,
-            Set<String> excludedSymbols, Set<String> nonBuyableSymbols) {
+            Set<String> excludedSymbols, Set<String> nonBuyableSymbols,
+            ReusableReplayResult reusableResult) {
         List<ReplayBuyCandidate> candidates = new ArrayList<>();
         Set<String> replayedSymbols = new HashSet<>();
+        if (reusableResult != null) {
+            StockWatchingTask task = reusableResult.task();
+            String symbol = task.getStockCode();
+            if (symbol != null && !excludedSymbols.contains(symbol)
+                    && !nonBuyableSymbols.contains(symbol) && replayedSymbols.add(symbol)) {
+                ReplayBuyCandidate candidate = firstReplayBuyCandidate(
+                        task, reusableResult.result(), allowedAfterTime);
+                if (candidate != null) {
+                    candidates.add(candidate);
+                }
+            }
+        }
         for (StockWatchingTask task : tasks) {
             String symbol = task.getStockCode();
             if (symbol == null || excludedSymbols.contains(symbol) || !replayedSymbols.add(symbol)) {
@@ -329,7 +353,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                     .filter(record -> record.getTime() != null && record.getTime() > buyRule.getTime())
                     .min(java.util.Comparator.comparingInt(RuleRecordDTO::getTime))
                     .orElse(null);
-            if (cancelRule != null || BacktestExecutionPolicy.isIntradayBuyFillable(buyRule)) {
+            if (cancelRule != null || BacktestExecutionPolicy.isIntradayBuyFillable(
+                    buyRule, result.lastPrice(), result.limitUpPrice())) {
                 buyRule.setPrice(result.limitUpPrice());
                 return new ReplayBuyCandidate(task, buyRule, cancelRule);
             }
@@ -626,6 +651,10 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     private record ReplayBuyCandidate(StockWatchingTask task,
                                       RuleRecordDTO buyRule,
                                       RuleRecordDTO cancelRule) {
+    }
+
+    /** 已经完成的回放结果，可在后续时间窗口筛选中复用，避免同一股票重复回放丢失规则。 */
+    private record ReusableReplayResult(StockWatchingTask task, BacktestReplayResult result) {
     }
 
     private static final class AccountState {

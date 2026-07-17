@@ -31,6 +31,20 @@ class BacktestExecutionPolicyTest {
     }
 
     @Test
+    void limitUpBuyIsFillableWhenReplayLaterBreaksBelowLimitUp() {
+        RuleRecordDTO buy = buyRecord("600876", 93_457_270, 0);
+
+        assertTrue(BacktestExecutionPolicy.isIntradayBuyFillable(buy, 993, 1_036));
+    }
+
+    @Test
+    void sealedLimitUpStillRequiresMarketDelay() {
+        RuleRecordDTO unfillable = buyRecord("600876", 93_457_270, 0);
+
+        assertFalse(BacktestExecutionPolicy.isIntradayBuyFillable(unfillable, 1_036, 1_036));
+    }
+
+    @Test
     void overnightBuyRequiresQueueHeadAfterNineFifteenAndOneSecond() {
         assertFalse(BacktestExecutionPolicy.isOvernightBuyFillable(91501000));
         assertTrue(BacktestExecutionPolicy.isOvernightBuyFillable(91501001));
