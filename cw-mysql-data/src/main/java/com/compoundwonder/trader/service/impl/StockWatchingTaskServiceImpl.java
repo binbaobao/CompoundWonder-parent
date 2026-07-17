@@ -284,7 +284,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         // 高度压制到 3 板以下就推荐
         //2.高度压制 2板，推荐2板股票
         //3.高度压制 3板，推荐2/3板股票
-        if (todayMaxLbc <= 3) {
+        if (todayMaxLbc <= 4) {
             minConsecutiveLimitUpDays = 2;
             maxConsecutiveLimitUpDays = 3;
         } else if (yesterdayHighestLimitUp <= dayBeforeYesterdayHighestLimitUp) {
@@ -316,28 +316,25 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 minConsecutiveLimitUpDays = 2;
                 maxConsecutiveLimitUpDays = 3;
             }
-        }else if (todayMaxLbc == 4) {
-            minConsecutiveLimitUpDays = 2;
-            maxConsecutiveLimitUpDays = 3;
         }
 
-        if (todayMaxLbc == 5 && minConsecutiveLimitUpDays == null) {
-            // 如果最高是 5 板执行特殊逻辑
-            // 查询今天 5 板的股
-            List<StockDailyEntity> stockDailyEntities1 = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
-                    .eq(StockDailyEntity::getTradeDate, tradeDate)
-                    .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
-                    .eq(StockDailyEntity::getConsecutiveLimitUpDays, todayMaxLbc));
-            if (stockDailyEntities1.size() == 1) {
-                StockDailyEntity stockDailyEntity = stockDailyEntities1.get(0);
-                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
-                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
-                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 3.5 || closePrice > 30) {
-                    minConsecutiveLimitUpDays = 2;
-                    maxConsecutiveLimitUpDays = 2;
-                }
-            }
-        }
+//        if (todayMaxLbc == 5 && minConsecutiveLimitUpDays == null) {
+//            // 如果最高是 5 板执行特殊逻辑
+//            // 查询今天 5 板的股
+//            List<StockDailyEntity> stockDailyEntities1 = stockDailyService.list(Wrappers.<StockDailyEntity>lambdaQuery()
+//                    .eq(StockDailyEntity::getTradeDate, tradeDate)
+//                    .and(wrapper -> wrapper.isNull(StockDailyEntity::getIsSt).or().eq(StockDailyEntity::getIsSt, false))
+//                    .eq(StockDailyEntity::getConsecutiveLimitUpDays, todayMaxLbc));
+//            if (stockDailyEntities1.size() == 1) {
+//                StockDailyEntity stockDailyEntity = stockDailyEntities1.get(0);
+//                double closePrice = stockDailyEntity.getClosePrice() / 1.6;
+//                // 如果唯一 5 板市值过大，换手高，振幅太小，振幅太大，其中一个情况就推荐下面 2 板股票 股票
+//                if (stockDailyEntity.getFloatMarketCap() > 450000 || stockDailyEntity.getTurnoverRate() > 45 || stockDailyEntity.getAmplitude() > 13 || closePrice < 3.5 || closePrice > 30) {
+//                    minConsecutiveLimitUpDays = 2;
+//                    maxConsecutiveLimitUpDays = 2;
+//                }
+//            }
+//        }
 
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);

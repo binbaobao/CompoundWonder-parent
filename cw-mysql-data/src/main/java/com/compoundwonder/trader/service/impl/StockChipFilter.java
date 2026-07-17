@@ -180,7 +180,7 @@ final class StockChipFilter {
             return maxTurnoverRate < 44D;
         }
         if (startMarketCap <= 151_000D) {
-            return maxTurnoverRate < 43D && currentPrice < 25D;
+            return (maxTurnoverRate < 43D && currentPrice < 25D) || (maxTurnoverRate < 50D && currentPrice < 20D);
         }
         if (startMarketCap <= 168_000D) {
             return maxTurnoverRate < 39D && currentPrice < 22D;
@@ -188,14 +188,17 @@ final class StockChipFilter {
         if (startMarketCap <= 187_000D) {
             return maxTurnoverRate < 35D && currentPrice < 20D;
         }
+        if (startMarketCap <= 200_000D) {
+            return maxTurnoverRate < 30D && currentPrice < 20D;
+        }
         if (startMarketCap <= 208_000D) {
-            return maxTurnoverRate < 27D && currentPrice < 17.5D;
+            return maxTurnoverRate < 27D && currentPrice < 18.5D;
         }
         if (startMarketCap <= 220_000D) {
-            return maxTurnoverRate < 25D && currentPrice < 15D;
+            return maxTurnoverRate < 25D && currentPrice < 17D;
         }
         if (startMarketCap <= 250_000D) {
-            return maxTurnoverRate < 20D && currentPrice < 15D;
+            return maxTurnoverRate < 25D && currentPrice < 16D;
         }
         return false;
     }
