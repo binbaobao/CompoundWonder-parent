@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -47,6 +48,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 交易模式：优质首板。
      */
     private static final int TRADE_MODE_FIRST_LIMIT_UP = 2;
+
+    /**
+     * 小市值首板补充分支的启动流通市值上限，单位：万元。
+     * 启动流通市值取选股前一交易日的收盘流通市值，并与该值进行严格小于比较。
+     */
+    private static final double SMALL_MARKET_CAP_FIRST_BOARD_LIMIT = 109_999D;
 
     private final StockDailyService stockDailyService;
     private final StockTradeCalendarService stockTradeCalendarService;
@@ -160,8 +167,84 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
         eligibleTasks.sort(Comparator.comparing(StockWatchingTask::getLimitUpScore).reversed());
         List<StockWatchingTask> tasks = takeTopTasks("首板", eligibleTasks, 3);
+        appendSmallMarketCapFirstBoardTasks(tasks, assistList, convertibleBondStockCodes);
         replaceTasks(tradeDate, TRADE_MODE_FIRST_LIMIT_UP, tasks);
         return tasks;
+    }
+
+    /**
+     * 在普通首板 Top3 之后，从首板基础候选池追加小市值首板任务。
+     * 该分支检查首板、无可转债、市值、3 日振幅和 10 日涨跌幅，
+     * 不参与换手率、启动价格、综合评分及筹码过滤；已被普通首板选中的股票不会重复加入。
+     */
+    private void appendSmallMarketCapFirstBoardTasks(List<StockWatchingTask> selectedTasks,
+                                                      List<StockSelectionAssistDTO> assistList,
+                                                      Set<String> convertibleBondStockCodes) {
+        Set<String> selectedStockCodes = new HashSet<>();
+        for (StockWatchingTask selectedTask : selectedTasks) {
+            selectedStockCodes.add(selectedTask.getStockCode());
+        }
+
+        for (StockSelectionAssistDTO assist : assistList) {
+            if (selectedStockCodes.contains(assist.getStockCode())) {
+                continue;
+            }
+            boolean hasConvertibleBond = convertibleBondStockCodes.contains(assist.getStockCode());
+            if (!isSmallMarketCapFirstBoardCandidate(assist, hasConvertibleBond)) {
+                continue;
+            }
+
+            double threeDayAmplitude = Objects.requireNonNullElse(assist.getSelectionAmplitude(), 0D);
+            if (!isSmallMarketCapFirstBoardAmplitudeAllowed(threeDayAmplitude)) {
+                logSelectionFiltered("小市值首板", assist, "3日振幅",
+                        "actual=" + threeDayAmplitude + ", required<20");
+                continue;
+            }
+
+            double tenDayChangeRate = Objects.requireNonNullElse(assist.getTenDayChangeRate(), 0D);
+            if (!isSmallMarketCapFirstBoardTenDayChangeAllowed(tenDayChangeRate)) {
+                logSelectionFiltered("小市值首板", assist, "10日涨跌幅",
+                        "actual=" + tenDayChangeRate + ", required=(-2,25)");
+                continue;
+            }
+
+            double startMarketCap = assist.getStartMarketCap();
+            int marketCapScore = scoreStartMarketCap(startMarketCap);
+            selectedTasks.add(buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, marketCapScore));
+            selectedStockCodes.add(assist.getStockCode());
+            log.info("小市值首板补充分支入选 tradeDate={} stockCode={} stockName={} "
+                            + "startMarketCap={} score={} detail=使用首板前一交易日收盘流通市值，忽略换手及筹码过滤",
+                    assist.getTradeDate(), assist.getStockCode(), assist.getStockName(),
+                    startMarketCap, marketCapScore);
+        }
+    }
+
+    /**
+     * 判断是否满足小市值首板补充分支。
+     * 市值口径：选股前一交易日的收盘流通市值必须严格小于 109999 万元。
+     */
+    static boolean isSmallMarketCapFirstBoardCandidate(StockSelectionAssistDTO assist,
+                                                        boolean hasConvertibleBond) {
+        return assist != null
+                && Integer.valueOf(1).equals(assist.getConsecutiveLimitUpDays())
+                && !hasConvertibleBond
+                && assist.getStartMarketCap() != null
+                && assist.getStartMarketCap() < SMALL_MARKET_CAP_FIRST_BOARD_LIMIT;
+    }
+
+    /**
+     * 小市值首板的 3 日振幅必须严格小于 20%。
+     */
+    static boolean isSmallMarketCapFirstBoardAmplitudeAllowed(Double threeDayAmplitude) {
+        return Objects.requireNonNullElse(threeDayAmplitude, 0D) < 20D;
+    }
+
+    /**
+     * 小市值首板的 10 日涨跌幅必须严格位于 -2% 至 25% 之间。
+     */
+    static boolean isSmallMarketCapFirstBoardTenDayChangeAllowed(Double tenDayChangeRate) {
+        double changeRate = Objects.requireNonNullElse(tenDayChangeRate, 0D);
+        return changeRate > -2D && changeRate < 25D;
     }
 
     /**

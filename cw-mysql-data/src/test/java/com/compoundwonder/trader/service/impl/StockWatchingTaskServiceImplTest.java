@@ -1,6 +1,7 @@
 package com.compoundwonder.trader.service.impl;
 
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
+import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -90,6 +91,49 @@ class StockWatchingTaskServiceImplTest {
         assertFalse(StockWatchingTaskServiceImpl.isRecentAbnormalKlineCountAllowed(4));
     }
 
+    @Test
+    void smallMarketCapFirstBoardUsesPreviousCloseMarketCapAndIgnoresTurnover() {
+        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(109_998D);
+        assist.setCurrentTurnoverRate(80D);
+        assist.setMaxTurnoverRate(80D);
+
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardCandidate(assist, false));
+    }
+
+    @Test
+    void smallMarketCapFirstBoardKeepsStrictMarketCapAndConvertibleBondBoundaries() {
+        assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
+                smallMarketCapFirstBoard(109_999D), false));
+        assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
+                smallMarketCapFirstBoard(100_000D), true));
+
+        StockSelectionAssistDTO relayBoard = smallMarketCapFirstBoard(100_000D);
+        relayBoard.setConsecutiveLimitUpDays(2);
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardCandidate(relayBoard, false));
+    }
+
+    @Test
+    void smallMarketCapFirstBoardRequiresThreeDayAmplitudeBelowTwentyPercent() {
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardAmplitudeAllowed(19.999D));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardAmplitudeAllowed(20D));
+    }
+
+    @Test
+    void smallMarketCapFirstBoardRequiresTenDayChangeBetweenMinusTwoAndTwentyFivePercent() {
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardTenDayChangeAllowed(-1.999D));
+        assertTrue(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardTenDayChangeAllowed(24.999D));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardTenDayChangeAllowed(-2D));
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardTenDayChangeAllowed(25D));
+    }
+
     private StockDailyEntity daily(String tradeDate, double adjustedLow, double adjustedClose) {
         StockDailyEntity daily = new StockDailyEntity();
         daily.setTradeDate(LocalDate.parse(tradeDate));
@@ -103,5 +147,12 @@ class StockWatchingTaskServiceImplTest {
         daily.setTradeDate(LocalDate.parse(tradeDate));
         daily.setKlineState(klineState);
         return daily;
+    }
+
+    private StockSelectionAssistDTO smallMarketCapFirstBoard(double startMarketCap) {
+        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+        assist.setConsecutiveLimitUpDays(1);
+        assist.setStartMarketCap(startMarketCap);
+        return assist;
     }
 }
