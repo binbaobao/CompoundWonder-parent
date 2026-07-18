@@ -377,7 +377,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
 
     /**
      * 一次性查询当天 {@code kline_state <= 0} 的候选股票，避免逐只查询日 K，
-     * 也避免为全天没有触及涨停的股票读取并回放 Parquet。
+     * 也避免为全天没有触及涨停的股票读取并回放 Level2 数据。
      *
      * <p>批量查询结果中缺少当日日 K 的股票按停牌处理，只跳过该股票，
      * 不影响同一天其他候选股票继续回放。</p>

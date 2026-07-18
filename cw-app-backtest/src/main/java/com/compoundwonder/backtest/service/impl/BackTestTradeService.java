@@ -29,8 +29,8 @@ import java.util.function.Consumer;
 /**
  * 单股票历史订单簿回测编排服务。
  *
- * <p>负责准备订单簿、驱动可替换的数据源、等待 Disruptor 消费完成并返回规则记录；
- * 不负责 Parquet 或 ClickHouse 的具体读取实现。</p>
+ * <p>负责准备订单簿、驱动 ClickHouse Tick 数据源、等待 Disruptor 消费完成并返回规则记录；
+ * 不负责 Level2 的具体查询和字段转换。</p>
  */
 @Slf4j
 @Service

@@ -33,7 +33,7 @@ import java.util.function.Supplier;
  *     <li>在两次回测之间清理订单簿和回放进度。</li>
  * </ol>
  *
- * <p>该类只负责订单簿运行机制，不负责读取 Parquet、查询数据库或模拟账户成交。
+ * <p>该类只负责订单簿运行机制，不负责查询历史行情、访问数据库或模拟账户成交。
  * Spring Bean、线程策略和等待策略由 backtest 或实盘应用配置。</p>
  *
  * <p>一次回测的推荐调用顺序：</p>
@@ -158,7 +158,7 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      * <p>RingBuffer 中的 TickData 会循环复用，因此这里复制字段而不是保存 source 引用。
      * 发布前必须先通过 registerOrderBook() 注册该证券的订单簿，否则 Handler 会忽略该 Tick。</p>
      *
-     * @param source 从 DuckDB、实时行情或其他数据源解析出的 Tick
+     * @param source 从 ClickHouse、实时行情或其他数据源解析出的 Tick
      * @throws IllegalStateException 当引擎尚未启动时抛出
      * @throws IllegalArgumentException 当证券不属于 60 或 00 主板范围时抛出
      */

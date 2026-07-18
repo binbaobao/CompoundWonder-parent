@@ -103,7 +103,7 @@ public class BacktestController {
 
     /**
      * 查询 Level2 分时。
-     * 作用：按交易日读取本地 Level2 parquet 并返回前端分时图 tick 数据。
+     * 作用：按交易日读取 ClickHouse Level2 快照并返回前端分时图 tick 数据。
      */
     @GetMapping("minute-bars")
     public Result<List<Level2MinuteTickDTO>> minuteBars(@RequestParam String stockCode,

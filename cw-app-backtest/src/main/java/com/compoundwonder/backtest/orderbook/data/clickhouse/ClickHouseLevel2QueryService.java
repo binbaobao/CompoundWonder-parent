@@ -41,7 +41,7 @@ public class ClickHouseLevel2QueryService {
                    TickType, Side, Price, Volume, No
             FROM stock.`order`
             WHERE SecurityID = ? AND TradeDate = ?
-            ORDER BY TradeTime
+            ORDER BY TradeTime, No
             """;
 
     static final String TRANS_QUERY_SQL = """
@@ -49,7 +49,7 @@ public class ClickHouseLevel2QueryService {
                    TickType, Price, Volume, BuyNo, SellNo
             FROM stock.trans
             WHERE SecurityID = ? AND TradeDate = ?
-            ORDER BY TradeTime
+            ORDER BY TradeTime, BuyNo, SellNo
             """;
 
     private final JdbcTemplate jdbcTemplate;

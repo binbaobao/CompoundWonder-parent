@@ -359,9 +359,7 @@ strategy-risk
 ```text
 data-api
 data-mysql
-data-parquet
 data-clickhouse
-data-duckdb
 data-redis
 ```
 
@@ -379,9 +377,7 @@ data-redis
 设计原则：
 
 * MySQL 负责结构化业务数据
-* Parquet 负责 Level2 历史行情归档
-* DuckDB 负责本地分析
-* ClickHouse 负责大规模行情分析
+* ClickHouse 负责 Level2 历史行情归档、回放和大规模分析
 * Redis 负责消息缓冲和异步出站
 
 ---
@@ -505,7 +501,7 @@ app-local-view
 * Level2 逐笔委托
 * Level2 逐笔成交
 * ZMQ 实时行情
-* 历史 Parquet 回放
+* 历史 ClickHouse 回放
 * 数据库行情快照
 
 设计原则：
@@ -544,8 +540,6 @@ app-local-view
 包括：
 
 * MySQL
-* Parquet
-* DuckDB
 * ClickHouse
 * Redis
 
@@ -553,9 +547,7 @@ app-local-view
 
 ```text
 MySQL 保存核心业务数据
-Parquet 保存高频历史行情
-DuckDB 做本地快速分析
-ClickHouse 做大规模查询分析
+ClickHouse 保存高频历史行情并承担回放和大规模查询分析
 Redis 做异步消息和缓存
 ```
 
@@ -570,8 +562,6 @@ Redis 做异步消息和缓存
 * MyBatis / MyBatis-Plus
 * MySQL
 * Redis
-* Parquet
-* DuckDB
 * ClickHouse
 * Vue
 * Linux
@@ -762,4 +752,3 @@ AI 工具可以辅助：
 项目中的任何策略、代码、回测结果、交易逻辑均不构成投资建议。
 
 股票交易存在风险，实盘使用需自行承担全部风险。
-

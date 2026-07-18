@@ -7,7 +7,7 @@ import java.util.function.Consumer;
 
 /**
  * 回测 Tick 数据源。
- * DuckDB/Parquet、ClickHouse 等实现只负责按确定顺序输出统一 TickData。
+ * ClickHouse 实现只负责按确定顺序输出统一 TickData。
  */
 public interface BacktestTickDataSource {
 
