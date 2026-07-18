@@ -118,7 +118,8 @@ public class StockSelectionAssistDTO {
     private Double maxVolumeDayTurnover;
 
     /**
-     * 非正常状态次数，统计 klineState != 0 的交易日数量。
+     * 选股日向前 18 个自然月内的非正常状态次数，统计 klineState != 0 的交易日数量，
+     * 并排除本次连续涨停对应的 K 线。
      */
     private Integer abnormalKlineStateCount;
 
@@ -140,7 +141,8 @@ public class StockSelectionAssistDTO {
     private Double tenDayChangeRate;
 
     /**
-     * 按选股评分公式计算的总分，基础满分 100 分，异常状态次数超出 10 次后扣分。
+     * 按选股评分公式计算的总分；异常状态免扣次数由启动流通市值动态计算，
+     * 超出免扣次数的部分逐次扣分，最终分数不低于 0。
      */
     private Integer score;
 }

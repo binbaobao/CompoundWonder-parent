@@ -23,7 +23,7 @@ final class StockChipFilter {
     /** 历史最大换手率超过 55% 时，不论当前是几板都直接过滤。 */
     private static final double MAX_ALLOWED_HISTORICAL_TURNOVER_RATE = 55D;
 
-    /** 本轮连板前 200 根有效日 K 内允许出现的最高板数，超过 5 板才过滤。 */
+    /** 本轮连续涨停前 200 根有效日 K 内允许出现的最高板数，超过 5 板才过滤。 */
     private static final int MAX_ALLOWED_TWO_HUNDRED_KLINE_BOARD = 5;
 
     /** 本轮连板前 90 个自然日内只要出现过 3 板就过滤。 */
@@ -35,7 +35,7 @@ final class StockChipFilter {
     /** 特殊通道要求选股涨停日收盘价严格低于 17.5 元。 */
     private static final double SPECIAL_MAX_CURRENT_PRICE = 17.5D;
 
-    /** 特殊通道最大筹码金额，单位：万元，即 3.98 亿元。 */
+    /** 特殊通道最大筹码金额，单位：万元，即 7.58 亿元。 */
     private static final double SPECIAL_MAX_CHIP_AMOUNT = 75_800D;
 
     private StockChipFilter() {
@@ -153,7 +153,8 @@ final class StockChipFilter {
     }
 
     /**
-     * 执行所有选股通道共同遵守的历史筹码硬规则。
+     * 执行普通首板、正常连板、冰点连板和弱 5 板兜底共同遵守的历史筹码硬规则。
+     * 小市值首板补充分支使用独立的历史高度规则，不调用本方法。
      * 冰点 3/4 板宽松通道可以绕过普通市值换手价格阶梯，但不能绕过 55% 历史最大换手、
      * 200 根 K 线历史最高板和 90 日历史最高板限制。
      */

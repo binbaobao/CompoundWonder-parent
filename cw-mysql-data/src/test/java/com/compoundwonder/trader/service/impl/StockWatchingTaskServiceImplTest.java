@@ -135,6 +135,16 @@ class StockWatchingTaskServiceImplTest {
     }
 
     @Test
+    void smallMarketCapFirstBoardRequiresBothRecentAndLongWindowAbnormalLimits() {
+        assertTrue(StockWatchingTaskServiceImpl
+                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(3, 25));
+        assertFalse(StockWatchingTaskServiceImpl
+                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(4, 25));
+        assertFalse(StockWatchingTaskServiceImpl
+                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(3, 26));
+    }
+
+    @Test
     void smallMarketCapFirstBoardRequiresThreeDayAmplitudeBelowTwentyPercent() {
         assertTrue(StockWatchingTaskServiceImpl
                 .isSmallMarketCapFirstBoardAmplitudeAllowed(19.999D));
@@ -187,6 +197,11 @@ class StockWatchingTaskServiceImplTest {
     void normalRelayKeepsFourTasksAndWeakFiveBoardFallbackKeepsThree() {
         assertEquals(4, StockWatchingTaskServiceImpl.NORMAL_RELAY_TASK_LIMIT);
         assertEquals(3, StockWatchingTaskServiceImpl.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
+    }
+
+    @Test
+    void smallMarketCapFirstBoardSupplementKeepsAtMostTwoTasks() {
+        assertEquals(2, StockWatchingTaskServiceImpl.SMALL_MARKET_CAP_FIRST_BOARD_TASK_LIMIT);
     }
 
     @Test

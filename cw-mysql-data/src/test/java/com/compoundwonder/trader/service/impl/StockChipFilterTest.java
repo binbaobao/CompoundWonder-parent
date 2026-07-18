@@ -26,7 +26,7 @@ class StockChipFilterTest {
     }
 
     @Test
-    void rejectsMoreThanFiveBoardsInPriorEighteenMonths() {
+    void rejectsMoreThanFiveBoardsInPriorTwoHundredKlines() {
         StockSelectionAssistDTO assist = eligibleAssist();
         assist.setHighestConsecutiveLimitUpDays(6);
 
@@ -101,9 +101,10 @@ class StockChipFilterTest {
                 new BandCase(151_000D, 43D, 25D),
                 new BandCase(168_000D, 39D, 22D),
                 new BandCase(187_000D, 35D, 20D),
-                new BandCase(208_000D, 27D, 17.5D),
-                new BandCase(220_000D, 25D, 15D),
-                new BandCase(250_000D, 20D, 15D));
+                new BandCase(200_000D, 30D, 20D),
+                new BandCase(208_000D, 27D, 18.5D),
+                new BandCase(220_000D, 25D, 17D),
+                new BandCase(250_000D, 25D, 16D));
 
         for (BandCase bandCase : bandCases) {
             StockSelectionAssistDTO passing = eligibleAssist();

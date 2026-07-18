@@ -62,6 +62,11 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     static final int WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT = 3;
 
     /**
+     * 普通首板 Top3 之外，小市值首板补充分支最多再保留 2 只。
+     */
+    static final int SMALL_MARKET_CAP_FIRST_BOARD_TASK_LIMIT = 2;
+
+    /**
      * 小市值首板补充分支的启动流通市值上限，单位：万元。
      * 启动流通市值取选股前一交易日的收盘流通市值，并与该值进行严格小于比较。
      */
@@ -103,7 +108,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 创建优质首板推荐任务。
-     * 实现逻辑：查询当天非 ST、涨幅小于 11、K 线为涨停、连续涨停天数为 1 的股票，批量插入任务表。
+     * 实现逻辑：查询当天非 ST、涨幅小于 11、连续涨停天数为 1 的股票，过滤后批量插入任务表。
+     * 涨停候选统一以 consecutiveLimitUpDays 为准，不再额外依赖 klineState。
      */
     private List<StockWatchingTask> createHighQualityFirstLimitUpTasks(LocalDate tradeDate,
                                                                        Set<String> convertibleBondStockCodes) {
@@ -133,7 +139,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
             int abnormalCount = Objects.requireNonNullElse(dto.getAbnormalKlineStateCount(), 0);
             if (abnormalCount > 20) {
-                logSelectionFiltered("首板", dto, "非正常状态次数", "actual=" + abnormalCount + ", required<20");
+                logSelectionFiltered("首板", dto, "非正常状态次数", "actual=" + abnormalCount + ", required<=20");
                 continue;
             }
 
@@ -154,7 +160,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             double tenDayChangeRate = Objects.requireNonNullElse(dto.getTenDayChangeRate(), 0D);
 
             if (tenDayChangeRate <= -2 || tenDayChangeRate >= 25) {
-                logSelectionFiltered("首板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required=(2,25)");
+                logSelectionFiltered("首板", dto, "10日涨跌幅", "actual=" + tenDayChangeRate + ", required=(-2,25)");
                 continue;
             }
 
@@ -187,9 +193,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 在普通首板 Top3 之后，从首板基础候选池追加小市值首板任务。
-     * 该分支检查首板、无可转债、市值、200 根 K 线历史最高板、非正常 K 线次数、
-     * 3 日振幅和 10 日涨跌幅。
+     * 在普通首板 Top3 之后，从首板基础候选池最多追加 2 只小市值首板任务。
+     * 该分支检查首板、无可转债、市值、200 根 K 线历史最高板、前 20 日及
+     * 18 个月非正常 K 线次数、3 日振幅和 10 日涨跌幅。
      * 它只放宽换手率、启动价格、综合评分和普通筹码阶梯，不能绕过历史高度硬限制；
      * 已被普通首板选中的股票不会重复加入。
      */
@@ -201,6 +207,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             selectedStockCodes.add(selectedTask.getStockCode());
         }
 
+        List<StockWatchingTask> supplementCandidates = new ArrayList<>();
         for (StockSelectionAssistDTO assist : assistList) {
             if (selectedStockCodes.contains(assist.getStockCode())) {
                 continue;
@@ -218,11 +225,19 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
+            int priorTwentyDayAbnormalCount = Objects.requireNonNullElse(
+                    assist.getPriorTwentyDayAbnormalKlineStateCount(), 0);
             int abnormalKlineStateCount = Objects.requireNonNullElse(
                     assist.getAbnormalKlineStateCount(), 0);
-            if (!isSmallMarketCapFirstBoardAbnormalCountAllowed(abnormalKlineStateCount)) {
-                logSelectionFiltered("小市值首板", assist, "非正常状态次数",
-                        "actual=" + abnormalKlineStateCount + ", required<=25");
+            if (!areSmallMarketCapFirstBoardAbnormalCountsAllowed(
+                    priorTwentyDayAbnormalCount, abnormalKlineStateCount)) {
+                if (!isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount)) {
+                    logSelectionFiltered("小市值首板", assist, "前20日非正常K线次数",
+                            "actual=" + priorTwentyDayAbnormalCount + ", required<4");
+                } else {
+                    logSelectionFiltered("小市值首板", assist, "18个月非正常状态次数",
+                            "actual=" + abnormalKlineStateCount + ", required<=25");
+                }
                 continue;
             }
 
@@ -242,15 +257,19 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
             double startMarketCap = assist.getStartMarketCap();
             int marketCapScore = scoreStartMarketCap(startMarketCap);
-            selectedTasks.add(buildWatchingTask(assist, TRADE_MODE_FIRST_LIMIT_UP, marketCapScore));
-            selectedStockCodes.add(assist.getStockCode());
-            log.info("小市值首板补充分支入选 tradeDate={} stockCode={} stockName={} "
+            supplementCandidates.add(buildWatchingTask(
+                    assist, TRADE_MODE_FIRST_LIMIT_UP, marketCapScore));
+            log.info("小市值首板补充分支候选 tradeDate={} stockCode={} stockName={} "
                             + "startMarketCap={} score={} detail=使用首板前一交易日收盘流通市值，"
                             + "放宽换手及普通筹码阶梯，但200根K线历史最高板必须小于3板，"
-                            + "非正常K线次数不能超过25次",
+                            + "前20日非正常K线少于4次且18个月非正常K线不超过25次",
                     assist.getTradeDate(), assist.getStockCode(), assist.getStockName(),
                     startMarketCap, marketCapScore);
         }
+
+        sortSelectionTasks(supplementCandidates, indexCurrentPrices(assistList));
+        selectedTasks.addAll(takeTopTasks(
+                "小市值首板", supplementCandidates, SMALL_MARKET_CAP_FIRST_BOARD_TASK_LIMIT));
     }
 
     /**
@@ -280,6 +299,18 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      */
     static boolean isSmallMarketCapFirstBoardAbnormalCountAllowed(Integer abnormalKlineStateCount) {
         return Objects.requireNonNullElse(abnormalKlineStateCount, 0) <= 25;
+    }
+
+    /**
+     * 小市值首板同时执行两条异常 K 线硬限制：前 20 个交易日少于 4 次，
+     * 18 个月窗口不超过 25 次。任意一条不满足都不能进入补充分支。
+     */
+    static boolean areSmallMarketCapFirstBoardAbnormalCountsAllowed(
+            Integer priorTwentyDayAbnormalCount,
+            Integer abnormalKlineStateCount) {
+        boolean recentAllowed = isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount);
+        boolean longWindowAllowed = isSmallMarketCapFirstBoardAbnormalCountAllowed(abnormalKlineStateCount);
+        return recentAllowed && longWindowAllowed;
     }
 
     /**
@@ -510,7 +541,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
             int score = calculateSelectionScore(dto);
             if (score < 15) {
-                logSelectionFiltered(selectionMode, dto, "选股评分", "actual=" + score + ", required>15");
+                logSelectionFiltered(selectionMode, dto, "选股评分", "actual=" + score + ", required>=15");
                 continue;
             }
             StockChipFilter.Decision chipDecision = StockChipFilter.evaluate(dto);
@@ -742,17 +773,6 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 接力任务分数优先反映连板高度，空间龙额外加分，便于盯盘列表排序。
-     */
-    private Integer calculateRelayLimitUpScore(StockSelectionAssistDTO assist, StockEmotionCycleDaily emotionCycleDaily) {
-        int score = calculateSelectionScore(assist);
-        if (emotionCycleDaily != null && Objects.equals(assist.getStockCode(), emotionCycleDaily.getDominantCycleStockCode())) {
-            score += 10;
-        }
-        return score;
-    }
-
-    /**
      * 按启动市值、历史最大换手、启动价格、地域板块、选股当日换手率计算基础分，
      * 以 27 亿启动流通市值为基准动态计算非正常状态免扣次数，最终分数不低于 0 分。
      */
@@ -803,7 +823,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 启动价格评分：低于 3 元 50 分，3 至 10 元 15 分，超过 19.5 元 0 分，中间区间线性扣分。
+     * 启动价格评分：低于 3.3 元或超过 19.5 元得 0 分；3.3 至 4 元得 10 分；
+     * 4 至 10 元得 15 分；10 至 19.5 元按现有分段线性扣分。
      */
     private int scoreStartPrice(Double price) {
         if (price == null || price < 3.3 || price > 19.5) return 0;
@@ -837,7 +858,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 连板评分：首板 0 分，每增加 1 板增加 10 分。
+     * 连板评分：2 板加 5 分，3 板加 15 分，其他板数不加分。
      */
     private int scoreConsecutiveLimitUpDays(Integer consecutiveLimitUpDays) {
         if (consecutiveLimitUpDays == 2) return 5;
