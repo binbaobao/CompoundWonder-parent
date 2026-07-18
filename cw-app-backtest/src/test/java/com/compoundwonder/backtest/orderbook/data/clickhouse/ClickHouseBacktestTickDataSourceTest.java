@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -36,16 +37,46 @@ class ClickHouseBacktestTickDataSourceTest {
     }
 
     @Test
-    void mapsShenzhenOrderAndTradeTypesUsingLiveFeedConvention() {
+    void mapsShenzhenOrderTypesAndConvertsOrderZeroToCancellation() {
+        TickData limitOrder = ClickHouseBacktestTickDataSource.toOrderTick(
+                order("1", "1", 10.59F, 400, 59_697_075), 1_002_632, false);
         TickData marketOrder = ClickHouseBacktestTickDataSource.toOrderTick(
-                order("0", "1", 0F, 30_000, 201), 1_001_388, false);
+                order("2", "1", 0F, 30_000, 201), 1_001_388, false);
+        TickData ownBestOrder = ClickHouseBacktestTickDataSource.toOrderTick(
+                order("3", "2", 0F, 500, 202), 1_001_388, false);
+        TickData buyCancel = ClickHouseBacktestTickDataSource.toOrderTick(
+                order("0", "1", 0F, 400, 59_697_075), 1_002_632, false);
+        TickData sellCancel = ClickHouseBacktestTickDataSource.toOrderTick(
+                order("0", "2", 0F, 500, 59_697_076), 1_002_632, false);
+
+        assertEquals(1, limitOrder.dataType);
+        assertEquals(1, limitOrder.type);
+        assertEquals(1_059, limitOrder.price);
+        assertEquals(2, marketOrder.type);
+        assertEquals(0, marketOrder.price);
+        assertEquals(3, ownBestOrder.type);
+        assertEquals(2, ownBestOrder.direction);
+        assertEquals(2, buyCancel.dataType);
+        assertEquals(1, buyCancel.type);
+        assertEquals(1, buyCancel.direction);
+        assertEquals(59_697_075, buyCancel.orderId);
+        assertEquals(59_697_075, buyCancel.buyerOrderId);
+        assertEquals(0, buyCancel.sellerOrderId);
+        assertEquals(400, buyCancel.quantity);
+        assertEquals(2, sellCancel.dataType);
+        assertEquals(1, sellCancel.type);
+        assertEquals(2, sellCancel.direction);
+        assertEquals(0, sellCancel.buyerOrderId);
+        assertEquals(59_697_076, sellCancel.sellerOrderId);
+    }
+
+    @Test
+    void mapsShenzhenTransactionTradeAndCancellationTypes() {
         TickData trade = ClickHouseBacktestTickDataSource.toTransactionTick(
                 trans("1", 8.25F, 2_000, 301, 302), 1_001_388, false);
         TickData cancel = ClickHouseBacktestTickDataSource.toTransactionTick(
                 trans("0", 0F, 1_000, 0, 302), 1_001_388, false);
 
-        assertEquals(0, marketOrder.type);
-        assertEquals(0, marketOrder.price);
         assertEquals(2, trade.dataType);
         assertEquals(0, trade.type);
         assertEquals(1, trade.direction);
@@ -94,6 +125,56 @@ class ClickHouseBacktestTickDataSourceTest {
         assertEquals(List.of((byte) 1, (byte) 2, (byte) 4), dataTypes);
     }
 
+    @Test
+    void replaysShenzhenLimitOrderFollowedByOrderStreamCancellation() {
+        ClickHouseLevel2QueryService queryService = new StubQueryService(
+                List.of(
+                        orderAt(145_559_350, "1", "1", 59_697_075, 10.59F, 400),
+                        orderAt(145_655_210, "0", "1", 59_697_075, 0F, 400)),
+                List.of(), List.of());
+
+        List<TickData> ticks = new ArrayList<>();
+        long count = new ClickHouseBacktestTickDataSource(queryService)
+                .replay(DATE, "002632", ticks::add);
+
+        assertEquals(2, count);
+        assertEquals(1, ticks.get(0).dataType);
+        assertEquals(1, ticks.get(0).type);
+        assertEquals(59_697_075, ticks.get(0).orderId);
+        assertEquals(2, ticks.get(1).dataType);
+        assertEquals(1, ticks.get(1).type);
+        assertEquals(59_697_075, ticks.get(1).buyerOrderId);
+    }
+
+    @Test
+    void loadsAllDailySymbolsOnceAndReusesTheirTicksAcrossMultipleReplays() {
+        StubQueryService queryService = new StubQueryService(List.of(
+                batchOrder("002632", 145_559_350, "1", "1", 10.59F, 400, 59_697_075),
+                batchOrder("002632", 145_655_210, "0", "1", 0F, 400, 59_697_075),
+                batchOrder("603567", 93_000_001, "A", "1", 10F, 100, 101),
+                batchTransaction("603567", 93_000_001, "T", 10F, 100, 101, 102),
+                batchMarket("603567", 93_000_001, 10F, 9.99F,
+                        1_000, 100, 10, 20, 30, 40)));
+        ClickHouseBacktestTickDataSource source = new ClickHouseBacktestTickDataSource(queryService);
+
+        var batch = source.loadDay(DATE, List.of("603567", "002632", "603567"));
+        List<TickData> shanghaiFirstReplay = new ArrayList<>();
+        List<TickData> shanghaiSecondReplay = new ArrayList<>();
+        List<TickData> shenzhenReplay = new ArrayList<>();
+
+        assertEquals(3, batch.replay("603567", shanghaiFirstReplay::add));
+        assertEquals(3, batch.replay("603567", shanghaiSecondReplay::add));
+        assertEquals(2, batch.replay("002632", shenzhenReplay::add));
+        assertEquals(1, queryService.dailyQueryCount);
+        assertEquals(List.of("002632", "603567"), queryService.requestedSymbols);
+        assertEquals(List.of((byte) 1, (byte) 2, (byte) 4),
+                shanghaiFirstReplay.stream().map(tick -> tick.dataType).toList());
+        assertEquals(shanghaiFirstReplay.size(), shanghaiSecondReplay.size());
+        assertEquals(1, shenzhenReplay.get(0).dataType);
+        assertEquals(2, shenzhenReplay.get(1).dataType);
+        assertEquals(59_697_075, shenzhenReplay.get(1).buyerOrderId);
+    }
+
     private static ClickHouseOrderRow order(String tickType, String side, float price,
                                              long volume, long no) {
         return orderAt(93_000_001, tickType, side, no, price, volume);
@@ -129,6 +210,32 @@ class ClickHouseBacktestTickDataSourceTest {
                 new float[]{ask1}, new float[]{bid1}, askVolumes, bidVolumes);
     }
 
+    private static ClickHouseLevel2BatchRow batchOrder(
+            String symbol, int time, String tickType, String side,
+            float price, long volume, long orderNo) {
+        return new ClickHouseLevel2BatchRow(symbol, time,
+                ClickHouseLevel2BatchRow.EVENT_ORDER, tickType, side, price, volume,
+                orderNo, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    private static ClickHouseLevel2BatchRow batchTransaction(
+            String symbol, int time, String tickType, float price,
+            long volume, long buyNo, long sellNo) {
+        return new ClickHouseLevel2BatchRow(symbol, time,
+                ClickHouseLevel2BatchRow.EVENT_TRANSACTION, tickType, "", price, volume,
+                0, buyNo, sellNo, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    private static ClickHouseLevel2BatchRow batchMarket(
+            String symbol, int time, float askPrice1, float bidPrice1,
+            long totalValue, long totalVolume, long askVolume1, long askVolume2,
+            long bidVolume1, long bidVolume2) {
+        return new ClickHouseLevel2BatchRow(symbol, time,
+                ClickHouseLevel2BatchRow.EVENT_MARKET, "", "", 0, 0,
+                0, 0, 0, askPrice1, bidPrice1, askVolume1, askVolume2,
+                bidVolume1, bidVolume2, totalVolume, totalValue);
+    }
+
     private static LocalDateTime timestamp(int compactTime) {
         int millis = compactTime % 1_000;
         int hhmmss = compactTime / 1_000;
@@ -140,6 +247,9 @@ class ClickHouseBacktestTickDataSourceTest {
         private final ClickHouseQueryResult<ClickHouseOrderRow> orders;
         private final ClickHouseQueryResult<ClickHouseTransRow> transactions;
         private final ClickHouseQueryResult<ClickHouseMarketRow> markets;
+        private final List<ClickHouseLevel2BatchRow> dailyRows;
+        private int dailyQueryCount;
+        private List<String> requestedSymbols = List.of();
 
         private StubQueryService(List<ClickHouseOrderRow> orders,
                                  List<ClickHouseTransRow> transactions,
@@ -148,6 +258,15 @@ class ClickHouseBacktestTickDataSourceTest {
             this.orders = ClickHouseQueryResult.of("stock.order", orders, 1);
             this.transactions = ClickHouseQueryResult.of("stock.trans", transactions, 1);
             this.markets = ClickHouseQueryResult.of("stock.market", markets, 1);
+            this.dailyRows = List.of();
+        }
+
+        private StubQueryService(List<ClickHouseLevel2BatchRow> dailyRows) {
+            super(null);
+            this.orders = ClickHouseQueryResult.of("stock.order", List.of(), 1);
+            this.transactions = ClickHouseQueryResult.of("stock.trans", List.of(), 1);
+            this.markets = ClickHouseQueryResult.of("stock.market", List.of(), 1);
+            this.dailyRows = dailyRows;
         }
 
         @Override
@@ -166,6 +285,16 @@ class ClickHouseBacktestTickDataSourceTest {
         public ClickHouseQueryResult<ClickHouseMarketRow> queryMarket(String securityId,
                                                                       LocalDate tradeDate) {
             return markets;
+        }
+
+        @Override
+        public ClickHouseDailyQueryResult streamDailyTicks(
+                LocalDate tradeDate, List<String> securityIds,
+                Consumer<ClickHouseLevel2BatchRow> rowConsumer) {
+            dailyQueryCount++;
+            requestedSymbols = List.copyOf(securityIds);
+            dailyRows.forEach(rowConsumer);
+            return new ClickHouseDailyQueryResult(dailyRows.size(), 1);
         }
     }
 }

@@ -2,6 +2,7 @@ package com.compoundwonder.backtest.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.compoundwonder.backtest.orderbook.BacktestOrderExecutionGateway;
+import com.compoundwonder.backtest.orderbook.data.BacktestDailyTickBatch;
 import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
@@ -23,6 +24,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -90,6 +92,38 @@ public class BackTestTradeService {
      */
     public synchronized BacktestReplayResult replay(LocalDate tradeDate, String stockCode,
                                                      BacktestReplayMode mode, Integer allowedAfterTime) {
+        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime,
+                (date, symbol, consumer) -> tickDataSource.replay(date, symbol, consumer));
+    }
+
+    /**
+     * 使用已经按交易日批量加载的数据执行回放。
+     *
+     * <p>完整历史回测同一天可能多次重建同一股票的订单簿，此重载只复用原始 Tick，
+     * 不复用订单簿或规则记录，交易逻辑与单股票接口保持一致。</p>
+     */
+    public synchronized BacktestReplayResult replay(
+            LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
+            Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks) {
+        if (!tradeDate.equals(dailyTicks.tradeDate())) {
+            throw new IllegalArgumentException("回放日期与批量 Tick 日期不一致: replay="
+                    + tradeDate + ", batch=" + dailyTicks.tradeDate());
+        }
+        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime,
+                (date, symbol, consumer) -> dailyTicks.replay(symbol, consumer));
+    }
+
+    /** 一次加载完整历史回测当天会用到的全部股票 Tick。 */
+    public BacktestDailyTickBatch loadDailyTicks(LocalDate tradeDate, Set<String> stockCodes) {
+        for (String stockCode : stockCodes) {
+            validateStockCode(stockCode);
+        }
+        return tickDataSource.loadDay(tradeDate, stockCodes);
+    }
+
+    private BacktestReplayResult replayInternal(
+            LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
+            Integer allowedAfterTime, TickReplaySource replaySource) {
         validateStockCode(stockCode);
         validateReplayMode(mode, allowedAfterTime);
         int symbolId = SymbolUtil.fastSymbolToInt(stockCode);
@@ -104,7 +138,7 @@ public class BackTestTradeService {
         try {
             replayStarted = true;
             Consumer<TickData> consumer = replayConsumer(symbolId, mode, allowedAfterTime);
-            long tickCount = tickDataSource.replay(tradeDate, stockCode, consumer);
+            long tickCount = replaySource.replay(tradeDate, stockCode, consumer);
             if (tickCount == 0) {
                 throw new IllegalStateException(tradeDate + " 没有找到股票 " + stockCode + " 的 Level2 Tick");
             }
@@ -131,6 +165,11 @@ public class BackTestTradeService {
             orderBookEngine.reset();
             executionGateway.clear();
         }
+    }
+
+    @FunctionalInterface
+    private interface TickReplaySource {
+        long replay(LocalDate tradeDate, String stockCode, Consumer<TickData> tickConsumer);
     }
 
     private Consumer<TickData> replayConsumer(int symbolId, BacktestReplayMode mode,

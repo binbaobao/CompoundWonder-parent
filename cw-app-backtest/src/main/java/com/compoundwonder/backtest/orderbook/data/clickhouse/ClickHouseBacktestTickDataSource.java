@@ -1,13 +1,19 @@
 package com.compoundwonder.backtest.orderbook.data.clickhouse;
 
 import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
+import com.compoundwonder.backtest.orderbook.data.BacktestDailyTickBatch;
 import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.util.SymbolUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Consumer;
 
 /**
@@ -53,6 +59,52 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         return replayed;
     }
 
+    /**
+     * 一次查询并缓存当天全部候选股票的必要 Tick，供完整历史回测日内重复回放。
+     *
+     * <p>股票代码先去重并排序，使 SQL 参数和结果日志稳定。查询结果已经按股票、时间、
+     * 委托/成交/快照优先级以及订单号排序，因此这里仅分组，不再进行内存排序。</p>
+     */
+    @Override
+    public BacktestDailyTickBatch loadDay(LocalDate tradeDate, Collection<String> stockCodes) {
+        List<String> requestedCodes = new TreeSet<>(stockCodes).stream()
+                .peek(ClickHouseBacktestTickDataSource::validateStockCode)
+                .toList();
+        if (requestedCodes.isEmpty()) {
+            return new InMemoryDailyTickBatch(tradeDate, Map.of());
+        }
+
+        Map<String, List<TickData>> mutableTicks = new LinkedHashMap<>(requestedCodes.size());
+        for (String stockCode : requestedCodes) {
+            mutableTicks.put(stockCode, new java.util.ArrayList<>());
+        }
+        ClickHouseDailyQueryResult queryResult = queryService.streamDailyTicks(
+                tradeDate, requestedCodes, row -> {
+                    TickData tick = toBatchTick(row);
+                    if (tick != null) {
+                        List<TickData> symbolTicks = mutableTicks.get(row.securityId());
+                        if (symbolTicks == null) {
+                            throw new IllegalStateException("ClickHouse 返回了未请求的股票: "
+                                    + row.securityId());
+                        }
+                        symbolTicks.add(tick);
+                    }
+                });
+
+        Map<String, List<TickData>> immutableTicks = new LinkedHashMap<>(mutableTicks.size());
+        long outputTicks = 0;
+        for (Map.Entry<String, List<TickData>> entry : mutableTicks.entrySet()) {
+            List<TickData> ticks = List.copyOf(entry.getValue());
+            immutableTicks.put(entry.getKey(), ticks);
+            outputTicks += ticks.size();
+        }
+        log.info("ClickHouse 单日批量 Level2 读取完成 date={}, symbols={}, queryRows={}, "
+                        + "outputTicks={}, queryElapsedMs={}",
+                tradeDate, requestedCodes.size(), queryResult.rowCount(), outputTicks,
+                String.format("%.3f", queryResult.elapsedMillis()));
+        return new InMemoryDailyTickBatch(tradeDate, Map.copyOf(immutableTicks));
+    }
+
     private long replayMerged(int symbolId, boolean shanghai,
                               List<ClickHouseOrderRow> orders,
                               List<ClickHouseTransRow> transactions,
@@ -89,42 +141,72 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         return replayed;
     }
 
-    /** 上海 A/D 映射为限价委托/撤单；状态包 S 与实盘入口一致直接忽略。 */
+    /**
+     * 转换逐笔委托。
+     *
+     * <p>上海 A/D 映射为限价委托/撤单，状态包 S 与实盘入口一致直接忽略。
+     * 深圳原始类型 0/1/2/3 分别表示撤单、限价、市价、本方最优；其中 0 要转换成
+     * 核心 Handler 已有的 {@code dataType=2,type=1} 撤单事件，不能作为新增委托入队。</p>
+     */
     static TickData toOrderTick(ClickHouseOrderRow row, int symbolId, boolean shanghai) {
+        return toOrderTick(row.tickType(), row.side(), row.price(), row.volume(), row.no(),
+                row.tradeTime(), symbolId, shanghai);
+    }
+
+    private static TickData toOrderTick(String tickType, String side, float price,
+                                        long volume, long orderNo, int tradeTime,
+                                        int symbolId, boolean shanghai) {
         byte type;
         if (shanghai) {
-            if ("A".equals(row.tickType())) {
+            if ("A".equals(tickType)) {
                 type = 2;
-            } else if ("D".equals(row.tickType())) {
+            } else if ("D".equals(tickType)) {
                 type = 10;
             } else {
                 return null;
             }
         } else {
-            type = parseShenzhenOrderType(row.tickType());
+            type = parseShenzhenOrderType(tickType);
         }
 
-        TickData tick = baseTick(symbolId, row.tradeTime());
+        TickData tick = baseTick(symbolId, tradeTime);
+        tick.direction = parseSide(side);
+        tick.orderId = toInt(orderNo, "委托号");
+        tick.price = toPrice(price);
+        tick.quantity = toInt(volume, "委托数量");
+        if (!shanghai && type == 0) {
+            tick.dataType = 2;
+            tick.type = 1;
+            if (tick.direction == 1) {
+                tick.buyerOrderId = tick.orderId;
+            } else if (tick.direction == 2) {
+                tick.sellerOrderId = tick.orderId;
+            }
+            return tick;
+        }
         tick.dataType = 1;
-        tick.direction = parseSide(row.side());
         tick.type = type;
-        tick.orderId = toInt(row.no(), "委托号");
-        tick.price = toPrice(row.price());
-        tick.quantity = toInt(row.volume(), "委托数量");
         return tick;
     }
 
     /** 深圳 TickType=1 为成交，其余类型为撤单；上海 trans 表只承载成交。 */
     static TickData toTransactionTick(ClickHouseTransRow row, int symbolId, boolean shanghai) {
-        TickData tick = baseTick(symbolId, row.tradeTime());
+        return toTransactionTick(row.tickType(), row.price(), row.volume(), row.buyNo(),
+                row.sellNo(), row.tradeTime(), symbolId, shanghai);
+    }
+
+    private static TickData toTransactionTick(String tickType, float price, long volume,
+                                              long buyNo, long sellNo, int tradeTime,
+                                              int symbolId, boolean shanghai) {
+        TickData tick = baseTick(symbolId, tradeTime);
         tick.dataType = 2;
-        tick.type = shanghai || "1".equals(row.tickType()) ? (byte) 0 : (byte) 1;
-        tick.buyerOrderId = toInt(row.buyNo(), "买方委托号");
-        tick.sellerOrderId = toInt(row.sellNo(), "卖方委托号");
+        tick.type = shanghai || "1".equals(tickType) ? (byte) 0 : (byte) 1;
+        tick.buyerOrderId = toInt(buyNo, "买方委托号");
+        tick.sellerOrderId = toInt(sellNo, "卖方委托号");
         tick.orderId = tick.buyerOrderId == 0 ? tick.sellerOrderId : tick.buyerOrderId;
         tick.direction = shanghai ? 0 : (tick.buyerOrderId == 0 ? (byte) 2 : (byte) 1);
-        tick.price = toPrice(row.price());
-        tick.quantity = toInt(row.volume(), "成交数量");
+        tick.price = toPrice(price);
+        tick.quantity = toInt(volume, "成交数量");
         // 保留核心订单簿既有的金额单位和 int 溢出语义；撤单不产生成交额。
         if (tick.type == 0) {
             tick.amount = tick.quantity / 100 * tick.price;
@@ -138,22 +220,33 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
      * 累计成交量和买一量。
      */
     public static TickData toMarketTick(ClickHouseMarketRow row, int symbolId) {
-        int time = toInt(row.tradeTime(), "快照时间");
+        return toMarketTick(toInt(row.tradeTime(), "快照时间"),
+                first(row.askPrices()), first(row.bidPrices()),
+                first(row.askVolumes()), second(row.askVolumes()),
+                first(row.bidVolumes()), second(row.bidVolumes()),
+                row.totalVolumeTrade(), row.totalValueTrade(), symbolId);
+    }
+
+    private static TickData toMarketTick(int time, float askPrice1, float bidPrice1,
+                                         long askVolume1, long askVolume2,
+                                         long bidVolume1, long bidVolume2,
+                                         long totalVolumeTrade, long totalValueTrade,
+                                         int symbolId) {
         boolean auction = time < TIME_0930 || (time >= TIME_1457 && time < TIME_1500);
         long buyVolume;
         long sellVolume;
         long amount;
         float price;
         if (auction) {
-            price = first(row.askPrices());
-            buyVolume = firstTwo(row.bidVolumes());
-            sellVolume = firstTwo(row.askVolumes());
+            price = askPrice1;
+            buyVolume = bidVolume1 + bidVolume2;
+            sellVolume = askVolume1 + askVolume2;
             amount = 0;
         } else {
-            price = first(row.bidPrices());
-            buyVolume = first(row.bidVolumes());
-            sellVolume = row.totalVolumeTrade();
-            amount = row.totalValueTrade();
+            price = bidPrice1;
+            buyVolume = bidVolume1;
+            sellVolume = totalVolumeTrade;
+            amount = totalValueTrade;
         }
 
         TickData tick = baseTick(symbolId, time);
@@ -170,6 +263,48 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
             tick.orderId = (int) amount;
         }
         return tick;
+    }
+
+    /** 将 UNION ALL 的最小字段行转换为与单股票查询完全相同的 TickData。 */
+    private static TickData toBatchTick(ClickHouseLevel2BatchRow row) {
+        int symbolId = SymbolUtil.fastSymbolToInt(row.securityId());
+        boolean shanghai = row.securityId().startsWith("60");
+        return switch (row.eventSource()) {
+            case ClickHouseLevel2BatchRow.EVENT_ORDER -> toOrderTick(
+                    row.tickType(), row.side(), row.price(), row.volume(), row.orderNo(),
+                    row.tradeTime(), symbolId, shanghai);
+            case ClickHouseLevel2BatchRow.EVENT_TRANSACTION -> toTransactionTick(
+                    row.tickType(), row.price(), row.volume(), row.buyNo(), row.sellNo(),
+                    row.tradeTime(), symbolId, shanghai);
+            case ClickHouseLevel2BatchRow.EVENT_MARKET -> toMarketTick(
+                    row.tradeTime(), row.askPrice1(), row.bidPrice1(),
+                    row.askVolume1(), row.askVolume2(),
+                    row.bidVolume1(), row.bidVolume2(),
+                    row.totalVolumeTrade(), row.totalValueTrade(), symbolId);
+            default -> throw new IllegalArgumentException(
+                    "无法识别的 ClickHouse Level2 事件来源: " + row.eventSource());
+        };
+    }
+
+    /** 内存批次中的 TickData 只读复用；Disruptor publish 会复制字段，不会修改对象。 */
+    private record InMemoryDailyTickBatch(
+            LocalDate tradeDate, Map<String, List<TickData>> ticksBySymbol)
+            implements BacktestDailyTickBatch {
+
+        @Override
+        public Set<String> stockCodes() {
+            return ticksBySymbol.keySet();
+        }
+
+        @Override
+        public long replay(String stockCode, Consumer<TickData> tickConsumer) {
+            List<TickData> ticks = ticksBySymbol.get(stockCode);
+            if (ticks == null) {
+                return 0;
+            }
+            ticks.forEach(tickConsumer);
+            return ticks.size();
+        }
     }
 
     private static TickData baseTick(int symbolId, int time) {
@@ -208,11 +343,8 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         return values == null || values.length == 0 ? 0L : values[0];
     }
 
-    private static long firstTwo(long[] values) {
-        if (values == null || values.length == 0) {
-            return 0L;
-        }
-        return values[0] + (values.length > 1 ? values[1] : 0L);
+    private static long second(long[] values) {
+        return values == null || values.length < 2 ? 0L : values[1];
     }
 
     private static int clampToInt(long value) {

@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * ClickHouse Level2 三表查询服务。
@@ -24,6 +25,93 @@ import java.util.List;
 @Service
 @DS("clickhouse")
 public class ClickHouseLevel2QueryService {
+
+    private static final String DAILY_BATCH_ORDER_SELECT = """
+            SELECT SecurityID,
+                   toUInt32(TradeTime) AS TradeTime,
+                   toUInt8(0) AS EventSource,
+                   toString(TickType) AS TickType,
+                   toString(Side) AS Side,
+                   toFloat32(Price) AS Price,
+                   toUInt64(Volume) AS Volume,
+                   toUInt64(No) AS OrderNo,
+                   toUInt64(0) AS BuyNo,
+                   toUInt64(0) AS SellNo,
+                   toFloat32(0) AS AskPrice1,
+                   toFloat32(0) AS BidPrice1,
+                   toUInt64(0) AS AskVolume1,
+                   toUInt64(0) AS AskVolume2,
+                   toUInt64(0) AS BidVolume1,
+                   toUInt64(0) AS BidVolume2,
+                   toUInt64(0) AS TotalVolumeTrade,
+                   toUInt64(0) AS TotalValueTrade,
+                   toUInt8(0) AS EventPriority,
+                   toUInt64(No) AS PrimarySortNo,
+                   toUInt64(CASE TickType
+                       WHEN 'A' THEN 0
+                       WHEN '1' THEN 0
+                       WHEN '2' THEN 0
+                       WHEN '3' THEN 0
+                       WHEN 'D' THEN 1
+                       WHEN '0' THEN 1
+                       ELSE 2
+                   END) AS SecondarySortNo
+            FROM stock.`order`
+            WHERE TradeDate = ? AND SecurityID IN (%s)
+              AND TickType IN ('A', 'D', '0', '1', '2', '3')
+            """;
+
+    private static final String DAILY_BATCH_TRANS_SELECT = """
+            SELECT SecurityID,
+                   toUInt32(TradeTime) AS TradeTime,
+                   toUInt8(1) AS EventSource,
+                   toString(TickType) AS TickType,
+                   '' AS Side,
+                   toFloat32(Price) AS Price,
+                   toUInt64(Volume) AS Volume,
+                   toUInt64(0) AS OrderNo,
+                   toUInt64(BuyNo) AS BuyNo,
+                   toUInt64(SellNo) AS SellNo,
+                   toFloat32(0) AS AskPrice1,
+                   toFloat32(0) AS BidPrice1,
+                   toUInt64(0) AS AskVolume1,
+                   toUInt64(0) AS AskVolume2,
+                   toUInt64(0) AS BidVolume1,
+                   toUInt64(0) AS BidVolume2,
+                   toUInt64(0) AS TotalVolumeTrade,
+                   toUInt64(0) AS TotalValueTrade,
+                   toUInt8(1) AS EventPriority,
+                   toUInt64(BuyNo) AS PrimarySortNo,
+                   toUInt64(SellNo) AS SecondarySortNo
+            FROM stock.trans
+            WHERE TradeDate = ? AND SecurityID IN (%s)
+            """;
+
+    private static final String DAILY_BATCH_MARKET_SELECT = """
+            SELECT SecurityID,
+                   toUInt32(TradeTime) AS TradeTime,
+                   toUInt8(2) AS EventSource,
+                   '' AS TickType,
+                   '' AS Side,
+                   toFloat32(0) AS Price,
+                   toUInt64(0) AS Volume,
+                   toUInt64(0) AS OrderNo,
+                   toUInt64(0) AS BuyNo,
+                   toUInt64(0) AS SellNo,
+                   toFloat32(AskPrices[1]) AS AskPrice1,
+                   toFloat32(BidPrices[1]) AS BidPrice1,
+                   toUInt64(AskVolumes[1]) AS AskVolume1,
+                   toUInt64(AskVolumes[2]) AS AskVolume2,
+                   toUInt64(BidVolumes[1]) AS BidVolume1,
+                   toUInt64(BidVolumes[2]) AS BidVolume2,
+                   toUInt64(TotalVolumeTrade) AS TotalVolumeTrade,
+                   toUInt64(TotalValueTrade) AS TotalValueTrade,
+                   toUInt8(2) AS EventPriority,
+                   toUInt64(0) AS PrimarySortNo,
+                   toUInt64(0) AS SecondarySortNo
+            FROM stock.market
+            WHERE TradeDate = ? AND SecurityID IN (%s)
+            """;
 
     static final String MARKET_QUERY_SQL = """
             SELECT SecurityID, ExchangeID, TradeDate, TradeTime, TradeTimeStamp,
@@ -41,7 +129,18 @@ public class ClickHouseLevel2QueryService {
                    TickType, Side, Price, Volume, No
             FROM stock.`order`
             WHERE SecurityID = ? AND TradeDate = ?
-            ORDER BY TradeTime, No
+            -- 沪深可能在同一毫秒、同一订单号同时保存新增和撤单。
+            -- 上海 A、深圳 1/2/3 必须先于上海 D、深圳 0 进入回放，避免幽灵委托。
+            ORDER BY TradeTime, No,
+                     CASE TickType
+                         WHEN 'A' THEN 0
+                         WHEN '1' THEN 0
+                         WHEN '2' THEN 0
+                         WHEN '3' THEN 0
+                         WHEN 'D' THEN 1
+                         WHEN '0' THEN 1
+                         ELSE 2
+                     END
             """;
 
     static final String TRANS_QUERY_SQL = """
@@ -56,6 +155,63 @@ public class ClickHouseLevel2QueryService {
 
     public ClickHouseLevel2QueryService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    /**
+     * 使用一条 UNION ALL 查询流式读取当天全部候选股票的必要 Level2 字段。
+     *
+     * <p>排序先按股票分组，再按毫秒时间排序；同一毫秒固定委托、成交、快照的顺序。
+     * 委托内部继续按订单号排序，并保证上海 A、深圳 1/2/3 在同订单号的
+     * 上海 D、深圳 0 之前，避免撤单先到导致幽灵委托。</p>
+     */
+    ClickHouseDailyQueryResult streamDailyTicks(
+            LocalDate tradeDate, List<String> securityIds,
+            Consumer<ClickHouseLevel2BatchRow> rowConsumer) {
+        if (securityIds.isEmpty()) {
+            return new ClickHouseDailyQueryResult(0, 0);
+        }
+        String sql = buildDailyBatchQuerySql(securityIds.size());
+        long startNanos = System.nanoTime();
+        long[] rowCount = {0};
+        jdbcTemplate.query(sql, preparedStatement -> {
+            int parameterIndex = 1;
+            for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+                preparedStatement.setDate(parameterIndex++, Date.valueOf(tradeDate));
+                for (String securityId : securityIds) {
+                    preparedStatement.setString(parameterIndex++, securityId);
+                }
+            }
+            preparedStatement.setFetchSize(10_000);
+        }, resultSet -> {
+            rowConsumer.accept(mapDailyBatchRow(resultSet));
+            rowCount[0]++;
+        });
+        return new ClickHouseDailyQueryResult(rowCount[0], System.nanoTime() - startNanos);
+    }
+
+    /** 构建与股票数量匹配的参数化 UNION ALL SQL。 */
+    static String buildDailyBatchQuerySql(int securityCount) {
+        if (securityCount <= 0) {
+            throw new IllegalArgumentException("批量查询股票数量必须大于 0");
+        }
+        String placeholders = String.join(", ", java.util.Collections.nCopies(securityCount, "?"));
+        return """
+                SELECT SecurityID, TradeTime, EventSource, TickType, Side, Price, Volume,
+                       OrderNo, BuyNo, SellNo, AskPrice1, BidPrice1,
+                       AskVolume1, AskVolume2, BidVolume1, BidVolume2,
+                       TotalVolumeTrade, TotalValueTrade
+                FROM (
+                %s
+                UNION ALL
+                %s
+                UNION ALL
+                %s
+                )
+                ORDER BY SecurityID, TradeTime, EventPriority, PrimarySortNo, SecondarySortNo
+                """.formatted(
+                DAILY_BATCH_ORDER_SELECT.formatted(placeholders),
+                DAILY_BATCH_TRANS_SELECT.formatted(placeholders),
+                DAILY_BATCH_MARKET_SELECT.formatted(placeholders));
     }
 
     /** 全量查询 stock.market 十档快照。 */
@@ -144,6 +300,29 @@ public class ClickHouseLevel2QueryService {
                 resultSet.getLong("Volume"),
                 resultSet.getLong("BuyNo"),
                 resultSet.getLong("SellNo"));
+    }
+
+    private static ClickHouseLevel2BatchRow mapDailyBatchRow(ResultSet resultSet)
+            throws SQLException {
+        return new ClickHouseLevel2BatchRow(
+                resultSet.getString("SecurityID"),
+                resultSet.getInt("TradeTime"),
+                resultSet.getByte("EventSource"),
+                resultSet.getString("TickType"),
+                resultSet.getString("Side"),
+                resultSet.getFloat("Price"),
+                resultSet.getLong("Volume"),
+                resultSet.getLong("OrderNo"),
+                resultSet.getLong("BuyNo"),
+                resultSet.getLong("SellNo"),
+                resultSet.getFloat("AskPrice1"),
+                resultSet.getFloat("BidPrice1"),
+                resultSet.getLong("AskVolume1"),
+                resultSet.getLong("AskVolume2"),
+                resultSet.getLong("BidVolume1"),
+                resultSet.getLong("BidVolume2"),
+                resultSet.getLong("TotalVolumeTrade"),
+                resultSet.getLong("TotalValueTrade"));
     }
 
     private static float[] readFloatArray(ResultSet resultSet, String columnName)

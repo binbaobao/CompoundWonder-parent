@@ -1,6 +1,7 @@
 package com.compoundwonder.backtest.service.impl;
 
 import com.compoundwonder.backtest.orderbook.BacktestOrderExecutionGateway;
+import com.compoundwonder.backtest.orderbook.data.BacktestDailyTickBatch;
 import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.engine.OrderBook;
@@ -21,6 +22,9 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -227,6 +231,61 @@ class BackTestTradeServiceTest {
         assertEquals(3, result.tickCount());
         assertEquals(1, result.finalTransactionStatus());
         assertEquals(1_002, result.lastPrice());
+    }
+
+    @Test
+    void completeHistoryReplayUsesPreparedDailyBatchInsteadOfReadingSingleStockAgain() {
+        LocalDate tradeDate = LocalDate.of(2026, 7, 15);
+        StockDailyService dailyService = dailyService(List.of(
+                currentDaily(), previousDaily(), historicalDaily(LocalDate.of(2026, 7, 13), 800_000L)));
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicInteger batchReplayCount = new AtomicInteger();
+        BacktestTickDataSource dataSource = new BacktestTickDataSource() {
+            @Override
+            public long replay(LocalDate date, String stockCode, Consumer<TickData> consumer) {
+                throw new AssertionError("批量回测不应再次调用单股票数据查询");
+            }
+
+            @Override
+            public BacktestDailyTickBatch loadDay(LocalDate date,
+                                                  java.util.Collection<String> stockCodes) {
+                loadCount.incrementAndGet();
+                return new BacktestDailyTickBatch() {
+                    @Override
+                    public LocalDate tradeDate() {
+                        return date;
+                    }
+
+                    @Override
+                    public Set<String> stockCodes() {
+                        return Set.copyOf(stockCodes);
+                    }
+
+                    @Override
+                    public long replay(String stockCode, Consumer<TickData> consumer) {
+                        batchReplayCount.incrementAndGet();
+                        consumer.accept(tradeTick(1_600_000, 93_000_000, 1_001));
+                        return 1;
+                    }
+                };
+            }
+        };
+        BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+                "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        BackTestTradeService service = new BackTestTradeService(
+                engine, dataSource, dailyService, null, null, gateway, 1);
+
+        BacktestDailyTickBatch dailyTicks = service.loadDailyTicks(
+                tradeDate, Set.of("600000"));
+        BacktestReplayResult result = service.replay(
+                tradeDate, "600000", BacktestReplayMode.BUY, null, dailyTicks);
+
+        assertEquals(1, loadCount.get());
+        assertEquals(1, batchReplayCount.get());
+        assertEquals(1, result.tickCount());
+        assertEquals(1_001, result.lastPrice());
     }
 
     @Test

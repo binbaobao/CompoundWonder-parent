@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClickHouseLevel2QueryModelTest {
 
@@ -58,5 +59,36 @@ class ClickHouseLevel2QueryModelTest {
         assertFalse(ClickHouseLevel2QueryService.MARKET_QUERY_SQL.toLowerCase().contains("limit"));
         assertFalse(ClickHouseLevel2QueryService.ORDER_QUERY_SQL.toLowerCase().contains("limit"));
         assertFalse(ClickHouseLevel2QueryService.TRANS_QUERY_SQL.toLowerCase().contains("limit"));
+    }
+
+    @Test
+    void exchangeAddsSortBeforeCancelsForSameTimeAndOrderNumber() {
+        String normalizedSql = ClickHouseLevel2QueryService.ORDER_QUERY_SQL
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        assertTrue(normalizedSql.contains("ORDER BY TradeTime, No, CASE TickType "
+                + "WHEN 'A' THEN 0 WHEN '1' THEN 0 WHEN '2' THEN 0 WHEN '3' THEN 0 "
+                + "WHEN 'D' THEN 1 WHEN '0' THEN 1 ELSE 2 END"));
+    }
+
+    @Test
+    void dailyBatchQueryUsesOneUnionWithOnlyReplayFieldsAndDeterministicOrdering() {
+        String sql = ClickHouseLevel2QueryService.buildDailyBatchQuerySql(2);
+        String normalizedSql = sql.replaceAll("\\s+", " ").trim();
+
+        assertEquals(9, sql.chars().filter(character -> character == '?').count());
+        assertEquals(2, normalizedSql.split("UNION ALL", -1).length - 1);
+        assertTrue(normalizedSql.contains("FROM stock.`order`"));
+        assertTrue(normalizedSql.contains("FROM stock.trans"));
+        assertTrue(normalizedSql.contains("FROM stock.market"));
+        assertTrue(normalizedSql.contains(
+                "ORDER BY SecurityID, TradeTime, EventPriority, PrimarySortNo, SecondarySortNo"));
+        assertTrue(normalizedSql.contains("toUInt64(CASE TickType "
+                + "WHEN 'A' THEN 0 WHEN '1' THEN 0 WHEN '2' THEN 0 WHEN '3' THEN 0 "
+                + "WHEN 'D' THEN 1 WHEN '0' THEN 1 ELSE 2 END) AS SecondarySortNo"));
+        assertFalse(normalizedSql.contains("TradeTimeStamp"));
+        assertFalse(normalizedSql.contains("LastPrice"));
+        assertFalse(normalizedSql.contains("PreClosePrice"));
     }
 }

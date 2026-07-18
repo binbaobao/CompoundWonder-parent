@@ -1,6 +1,8 @@
 package com.compoundwonder.backtest.service.impl;
 
 import com.compoundwonder.backtest.orderbook.BacktestOrderExecutionGateway;
+import com.compoundwonder.backtest.orderbook.data.BacktestDailyTickBatch;
+import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
@@ -18,7 +20,10 @@ import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -272,6 +277,9 @@ class HistoricalBacktestTradeServiceImplTest {
                 write.actionRules().stream()
                         .map(action -> action.rule().getSymbol())
                         .toList());
+        assertEquals(1, replay.dailyBatchRequests.size());
+        assertEquals(Set.of("600001", "000524", "600002"),
+                replay.dailyBatchRequests.get(0).symbols());
     }
 
     @Test
@@ -643,6 +651,7 @@ class HistoricalBacktestTradeServiceImplTest {
     private static final class FakeReplayService extends BackTestTradeService {
         private final Function<ReplayRequest, BacktestReplayResult> provider;
         private final List<ReplayRequest> requests = new ArrayList<>();
+        private final List<DailyBatchRequest> dailyBatchRequests = new ArrayList<>();
 
         private FakeReplayService(Function<ReplayRequest, BacktestReplayResult> provider) {
             super(null, null, null, null, null, new BacktestOrderExecutionGateway(), 1);
@@ -655,6 +664,35 @@ class HistoricalBacktestTradeServiceImplTest {
             ReplayRequest request = new ReplayRequest(tradeDate, stockCode, mode, allowedAfterTime);
             requests.add(request);
             return provider.apply(request);
+        }
+
+        @Override
+        public BacktestDailyTickBatch loadDailyTicks(LocalDate tradeDate, Set<String> stockCodes) {
+            Set<String> requested = Set.copyOf(new LinkedHashSet<>(stockCodes));
+            dailyBatchRequests.add(new DailyBatchRequest(tradeDate, requested));
+            return new BacktestDailyTickBatch() {
+                @Override
+                public LocalDate tradeDate() {
+                    return tradeDate;
+                }
+
+                @Override
+                public Set<String> stockCodes() {
+                    return requested;
+                }
+
+                @Override
+                public long replay(String stockCode, Consumer<TickData> tickConsumer) {
+                    return 1;
+                }
+            };
+        }
+
+        @Override
+        public synchronized BacktestReplayResult replay(
+                LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
+                Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks) {
+            return replay(tradeDate, stockCode, mode, allowedAfterTime);
         }
     }
 
@@ -710,5 +748,8 @@ class HistoricalBacktestTradeServiceImplTest {
 
     private record ReplayRequest(LocalDate date, String symbol,
                                  BacktestReplayMode mode, Integer allowedAfterTime) {
+    }
+
+    private record DailyBatchRequest(LocalDate date, Set<String> symbols) {
     }
 }
