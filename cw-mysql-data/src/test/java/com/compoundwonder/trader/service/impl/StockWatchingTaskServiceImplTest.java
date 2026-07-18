@@ -94,6 +94,48 @@ class StockWatchingTaskServiceImplTest {
     }
 
     @Test
+    void twoBoardHasTwoAcceleratedShrinkVolumeBoardsWhenDifferentSingleConditionsMatch() {
+        List<StockDailyEntity> descendingDailyList = List.of(
+                acceleratedDaily(3, 8D, 30D),
+                acceleratedDaily(1, 2.99D, 30D));
+
+        assertTrue(StockWatchingTaskServiceImpl
+                .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 2));
+    }
+
+    @Test
+    void threeBoardHasTwoAcceleratedShrinkVolumeBoardsWhenAnyTwoOfThreeMatch() {
+        List<StockDailyEntity> descendingDailyList = List.of(
+                acceleratedDaily(1, 8D, 14D),
+                acceleratedDaily(1, 8D, 30D),
+                acceleratedDaily(1, 1D, 30D));
+
+        assertTrue(StockWatchingTaskServiceImpl
+                .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 3));
+    }
+
+    @Test
+    void firstBoardDoesNotUseLowTurnoverAloneAsAcceleratedShrinkVolumeCondition() {
+        List<StockDailyEntity> descendingDailyList = List.of(
+                acceleratedDaily(1, 2D, 30D),
+                acceleratedDaily(1, 8D, 10D));
+
+        assertFalse(StockWatchingTaskServiceImpl
+                .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 2));
+    }
+
+    @Test
+    void acceleratedShrinkVolumeBoardKeepsAmplitudeAndTurnoverBoundariesStrict() {
+        List<StockDailyEntity> descendingDailyList = List.of(
+                acceleratedDaily(1, 3D, 30D),
+                acceleratedDaily(1, 8D, 15D),
+                acceleratedDaily(1, 8D, 30D));
+
+        assertFalse(StockWatchingTaskServiceImpl
+                .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 3));
+    }
+
+    @Test
     void smallMarketCapFirstBoardUsesPreviousCloseMarketCapAndAllowsHistoricalTurnoverAtThirtyPercent() {
         StockSelectionAssistDTO assist = smallMarketCapFirstBoard(119_998D);
         assist.setCurrentTurnoverRate(80D);
@@ -271,6 +313,16 @@ class StockWatchingTaskServiceImplTest {
         daily.setStockCode(stockCode);
         daily.setConsecutiveLimitUpDays(consecutiveLimitUpDays);
         daily.setClosePrice(closePrice);
+        return daily;
+    }
+
+    private StockDailyEntity acceleratedDaily(int klineState,
+                                               double amplitude,
+                                               double turnoverRate) {
+        StockDailyEntity daily = new StockDailyEntity();
+        daily.setKlineState(klineState);
+        daily.setAmplitude(amplitude);
+        daily.setTurnoverRate(turnoverRate);
         return daily;
     }
 

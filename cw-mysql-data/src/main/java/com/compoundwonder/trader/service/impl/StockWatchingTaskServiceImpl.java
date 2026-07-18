@@ -309,7 +309,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 不能出现过 3 板及以上高度；辅助对象已经排除本次首板，不会把当天涨停计入历史。
      */
     static boolean isSmallMarketCapFirstBoardHistoricalHeightAllowed(Integer historicalHighestBoard) {
-        return Objects.requireNonNullElse(historicalHighestBoard, 0) <= 3;
+        return Objects.requireNonNullElse(historicalHighestBoard, 0) < 3;
     }
 
     /**
@@ -510,10 +510,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 continue;
             }
 
-            int oneWordLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveOneWordLimitUpDays(), 0);
-            if (oneWordLimitUpDays >= 2) {
-                logSelectionFiltered(selectionMode, dto, "一字板次数",
-                        "actual=" + oneWordLimitUpDays + ", required<2");
+            if (dto.isTwoAcceleratedShrinkVolumeLimitUps()) {
+                logSelectionFiltered(selectionMode, dto, "加速缩量板",
+                        "本轮至少2根加速缩量板：首板判断一字板或振幅<3%，后续板增加换手率<15%");
                 continue;
             }
 
@@ -946,7 +945,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setStockName(stockDaily.getStockName());
         assist.setTradeDate(stockDaily.getTradeDate());
         assist.setConsecutiveLimitUpDays(stockDaily.getConsecutiveLimitUpDays());
-        assist.setConsecutiveOneWordLimitUpDays(countConsecutiveOneWordLimitUpDays(
+        assist.setTwoAcceleratedShrinkVolumeLimitUps(hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(
                 recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setProvince(findProvince(stockDaily.getStockCode()));
         assist.setCurrentPrice(stockDaily.getClosePrice());
@@ -1047,19 +1046,35 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
     }
 
     /**
-     * 按当前连板数回看本轮涨停日，统计其中 klineState 为 3 的一字板数量。
+     * 按当前连板数回看本轮涨停日，判断是否至少有两根加速缩量板。
+     *
+     * <p>本轮首板只判断 {@code klineState == 3} 的一字板或振幅严格小于 3%，
+     * 不使用换手率条件；第 2/3 板满足一字板、振幅严格小于 3%、换手率严格
+     * 小于 15% 中的任意一项即命中。因此 2 板要求两根都命中，3 板要求三根中
+     * 至少两根命中。</p>
      */
-    private int countConsecutiveOneWordLimitUpDays(List<StockDailyEntity> recentDailyList,
-                                                   Integer consecutiveLimitUpDays) {
+    static boolean hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(
+            List<StockDailyEntity> recentDailyList,
+            Integer consecutiveLimitUpDays) {
+        if (recentDailyList == null) {
+            return false;
+        }
         int consecutiveDays = Math.max(0, Objects.requireNonNullElse(consecutiveLimitUpDays, 0));
         int count = 0;
         for (int i = 0; i < consecutiveDays && i < recentDailyList.size(); i++) {
             StockDailyEntity stockDailyEntity = recentDailyList.get(i);
-            if (Objects.equals(stockDailyEntity.getKlineState(), 3) || stockDailyEntity.getAmplitude() < 1.5) {
-                count++;
+            Double amplitude = stockDailyEntity.getAmplitude();
+            Double turnoverRate = stockDailyEntity.getTurnoverRate();
+            boolean firstBoardOfCurrentRun = i == consecutiveDays - 1;
+            if (Objects.equals(stockDailyEntity.getKlineState(), 3)
+                    || (amplitude != null && amplitude < 3D)
+                    || (!firstBoardOfCurrentRun && turnoverRate != null && turnoverRate < 15D)) {
+                if (++count >= 2) {
+                    return true;
+                }
             }
         }
-        return count;
+        return false;
     }
 
     /**

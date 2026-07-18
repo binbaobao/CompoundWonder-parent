@@ -126,7 +126,7 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
-        if (limitUpBreakDepth > 8 && isLimitUp(status) && changePercent < -2
+        if (limitUpBreakDepth > 8 && isLimitUp(status) && changePercent < -2 && turnover < 30
                 && lbcs < 7 && limitUpBuyAmount < 2_500) {
             String remark = StrUtil.format("炸板深度过深且封单继续减弱；条件：炸板深度 {}%，今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
                     limitUpBreakDepth, lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent);

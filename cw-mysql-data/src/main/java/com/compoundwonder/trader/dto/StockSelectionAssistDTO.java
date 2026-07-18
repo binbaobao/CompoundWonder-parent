@@ -32,9 +32,11 @@ public class StockSelectionAssistDTO {
     private Integer consecutiveLimitUpDays;
 
     /**
-     * 本轮连续涨停中一字板的数量，按当前连板数向前回看统计。
+     * 本轮连续涨停中是否至少存在两根加速缩量板。
+     * 本轮首板满足一字板或振幅严格小于 3% 即算加速缩量板；第 2/3 板
+     * 在此基础上增加换手率严格小于 15% 的条件。2 板检查两根，3 板检查三根。
      */
-    private Integer consecutiveOneWordLimitUpDays;
+    private boolean twoAcceleratedShrinkVolumeLimitUps;
 
     /**
      * 省份属性。

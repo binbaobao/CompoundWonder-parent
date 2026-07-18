@@ -40,6 +40,8 @@ final class AveragePriceSellEvaluator {
         // 当日截至当前时刻的累计成交额，单位：元。
         long turnover = orderBook.getTurnover();
 
+        double maxHs = orderBook.getMaxHs();
+
         // 当前分钟最新价，单位：分。
         int currentPrice = orderBook.price[calculateIndex];
         // 根据启动市值分档得到的允许换手率上限，单位：%。
@@ -123,7 +125,7 @@ final class AveragePriceSellEvaluator {
 
         if (calculateIndex >= 5 && calculateIndex <= 30
                 && highestIncrease >= 9.5
-                && increase < 5.5
+                && increase < 5.5 && turnoverRate < maxHs * 0.6
                 && previousPrice < previousAveragePrice
                 && currentAveragePrice <= previousAveragePrice) {
             String remark = StrUtil.format("冲高接近涨停后被均线压制；条件：高点回落 {}%，当前涨幅 {}%，均线继续下行",
@@ -224,7 +226,7 @@ final class AveragePriceSellEvaluator {
             return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_PEAK_DRAWDOWN,
                     currentPrice, remark);
         }
-        if ((time > ConstantUtil.TIME_1330 || turnoverRate > maxTurnover) && increase < 7) {
+        if ((time > ConstantUtil.TIME_1330 || turnoverRate > maxTurnover) && increase < 7 && turnoverRate < maxHs * 0.6) {
             String remark = StrUtil.format("跌破均线后高换手或尾盘涨幅不足；条件：换手率 {}%，当前涨幅 {}%",
                     turnoverRate, increase);
             return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_LATE_OR_HIGH_TURNOVER,
