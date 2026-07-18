@@ -18,6 +18,11 @@ spring:
           username: cw_backtest_user
           password: "@9nhJ%Urx%kUeA9"
           driver-class-name: com.mysql.cj.jdbc.Driver
+        clickhouse:
+          driver-class-name: com.clickhouse.jdbc.ClickHouseDriver
+          url: jdbc:clickhouse:http://backtest.base32.cn:8123/stock?ignore_unknown_config_key=true&jdbc_ignore_unsupported_values=true
+          username: lv2data13
+          password: "hisdata@N90L"
 
 mybatis-plus:
   global-config:
