@@ -6,7 +6,7 @@ package com.compoundwonder.backtest.orderbook.data.clickhouse;
  * <p>委托、成交和三秒快照共用一个 UNION ALL 结果。无关事件的字段使用 0 或空串，
  * 避免传输时间戳、完整十档数组以及订单簿回放不使用的快照字段。</p>
  */
-record ClickHouseLevel2BatchRow(
+public record ClickHouseLevel2BatchRow(
         String securityId,
         int tradeTime,
         byte eventSource,

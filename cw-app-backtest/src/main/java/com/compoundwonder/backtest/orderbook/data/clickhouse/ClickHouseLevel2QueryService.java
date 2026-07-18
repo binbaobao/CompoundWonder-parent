@@ -164,7 +164,8 @@ public class ClickHouseLevel2QueryService {
      * 委托内部继续按订单号排序，并保证上海 A、深圳 1/2/3 在同订单号的
      * 上海 D、深圳 0 之前，避免撤单先到导致幽灵委托。</p>
      */
-    ClickHouseDailyQueryResult streamDailyTicks(
+    @DS("clickhouse")
+    public ClickHouseDailyQueryResult streamDailyTicks(
             LocalDate tradeDate, List<String> securityIds,
             Consumer<ClickHouseLevel2BatchRow> rowConsumer) {
         if (securityIds.isEmpty()) {

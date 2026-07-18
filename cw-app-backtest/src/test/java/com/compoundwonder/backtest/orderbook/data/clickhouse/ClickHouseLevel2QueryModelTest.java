@@ -1,10 +1,14 @@
 package com.compoundwonder.backtest.orderbook.data.clickhouse;
 
+import com.baomidou.dynamic.datasource.annotation.DS;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -90,5 +94,14 @@ class ClickHouseLevel2QueryModelTest {
         assertFalse(normalizedSql.contains("TradeTimeStamp"));
         assertFalse(normalizedSql.contains("LastPrice"));
         assertFalse(normalizedSql.contains("PreClosePrice"));
+    }
+
+    @Test
+    void dailyBatchQueryMethodIsPublicAndExplicitlyUsesClickHouseDataSource() throws Exception {
+        Method method = ClickHouseLevel2QueryService.class.getDeclaredMethod(
+                "streamDailyTicks", LocalDate.class, List.class, Consumer.class);
+
+        assertTrue(Modifier.isPublic(method.getModifiers()));
+        assertEquals("clickhouse", method.getAnnotation(DS.class).value());
     }
 }
