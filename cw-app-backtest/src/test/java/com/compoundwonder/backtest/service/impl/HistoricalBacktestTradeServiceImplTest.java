@@ -94,6 +94,36 @@ class HistoricalBacktestTradeServiceImplTest {
     }
 
     @Test
+    void recordsIntradayBuyThatMissesFillBecauseOrderWasSubmittedTooLate() {
+        LocalDate tradeDate = LocalDate.of(2026, 7, 14);
+        StockWatchingTask task = watchingTask(1L, "600001", tradeDate);
+        FakePersistenceService persistence = new FakePersistenceService(date -> List.of(task));
+        FakeReplayService replay = new FakeReplayService(request -> result(
+                tradeDate, request.symbol(), request.mode(), List.of(
+                        rule(RuleConstant.TRADING_MODE_BUY, request.symbol(),
+                                100_000_000, 100_000_400))));
+        StockDailyEntity currentDaily = daily("600001", tradeDate, 10D);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence, calendarService(List.of(tradeDate)),
+                stockDailyService(List.of(currentDaily), currentDaily),
+                noOpSelectionService(), Runnable::run);
+
+        service.runRange(tradeDate, tradeDate);
+
+        BacktestDayWrite write = persistence.savedDays.get(0);
+        assertNull(write.newPosition());
+        assertNull(write.buyRule());
+        assertEquals(0, write.dailyRecord().getAccountStatus());
+        assertEquals(0, write.actionRules().size());
+        assertEquals(1, write.triggeredRules().size());
+        RuleRecordDTO unfilledRule = write.triggeredRules().get(0).rule();
+        assertEquals(RuleConstant.TRADING_MODE_BUY, unfilledRule.getActionType());
+        assertEquals("600001", unfilledRule.getSymbol());
+        assertEquals(100_000_000, unfilledRule.getTime());
+        assertEquals(100_000_400, unfilledRule.getLastOrderTime());
+    }
+
+    @Test
     void reusesSameStockBuyTriggeredAfterOvernightCancel() {
         LocalDate tradeDate = LocalDate.of(2026, 6, 18);
         StockWatchingTask overnightTask = watchingTask(1L, "600876", tradeDate);

@@ -186,7 +186,12 @@ public class BacktestController {
         return new Result<List<BacktestPosition>>().ok(historicalBacktestTradeService.findPositions(runId));
     }
 
-    /** 查询完整历史回测中实际生效的交易规则。 */
+    /**
+     * 查询完整历史回测产生的全部规则。
+     *
+     * <p>包含最终成交、撤单以及因下单过晚未成交的规则；买入是否成交可根据
+     * {@code time}、{@code lastOrderTime} 和回测任务保存的沪深市场延迟判断。</p>
+     */
     @GetMapping("trade-runs/{runId}/rules")
     public Result<List<RuleExecuteRecord>> historicalTradingBacktestRules(@PathVariable Long runId) {
         return new Result<List<RuleExecuteRecord>>().ok(historicalBacktestTradeService.findRules(runId));

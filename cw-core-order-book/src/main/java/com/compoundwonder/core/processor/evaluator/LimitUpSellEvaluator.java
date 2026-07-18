@@ -82,13 +82,13 @@ final class LimitUpSellEvaluator {
                 return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_MULTI_BREAK,
                         lastPrice, increase, remark);
             }
-            if (turnover > maxTurnover && changePercent < -3 && lastSealAmount < 2_500) {
+            if (turnover > maxTurnover && changePercent < -3 && lastSealAmount < 2_500 && lbcs >= 5) {
                 String remark = StrUtil.format("高换手后封单减少炸板；条件：今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，换手阈值 {}%",
                         lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent, maxTurnover);
                 return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_SEAL_WEAKENING,
                         lastPrice, increase, remark);
             }
-            if (turnover > maxTurnover && orderBook.getNextTradingDay() >= 2) {
+            if (turnover > maxTurnover && orderBook.getNextTradingDay() >= 2 && lbcs >= 5) {
                 String remark = StrUtil.format("临近周末或假期高换手；条件：今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，下个交易日间隔 {}",
                         lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent, orderBook.getNextTradingDay());
                 return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_HOLIDAY_HIGH_TURNOVER,
@@ -100,7 +100,7 @@ final class LimitUpSellEvaluator {
                 return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_CONSECUTIVE_HIGH_TURNOVER,
                         lastPrice, increase, remark);
             }
-            if (time < ConstantUtil.TIME_1330 && changePercent < -3 && limitUpBuyAmount < 2_500) {
+            if (time < ConstantUtil.TIME_1330 && changePercent < -3 && limitUpBuyAmount < 2_500 && lbcs >= 5) {
                 String remark = StrUtil.format("早盘暴量换手且封单接近炸板；条件：换手率 {}%，封单变化EMA {}%，涨停封单金额 {} 万",
                         turnover, changePercent, limitUpBuyAmount);
                 return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_MORNING_HIGH_TURNOVER_WEAK_SEAL,
@@ -177,10 +177,10 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
-        // 近 15 个交易日涨停股票的平均连板高度，单位：板。
+        // 近 15 个交易日涨停股票的平均连板高度，单位：板。,换手小的卖出，换手大的就不用着急
         int averageLimitUpHeight = orderBook.getAverageLimitUpHeight();
         if (isLimitUp(status) && (orderBook.getLastLimitUptime() < ConstantUtil.TIME_932 || amplitude < 3)
-                && lbcs == averageLimitUpHeight && lastSealAmount < 2_500
+                && lbcs == averageLimitUpHeight && lastSealAmount < 2_500 && turnover < 25
                 && changePercent <= -1.8) {
             String remark = StrUtil.format("达到近 15 日平均高度后秒板封单减弱；条件：平均高度 {} 板，昨日连板 {} 板，今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
                     averageLimitUpHeight, lbcs, lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent);
@@ -188,7 +188,7 @@ final class LimitUpSellEvaluator {
                     lastPrice, increase, remark);
         }
 
-        if (isLimitUp(status) && lbcs == averageLimitUpHeight
+        if (isLimitUp(status) && lbcs == averageLimitUpHeight && turnover < 25
                 && lastSealAmount > 2_000 && lastSealAmount < 5_500
                 && changePercent <= -3.8) {
             String remark = StrUtil.format("达到近 15 日平均高度后封单继续减弱；条件：平均高度 {} 板，昨日连板 {} 板，今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",

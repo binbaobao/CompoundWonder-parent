@@ -20,7 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 回测交易库读写服务，确保单个交易日的结果原子落库。
@@ -114,18 +116,16 @@ public class BacktestPersistenceService {
 
     @Transactional(rollbackFor = Exception.class)
     public void saveDay(BacktestDayWrite write) {
+        Set<RuleEventKey> insertedRuleKeys = new HashSet<>();
         if (write.previousPosition() != null) {
             positionMapper.updateById(write.previousPosition());
         }
 
         BacktestPosition closingPosition = write.previousPosition();
         if (write.sellRule() != null && closingPosition != null) {
-            ruleRecordMapper.insert(toRuleEntity(
-                    write.runId(), closingPosition, write.sellRule(), closingPosition.getWatchingTaskId()));
-        }
-
-        for (BacktestRuleAction action : write.actionRules()) {
-            ruleRecordMapper.insert(toRuleEntity(write.runId(), write.tradeDate(), action));
+            insertRuleIfAbsent(toRuleEntity(
+                    write.runId(), closingPosition, write.sellRule(),
+                    closingPosition.getWatchingTaskId()), insertedRuleKeys);
         }
 
         BacktestPosition currentPosition = closingPosition != null
@@ -133,8 +133,21 @@ public class BacktestPersistenceService {
         if (write.newPosition() != null) {
             positionMapper.insert(write.newPosition());
             currentPosition = write.newPosition();
-            ruleRecordMapper.insert(toRuleEntity(
-                    write.runId(), currentPosition, write.buyRule(), write.buyTask().getId()));
+            insertRuleIfAbsent(toRuleEntity(
+                    write.runId(), currentPosition, write.buyRule(),
+                    write.buyTask().getId()), insertedRuleKeys);
+        }
+
+        for (BacktestRuleAction action : write.actionRules()) {
+            insertRuleIfAbsent(toRuleEntity(
+                    write.runId(), write.tradeDate(), action), insertedRuleKeys);
+        }
+
+        // 完整保存回放产生的所有规则。最终成交和撤单动作已经优先写入，
+        // 同一事件在这里会按数据库唯一键口径去重，保留带成交数量和金额的版本。
+        for (BacktestRuleAction triggeredRule : write.triggeredRules()) {
+            insertRuleIfAbsent(toRuleEntity(
+                    write.runId(), write.tradeDate(), triggeredRule), insertedRuleKeys);
         }
 
         BacktestDailyRecord dailyRecord = write.dailyRecord();
@@ -201,26 +214,51 @@ public class BacktestPersistenceService {
     private RuleExecuteRecord toRuleEntity(long runId, LocalDate tradeDate,
                                            BacktestRuleAction action) {
         StockWatchingTask task = action.task();
+        BacktestPosition position = action.position();
         RuleRecordDTO dto = action.rule();
         RuleExecuteRecord entity = new RuleExecuteRecord();
         entity.setExecutionSource(EXECUTION_SOURCE_BACKTEST);
         entity.setBacktestRunId(runId);
-        entity.setWatchingTaskId(task.getId());
+        if (task != null) {
+            entity.setWatchingTaskId(task.getId());
+            entity.setSymbolName(task.getStockName());
+            entity.setTradeMode(task.getTradeMode());
+            entity.setLimitUpScore(task.getLimitUpScore());
+        } else if (position != null) {
+            entity.setPositionId(position.getId());
+            entity.setWatchingTaskId(position.getWatchingTaskId());
+            entity.setSymbolName(position.getSymbolName());
+            entity.setTradeMode(position.getTradeMode());
+            entity.setLimitUpScore(position.getLimitUpScore());
+        } else {
+            throw new IllegalArgumentException("回测规则缺少推荐任务或持仓上下文");
+        }
         entity.setActionType(dto.getActionType());
         entity.setRuleCode(dto.getRuleCode());
         entity.setSymbol(dto.getSymbol());
-        entity.setSymbolName(task.getStockName());
         entity.setTradeDate(tradeDate);
         entity.setTime(dto.getTime());
         entity.setLastOrderTime(dto.getLastOrderTime());
         entity.setFeeAmount(BigDecimal.ZERO);
-        entity.setTradeMode(task.getTradeMode());
-        entity.setLimitUpScore(task.getLimitUpScore());
         entity.setPrice(dto.getPrice());
         entity.setIncrease(dto.getIncrease());
         entity.setRemark(dto.getRemark());
         entity.setCreatedTime(LocalDateTime.now());
         return entity;
+    }
+
+    private void insertRuleIfAbsent(RuleExecuteRecord entity, Set<RuleEventKey> insertedRuleKeys) {
+        RuleEventKey key = new RuleEventKey(
+                entity.getBacktestRunId(), entity.getTradeDate(), entity.getSymbol(),
+                entity.getActionType(), entity.getRuleCode(), entity.getTime());
+        if (insertedRuleKeys.add(key)) {
+            ruleRecordMapper.insert(entity);
+        }
+    }
+
+    /** 与 uk_rule_execute_backtest_event 保持一致，避免同一次单日事务重复插入。 */
+    private record RuleEventKey(Long runId, LocalDate tradeDate, String symbol,
+                                Integer actionType, Integer ruleCode, Integer time) {
     }
 
     private String abbreviate(String message, int maxLength) {

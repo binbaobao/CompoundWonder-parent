@@ -19,9 +19,11 @@ record BacktestDayWrite(long runId,
                         RuleRecordDTO buyRule,
                         StockWatchingTask buyTask,
                         List<BacktestRuleAction> actionRules,
+                        List<BacktestRuleAction> triggeredRules,
                         BacktestDailyRecord dailyRecord) {
 
     BacktestDayWrite {
         actionRules = List.copyOf(actionRules);
+        triggeredRules = List.copyOf(triggeredRules);
     }
 }
