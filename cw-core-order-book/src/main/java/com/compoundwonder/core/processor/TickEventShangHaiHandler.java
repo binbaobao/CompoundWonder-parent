@@ -143,8 +143,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 long circulation = orderBook.getCirculation();
                 double increase = (order.price - orderBook.getClosePrice()) * 100.0 / orderBook.getClosePrice();
                 // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
-                long buyVolume = Math.min(circulation / 20, orderBook.getMaxVolume() / 5);
-                if (transStatus == 1 && marketValue < 120000 && order.price == limitUpPrice && order.buyerOrderId > buyVolume / 3) {
+                long buyVolume = marketValue < 120000 ? Math.min(circulation / 20, orderBook.getMaxVolume() / 5):circulation / 20 + order.sellerOrderId;
+                if (transStatus == 1 && order.price == limitUpPrice && order.buyerOrderId > buyVolume / 3) {
                     if (ConstantUtil.TIME_925 >= order.time && (order.sellerOrderId * 100.0 / order.buyerOrderId <= 40 || limitUpBuyAmount > 15_000)) {
                         RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                         // 买入方向的委托单，委托价格是涨停价格，这次快照比上次快照如果涨停买单多大于总卖，并且总买大于流通的 2 %
