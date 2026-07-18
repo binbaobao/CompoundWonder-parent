@@ -70,7 +70,10 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 小市值首板补充分支的启动流通市值上限，单位：万元。
      * 启动流通市值取选股前一交易日的收盘流通市值，并与该值进行严格小于比较。
      */
-    private static final double SMALL_MARKET_CAP_FIRST_BOARD_LIMIT = 109_999D;
+    private static final double SMALL_MARKET_CAP_FIRST_BOARD_LIMIT = 119_999D;
+
+    /** 小市值首板本轮启动前最近 200 根有效日 K 的最大换手率上限，单位：%。 */
+    private static final double SMALL_MARKET_CAP_FIRST_BOARD_MAX_TURNOVER_RATE = 30D;
 
     private final StockDailyService stockDailyService;
     private final StockTradeCalendarService stockTradeCalendarService;
@@ -194,9 +197,9 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 在普通首板 Top3 之后，从首板基础候选池最多追加 2 只小市值首板任务。
-     * 该分支检查首板、无可转债、市值、200 根 K 线历史最高板、前 20 日及
-     * 18 个月非正常 K 线次数、3 日振幅和 10 日涨跌幅。
-     * 它只放宽换手率、启动价格、综合评分和普通筹码阶梯，不能绕过历史高度硬限制；
+     * 该分支检查首板、无可转债、市值、200 根 K 线历史最大换手率及历史最高板、
+     * 前 20 日及 18 个月非正常 K 线次数、3 日振幅和 10 日涨跌幅。
+     * 它只放宽当日换手率、启动价格、综合评分和普通筹码阶梯，不能绕过历史硬限制；
      * 已被普通首板选中的股票不会重复加入。
      */
     private void appendSmallMarketCapFirstBoardTasks(List<StockWatchingTask> selectedTasks,
@@ -214,6 +217,12 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             }
             boolean hasConvertibleBond = convertibleBondStockCodes.contains(assist.getStockCode());
             if (!isSmallMarketCapFirstBoardCandidate(assist, hasConvertibleBond)) {
+                double maxTurnoverRate = Objects.requireNonNullElse(
+                        assist.getMaxTurnoverRate(), 0D);
+                if (!isSmallMarketCapFirstBoardHistoricalTurnoverAllowed(maxTurnoverRate)) {
+                    logSelectionFiltered("小市值首板", assist, "200根K线历史最大换手率",
+                            "actual=" + maxTurnoverRate + "%, required<=30%");
+                }
                 continue;
             }
 
@@ -261,7 +270,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                     assist, TRADE_MODE_FIRST_LIMIT_UP, marketCapScore));
             log.info("小市值首板补充分支候选 tradeDate={} stockCode={} stockName={} "
                             + "startMarketCap={} score={} detail=使用首板前一交易日收盘流通市值，"
-                            + "放宽换手及普通筹码阶梯，但200根K线历史最高板必须小于3板，"
+                            + "放宽当日换手及普通筹码阶梯，但200根K线历史最大换手率不超过30%，"
+                            + "历史最高板必须小于3板，"
                             + "前20日非正常K线少于4次且18个月非正常K线不超过25次",
                     assist.getTradeDate(), assist.getStockCode(), assist.getStockName(),
                     startMarketCap, marketCapScore);
@@ -274,7 +284,8 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
 
     /**
      * 判断是否满足小市值首板补充分支。
-     * 市值口径：选股前一交易日的收盘流通市值必须严格小于 109999 万元。
+     * 市值口径：选股前一交易日的收盘流通市值必须严格小于 119999 万元；
+     * 本轮启动前最近 200 根有效日 K 的最大换手率不能超过 30%。
      */
     static boolean isSmallMarketCapFirstBoardCandidate(StockSelectionAssistDTO assist,
                                                         boolean hasConvertibleBond) {
@@ -282,7 +293,15 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
                 && Integer.valueOf(1).equals(assist.getConsecutiveLimitUpDays())
                 && !hasConvertibleBond
                 && assist.getStartMarketCap() != null
-                && assist.getStartMarketCap() < SMALL_MARKET_CAP_FIRST_BOARD_LIMIT;
+                && assist.getStartMarketCap() < SMALL_MARKET_CAP_FIRST_BOARD_LIMIT
+                && isSmallMarketCapFirstBoardHistoricalTurnoverAllowed(
+                        assist.getMaxTurnoverRate());
+    }
+
+    /** 小市值首板最近 200 根有效日 K 的最大换手率允许等于 30%，超过才过滤。 */
+    static boolean isSmallMarketCapFirstBoardHistoricalTurnoverAllowed(Double maxTurnoverRate) {
+        return Objects.requireNonNullElse(maxTurnoverRate, 0D)
+                <= SMALL_MARKET_CAP_FIRST_BOARD_MAX_TURNOVER_RATE;
     }
 
     /**
@@ -290,7 +309,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
      * 不能出现过 3 板及以上高度；辅助对象已经排除本次首板，不会把当天涨停计入历史。
      */
     static boolean isSmallMarketCapFirstBoardHistoricalHeightAllowed(Integer historicalHighestBoard) {
-        return Objects.requireNonNullElse(historicalHighestBoard, 0) < 3;
+        return Objects.requireNonNullElse(historicalHighestBoard, 0) <= 3;
     }
 
     /**
@@ -495,6 +514,15 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
             if (oneWordLimitUpDays >= 2) {
                 logSelectionFiltered(selectionMode, dto, "一字板次数",
                         "actual=" + oneWordLimitUpDays + ", required<2");
+                continue;
+            }
+
+            StockChipFilter.Decision ninetyDayTurnoverDecision =
+                    StockChipFilter.evaluateRelayNinetyDayTurnoverLimit(dto);
+            if (!ninetyDayTurnoverDecision.passed()) {
+                logSelectionFiltered(selectionMode, dto,
+                        "连板筹码过滤-" + ninetyDayTurnoverDecision.layer(),
+                        ninetyDayTurnoverDecision.detail());
                 continue;
             }
 
@@ -935,6 +963,7 @@ public class StockWatchingTaskServiceImpl extends ServiceImpl<StockWatchingTaskM
         assist.setMaxVolumeDayTurnover(chipMetrics.maxVolumeDayTurnover());
         assist.setHighestConsecutiveLimitUpDays(chipMetrics.twoHundredKlineHighestBoard());
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(chipMetrics.ninetyDayHighestBoard());
+        assist.setPriorNinetyDayMaxTurnoverRate(chipMetrics.ninetyDayMaxTurnoverRate());
         assist.setAbnormalKlineStateCount(countAbnormalKlineState(selectionWindowDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setPriorTwentyDayAbnormalKlineStateCount(
                 countPriorTwentyDayAbnormalKlineState(

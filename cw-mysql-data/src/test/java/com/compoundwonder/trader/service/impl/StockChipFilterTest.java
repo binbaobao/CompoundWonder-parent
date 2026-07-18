@@ -57,6 +57,34 @@ class StockChipFilterTest {
     }
 
     @Test
+    void allowsExactlyThirtyFivePercentTurnoverInPriorNinetyNaturalDaysForRelaySelection() {
+        StockSelectionAssistDTO assist = eligibleAssist();
+        assist.setPriorNinetyDayMaxTurnoverRate(35D);
+
+        assertTrue(StockChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist).passed());
+    }
+
+    @Test
+    void rejectsTurnoverAboveThirtyFivePercentInPriorNinetyNaturalDaysForRelaySelection() {
+        StockSelectionAssistDTO assist = eligibleAssist();
+        assist.setPriorNinetyDayMaxTurnoverRate(35.01D);
+
+        StockChipFilter.Decision decision =
+                StockChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist);
+
+        assertFalse(decision.passed());
+        assertEquals("90日历史最大换手", decision.layer());
+    }
+
+    @Test
+    void doesNotApplyRelayNinetyDayTurnoverLimitToFirstBoardChipEvaluation() {
+        StockSelectionAssistDTO assist = eligibleAssist();
+        assist.setPriorNinetyDayMaxTurnoverRate(40D);
+
+        assertTrue(StockChipFilter.evaluate(assist).passed());
+    }
+
+    @Test
     void appliesMutuallyExclusiveMarketCapTurnoverAndPriceBands() {
         StockSelectionAssistDTO assist = eligibleAssist();
         assist.setStartMarketCap(168_000D);
@@ -190,6 +218,7 @@ class StockChipFilterTest {
         assertEquals(8_000_000L, metrics.maxVolume());
         assertEquals(5, metrics.twoHundredKlineHighestBoard());
         assertEquals(3, metrics.ninetyDayHighestBoard());
+        assertEquals(30D, metrics.ninetyDayMaxTurnoverRate());
     }
 
     @Test
@@ -248,6 +277,7 @@ class StockChipFilterTest {
         assist.setMaxTurnoverRate(30D);
         assist.setHighestConsecutiveLimitUpDays(2);
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(2);
+        assist.setPriorNinetyDayMaxTurnoverRate(30D);
         assist.setHistoricalMaxVolume(1_000_000L);
         return assist;
     }

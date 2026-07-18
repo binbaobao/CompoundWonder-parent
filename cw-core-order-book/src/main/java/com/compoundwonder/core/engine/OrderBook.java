@@ -459,6 +459,7 @@ public class OrderBook {
      * @param lowPrice
      */
     public void updateLowestPrice(int lowPrice){
+        if (lowPrice < limitDownPrice)return;
         this.lowPrice = Math.min(this.lowPrice, lowPrice);
         if (this.lowPrice == lowPrice) {
             this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;

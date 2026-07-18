@@ -84,7 +84,7 @@ public final class ConditionEvaluatorBuy {
         int time = orderBook.getTime();
         // 涨停买单数量 EMA 的环比变化率，单位：%；负数表示封单减弱。
         double sealChangePercent = orderBook.getChangePercent();
-
+        int lbcs = orderBook.getLbcs();
         if (limitUpBuyAmount > MAX_LIMIT_UP_BUY_AMOUNT_WAN) {
             return false;
         }
@@ -96,6 +96,14 @@ public final class ConditionEvaluatorBuy {
         }
         // 开盘比较高，但是最低比-3还低，就是比较弱，就不打板
         if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < -4.5 && time < ConstantUtil.TIME_1000){
+            return false;
+        }
+        //开盘涨幅比最低价高 4 个点，并且最低点小于 -4.5
+        if (orderBook.getOpenIncrease() - orderBook.getLowPriceIncrease() > 4 && orderBook.getLowPriceIncrease() < -4.5){
+            return false;
+        }
+        // 如果是首板不允许最低点小于-1.5
+        if (lbcs == 1 && orderBook.getLowPriceIncrease()< -1.5){
             return false;
         }
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
@@ -201,7 +209,7 @@ public final class ConditionEvaluatorBuy {
                                                         int lastPrice,
                                                         int limitUpPrice,
                                                         int time) {
-        if (marketValue < 90_000) {
+        if (marketValue < 109_000) {
             return lastPrice == limitUpPrice;
         }
         if (marketValue < 140_000) {

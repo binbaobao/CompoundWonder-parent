@@ -94,19 +94,28 @@ class StockWatchingTaskServiceImplTest {
     }
 
     @Test
-    void smallMarketCapFirstBoardUsesPreviousCloseMarketCapAndIgnoresTurnover() {
-        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(109_998D);
+    void smallMarketCapFirstBoardUsesPreviousCloseMarketCapAndAllowsHistoricalTurnoverAtThirtyPercent() {
+        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(119_998D);
         assist.setCurrentTurnoverRate(80D);
-        assist.setMaxTurnoverRate(80D);
+        assist.setMaxTurnoverRate(30D);
 
         assertTrue(StockWatchingTaskServiceImpl
                 .isSmallMarketCapFirstBoardCandidate(assist, false));
     }
 
     @Test
+    void smallMarketCapFirstBoardRejectsHistoricalTurnoverAboveThirtyPercent() {
+        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(100_000D);
+        assist.setMaxTurnoverRate(30.001D);
+
+        assertFalse(StockWatchingTaskServiceImpl
+                .isSmallMarketCapFirstBoardCandidate(assist, false));
+    }
+
+    @Test
     void smallMarketCapFirstBoardKeepsStrictMarketCapAndConvertibleBondBoundaries() {
         assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
-                smallMarketCapFirstBoard(109_999D), false));
+                smallMarketCapFirstBoard(119_999D), false));
         assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
                 smallMarketCapFirstBoard(100_000D), true));
 

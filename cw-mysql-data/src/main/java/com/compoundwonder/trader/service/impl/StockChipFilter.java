@@ -29,6 +29,9 @@ final class StockChipFilter {
     /** 本轮连板前 90 个自然日内只要出现过 3 板就过滤。 */
     private static final int MAX_ALLOWED_NINETY_DAY_BOARD_EXCLUSIVE = 3;
 
+    /** 连板候选在本轮连板前 90 个自然日内的历史最大换手率不得超过 35%。 */
+    private static final double MAX_ALLOWED_RELAY_NINETY_DAY_TURNOVER_RATE = 35D;
+
     /** 特殊通道要求历史最大换手率严格低于 20%。 */
     private static final double SPECIAL_MAX_TURNOVER_RATE = 20D;
 
@@ -49,7 +52,8 @@ final class StockChipFilter {
      * {@code earliestStoredDailyList} 是数据库中该股票最早的 11 根日 K。以前 10 根日 K
      * 作为新股上市初期数据，不参与换手、成交量和历史板数统计。</p>
      *
-     * <p>90 日最高板使用自然日窗口，包含起止日期；历史最高达到 3 板即由过滤层剔除。</p>
+     * <p>90 日最高板和 90 日最大换手率使用同一个自然日窗口，包含起止日期；
+     * 历史最高达到 3 板由公共历史硬规则剔除，最大换手率超过 35% 仅由连板流程剔除。</p>
      */
     static HistoricalMetrics calculateHistoricalMetrics(
             List<StockDailyEntity> rawWindowDailyList,
@@ -57,7 +61,7 @@ final class StockChipFilter {
             LocalDate historicalEndDate) {
         if (rawWindowDailyList == null || earliestStoredDailyList == null
                 || historicalEndDate == null || earliestStoredDailyList.size() <= 10) {
-            return new HistoricalMetrics(null, null, null, null, null, null);
+            return new HistoricalMetrics(null, null, null, null, null, null, null);
         }
 
         LocalDate firstEligibleDate = earliestStoredDailyList.stream()
@@ -68,7 +72,7 @@ final class StockChipFilter {
                 .findFirst()
                 .orElse(null);
         if (firstEligibleDate == null) {
-            return new HistoricalMetrics(null, null, null, null, null, null);
+            return new HistoricalMetrics(null, null, null, null, null, null, null);
         }
 
         List<StockDailyEntity> eligibleHistory = rawWindowDailyList.stream()
@@ -91,14 +95,21 @@ final class StockChipFilter {
                 .orElse(null);
         Long maxVolume = maxVolumeDaily == null ? null : maxVolumeDaily.getVolume();
         Integer twoHundredKlineHighestBoard = highestBoard(eligibleHistory);
-        Integer ninetyDayHighestBoard = highestBoard(eligibleHistory.stream()
+        List<StockDailyEntity> ninetyDayHistory = eligibleHistory.stream()
                 .filter(daily -> !daily.getTradeDate().isBefore(ninetyDayStartDate))
-                .toList());
+                .toList();
+        Integer ninetyDayHighestBoard = highestBoard(ninetyDayHistory);
+        Double ninetyDayMaxTurnoverRate = ninetyDayHistory.stream()
+                .map(StockDailyEntity::getTurnoverRate)
+                .filter(Objects::nonNull)
+                .max(Double::compareTo)
+                .orElse(null);
         return new HistoricalMetrics(
                 maxTurnoverRate,
                 maxVolume,
                 twoHundredKlineHighestBoard,
                 ninetyDayHighestBoard,
+                ninetyDayMaxTurnoverRate,
                 maxVolumeDaily == null ? null : maxVolumeDaily.getTurnoverRate(),
                 maxVolumeDaily == null ? null : maxVolumeDaily.getTurnover());
     }
@@ -188,6 +199,26 @@ final class StockChipFilter {
     }
 
     /**
+     * 执行连板候选专属的 90 日历史最大换手限制。
+     *
+     * <p>该规则在严格通道、冰点 3/4 板宽松通道和弱 5 板兜底分流前执行，
+     * 因此任何连板后续通道都不能绕过；首板流程不调用本方法。</p>
+     */
+    static Decision evaluateRelayNinetyDayTurnoverLimit(StockSelectionAssistDTO assist) {
+        if (assist == null || assist.getPriorNinetyDayMaxTurnoverRate() == null) {
+            return Decision.rejected("筹码数据完整性", "缺少90日历史最大换手率");
+        }
+
+        double ninetyDayMaxTurnoverRate = assist.getPriorNinetyDayMaxTurnoverRate();
+        if (ninetyDayMaxTurnoverRate > MAX_ALLOWED_RELAY_NINETY_DAY_TURNOVER_RATE) {
+            return Decision.rejected("90日历史最大换手",
+                    "actual=" + ninetyDayMaxTurnoverRate + "%, required<=35%");
+        }
+        return Decision.passed("90日历史最大换手",
+                "actual=" + ninetyDayMaxTurnoverRate + "%, required<=35%");
+    }
+
+    /**
      * 按启动流通市值进入唯一对应的换手率、价格档位，档位之间互不回退。
      * 市值单位为万元，价格单位为元，换手率单位为百分比。
      */
@@ -262,6 +293,7 @@ final class StockChipFilter {
      * @param maxVolume                  最近 200 根有效日 K 的历史最大成交量，单位：股
      * @param twoHundredKlineHighestBoard 最近 200 根有效日 K 的历史最高板
      * @param ninetyDayHighestBoard      90 个自然日历史最高板
+     * @param ninetyDayMaxTurnoverRate   同一 90 个自然日窗口的历史最大换手率，单位：%
      * @param maxVolumeDayTurnoverRate   最大成交量日换手率，单位：%
      * @param maxVolumeDayTurnover       最大成交量日成交额，单位：万元
      */
@@ -269,6 +301,7 @@ final class StockChipFilter {
                              Long maxVolume,
                              Integer twoHundredKlineHighestBoard,
                              Integer ninetyDayHighestBoard,
+                             Double ninetyDayMaxTurnoverRate,
                              Double maxVolumeDayTurnoverRate,
                              Double maxVolumeDayTurnover) {
     }

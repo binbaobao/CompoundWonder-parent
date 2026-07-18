@@ -101,6 +101,12 @@ public class StockSelectionAssistDTO {
     private Integer priorNinetyDayHighestConsecutiveLimitUpDays;
 
     /**
+     * 本轮连续涨停开始前 90 个自然日内的历史最大换手率，单位：%；
+     * 使用与 90 日历史最高板相同的窗口，不包含本轮连板，仅用于连板候选过滤。
+     */
+    private Double priorNinetyDayMaxTurnoverRate;
+
+    /**
      * 本轮连续涨停开始前最近 200 根有效日 K 的历史最大成交量，单位：股；
      * 排除股票上市后最早 10 根日 K，用于低换手、低筹码金额特殊通道。
      */
