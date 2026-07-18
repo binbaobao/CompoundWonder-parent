@@ -197,8 +197,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             long circulation = orderBook.getCirculation();
             // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
             long buyVolume = Math.min(circulation / 20, orderBook.getMaxVolume() / 5);
+            int marketValue = orderBook.getInitialMarketValue();
             // 涨停总买手，大于 全部总卖手，全部总卖全部以涨停价格成交，总卖小于 2500w ，如果遇到 委托买单 大于 200w，则跟单 orderBook.getInitialMarketValue() < 120_000 || orderBook.getLbcs() > 1 || transStatus == 2) && transStatus != 0
-            if (transStatus == 1 && totalSellVolume * 100.0 / limitUpBuyVolume <= 40) {
+            if (transStatus == 1  && marketValue < 120000 && totalSellVolume * 100.0 / limitUpBuyVolume <= 40) {
 
                 // 买入方向的委托单，委托价格是涨停价格，委托金额大于 200w，
                 if (order.dataType == 1 && limitUpBuyAmount > 1500 && order.price == limitUpPrice

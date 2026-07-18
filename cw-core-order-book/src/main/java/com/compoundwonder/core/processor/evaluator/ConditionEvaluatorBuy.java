@@ -17,46 +17,82 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class ConditionEvaluatorBuy {
 
-    /** 中高价股的大市值分档大单扫板规则编号。 */
+    /**
+     * 中高价股的大市值分档大单扫板规则编号。
+     */
     private static final int RULE_LARGE_HIGH_PRICE_ORDER = 11;
-    /** 中高价股的中市值分档大单扫板规则编号。 */
+    /**
+     * 中高价股的中市值分档大单扫板规则编号。
+     */
     private static final int RULE_MEDIUM_HIGH_PRICE_ORDER = 12;
-    /** 10 元及以下低价股的大数量扫板规则编号。 */
+    /**
+     * 10 元及以下低价股的大数量扫板规则编号。
+     */
     private static final int RULE_LARGE_LOW_PRICE_ORDER = 13;
-    /** 未命中大单规则时，按封单金额分档判断的普通排板规则编号。 */
+    /**
+     * 未命中大单规则时，按封单金额分档判断的普通排板规则编号。
+     */
     private static final int RULE_NORMAL_LIMIT_UP_ORDER = 14;
 
-    /** 价格单位为分，1000 表示 10 元。 */
+    /**
+     * 价格单位为分，1000 表示 10 元。
+     */
     private static final int TEN_YUAN_PRICE_CENTS = 1_000;
 
-    /** 大市值分档的最低大单委托数量，单位：股。 */
+    /**
+     * 大市值分档的最低大单委托数量，单位：股。
+     */
     private static final int LARGE_HIGH_PRICE_QUANTITY_SHARES = 990_000;
-    /** 中市值分档的最低大单委托数量，单位：股。 */
+    /**
+     * 中市值分档的最低大单委托数量，单位：股。
+     */
     private static final int MEDIUM_HIGH_PRICE_QUANTITY_SHARES = 900_000;
-    /** 10 元及以下低价股只看数量时的最低委托数量，单位：股。 */
+    /**
+     * 10 元及以下低价股只看数量时的最低委托数量，单位：股。
+     */
     private static final int LARGE_LOW_PRICE_QUANTITY_SHARES = 888_800;
 
-    /** 大市值分档的最低大单委托金额，单位：元。 */
+    /**
+     * 大市值分档的最低大单委托金额，单位：元。
+     */
     private static final int LARGE_HIGH_PRICE_AMOUNT_YUAN = 9_000_000;
-    /** 中市值分档的最低大单委托金额，单位：元。 */
+    /**
+     * 中市值分档的最低大单委托金额，单位：元。
+     */
     private static final int MEDIUM_HIGH_PRICE_AMOUNT_YUAN = 7_000_000;
 
-    /** 买入规则允许的最大涨停封单金额，单位：万元。 */
+    /**
+     * 买入规则允许的最大涨停封单金额，单位：万元。
+     */
     private static final long MAX_LIMIT_UP_BUY_AMOUNT_WAN = 8_000L;
-    /** 规则 11 允许的启动市值上限，单位：万元。 */
+    /**
+     * 规则 11 允许的启动市值上限，单位：万元。
+     */
     private static final long LARGE_ORDER_MAX_MARKET_VALUE_WAN = 198_000L;
-    /** 规则 12 允许的启动市值上限，单位：万元。 */
+    /**
+     * 规则 12 允许的启动市值上限，单位：万元。
+     */
     private static final long MEDIUM_ORDER_MAX_MARKET_VALUE_WAN = 150_000L;
 
-    /** 无需历史量能补充条件即可买入的最低当前换手率，单位：%。 */
+    /**
+     * 无需历史量能补充条件即可买入的最低当前换手率，单位：%。
+     */
     private static final double MIN_NORMAL_TURNOVER_RATE = 12.5;
-    /** 所有买入规则允许的最大当前换手率，单位：%。 */
+    /**
+     * 所有买入规则允许的最大当前换手率，单位：%。
+     */
     private static final double MAX_TURNOVER_RATE = 35.0;
-    /** 低换手买入门槛为“历史最大换手率 ÷ 3.3”。 */
+    /**
+     * 低换手买入门槛为“历史最大换手率 ÷ 3.3”。
+     */
     private static final double MAX_TURNOVER_DIVISOR = 3.3;
-    /** 允许低换手买入的当日累计成交额补充条件，单位：元。 */
+    /**
+     * 允许低换手买入的当日累计成交额补充条件，单位：元。
+     */
     private static final long HIGH_TRADING_AMOUNT_YUAN = 250_000_000L;
-    /** 最近一次封板后允许产生买入信号的时间窗口，单位：毫秒。 */
+    /**
+     * 最近一次封板后允许产生买入信号的时间窗口，单位：毫秒。
+     */
     private static final int RECENT_LIMIT_UP_WINDOW_MILLIS = 30_000;
 
     private ConditionEvaluatorBuy() {
@@ -65,7 +101,7 @@ public final class ConditionEvaluatorBuy {
     /**
      * 根据当前订单簿判断是否触发买入规则。
      *
-     * @param orderBook 当前股票订单簿
+     * @param orderBook  当前股票订单簿
      * @param ruleRecord 预分配的规则记录，只有规则命中时才会填充
      * @return 命中买入规则返回 {@code true}
      */
@@ -95,17 +131,28 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
         // 开盘比较高，但是最低比-3还低，就是比较弱，就不打板
-        if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < -4.5 && time < ConstantUtil.TIME_1000){
+        if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < -4.5 && time < ConstantUtil.TIME_1000) {
             return false;
         }
         //开盘涨幅比最低价高 4 个点，并且最低点小于 -4.5
-        if (orderBook.getOpenIncrease() - orderBook.getLowPriceIncrease() > 4 && orderBook.getLowPriceIncrease() < -4.5){
+        if (lbcs > 1 && orderBook.getOpenIncrease() - orderBook.getLowPriceIncrease() > 4 && orderBook.getLowPriceIncrease() < -4.5) {
             return false;
         }
         // 如果是首板不允许最低点小于-1.5
-        if (lbcs == 1 && orderBook.getLowPriceIncrease()< -1.5){
-            return false;
+        // 首板只是补充交易模式，不能接加速，只做换手充分，经历过程分歧的，不然特别容易炸板
+        if (lbcs == 1) {
+            // 首板如果跌入深水也容易第二天走弱
+            if (orderBook.getLowPriceIncrease() < -1.5) {
+                return false;
+            }
+            if (orderBook.getAmplitude() < 4.5 && time < ConstantUtil.TIME_1000) {
+                return false;
+            }
+            if (orderBook.getOpenIncrease() > 4.5 && time < ConstantUtil.TIME_1000) {
+                return false;
+            }
         }
+
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
         TickNode largestBuyOrder = orderBook.buyMaxOrder;
         if (largestBuyOrder.getPrice() != 0
@@ -133,7 +180,7 @@ public final class ConditionEvaluatorBuy {
                 "正常排板：启动市值 {} 万，涨停封单金额 {} 万，当前换手 {} %，封单变化EMA {} %，涨停下单时间差:{} ms",
                 marketValue, limitUpBuyAmount, turnoverRate, sealChangePercent,
                 updateMillis - lastLimitUpMillis);
-        log.info(remark);
+        log.info(remark + orderBook.getStatus());
         ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, RULE_NORMAL_LIMIT_UP_ORDER,
                 orderBook.getSymbol(), time, lastPrice, orderBook.getIncrease(), remark);
         return true;
@@ -146,12 +193,15 @@ public final class ConditionEvaluatorBuy {
         if (turnoverRate > MAX_TURNOVER_RATE) {
             return false;
         }
-        if (turnoverRate >= MIN_NORMAL_TURNOVER_RATE) {
+        if (turnoverRate >= MIN_NORMAL_TURNOVER_RATE && orderBook.getStatus() <= 1) {
+            return true;
+        }
+        if (orderBook.getStatus() >= 1 && turnoverRate >= MIN_NORMAL_TURNOVER_RATE * 1.5) {
             return true;
         }
 
         // 首板、较大日内波动、较深炸板或高成交额任一成立，才允许降低换手门槛。
-        boolean supportsLowerTurnoverEntry = (orderBook.getLbcs() == 1 && orderBook.getOpenIncrease() < 3)
+        boolean supportsLowerTurnoverEntry = (orderBook.getLbcs() == 1 && orderBook.getOpenIncrease() < 3 && orderBook.getStatus() == 0)
                 || orderBook.getAmplitude() > 7
                 || orderBook.getLimitUpBreakDepth() > 3
                 || orderBook.getTurnover() > HIGH_TRADING_AMOUNT_YUAN;
