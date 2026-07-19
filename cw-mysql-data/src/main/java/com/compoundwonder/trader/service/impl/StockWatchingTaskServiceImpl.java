@@ -9,7 +9,6 @@ import com.compoundwonder.trader.selection.relay.RelaySelectionService;
 import com.compoundwonder.trader.selection.smallcapfirstboard.SmallCapFirstBoardSelectionService;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -42,9 +41,12 @@ public class StockWatchingTaskServiceImpl
 
     /**
      * 依次生成连板、普通首板和小市值首板任务。
+     *
+     * <p>这里不能增加 Spring 本地 {@code @Transactional}：三个选股模式会通过
+     * {@code @DS("market")} 服务读取行情，再向 {@code trade} 数据源写任务。
+     * 顶层事务会提前绑定单一数据库连接，使后续 market 查询错误落到 cw_backtest。</p>
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate) {
         List<StockWatchingTask> tasks = new ArrayList<>();
         // 调用连板接力选股方法。

@@ -153,6 +153,9 @@ public class RelaySelectionService extends ServiceImpl<StockWatchingTaskMapper, 
 
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
+
+        log.info("连板选股  今日最高板:{},昨日最高板:{} 前日最高板:{} 今日选股区间:{}-{}",todayMaxLbc,yesterdayHighestLimitUp,dayBeforeYesterdayHighestLimitUp,minLimitUpDays,maxLimitUpDays);
+
         List<StockDailyEntity> selectedStockDailyList = new ArrayList<>();
         for (StockDailyEntity stockDaily : stockDailyEntities) {
             int consecutiveLimitUpDays = Objects.requireNonNullElse(stockDaily.getConsecutiveLimitUpDays(), 0);
