@@ -611,6 +611,7 @@ public class RelaySelectionService {
             boolean firstBoardOfCurrentRun = i == consecutiveDays - 1;
             if (Objects.equals(stockDailyEntity.getKlineState(), 3)
                     || (amplitude != null && amplitude < 3D)
+                    || (stockDailyEntity.getKlineState()== 2 && turnoverRate < 18D)//冀凯股份 2025-01-17
                     || (!firstBoardOfCurrentRun && turnoverRate != null && turnoverRate < 15D)) {
                 if (++count >= 2) {
                     return true;

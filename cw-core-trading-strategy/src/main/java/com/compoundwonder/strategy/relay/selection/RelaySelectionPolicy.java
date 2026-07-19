@@ -87,8 +87,8 @@ public final class RelaySelectionPolicy {
                     "actual=" + change + "%, required<50%");
             return Decision.passed(0, "近期形态", "candidateLbc=3");
         }
-        if (lbc == 2) {
-            if (amplitude >= 34) return Decision.rejected("2连板近期形态-5日振幅",
+        if (lbc == 2) {// 三江购物,2025-02-13
+            if (amplitude >= 31) return Decision.rejected("2连板近期形态-5日振幅",
                     "actual=" + amplitude + "%, required<34%");
             if (change >= 35) return Decision.rejected("2连板近期形态-10日涨跌幅",
                     "actual=" + change + "%, required<35%");
@@ -136,7 +136,7 @@ public final class RelaySelectionPolicy {
         if (candidate.maxVolumeDayTurnoverRate() >= 50) return Decision.rejected(
                 "冰点3/4板-最大成交量日换手率",
                 "actual=" + candidate.maxVolumeDayTurnoverRate() + "%, required<50%");
-        if (candidate.currentAmplitude() >= 15) return Decision.rejected("冰点3/4板-当日振幅",
+        if (candidate.currentAmplitude() >= 15 && candidate.startMarketCap() > 99_999) return Decision.rejected("冰点3/4板-当日振幅",// 美邦股份 2025-01-07
                 "actual=" + candidate.currentAmplitude() + "%, required<15%");
         if (candidate.startMarketCap() < 130_000) {
             return Decision.passed(0, "13亿以下冰点3/4板", "passed");
