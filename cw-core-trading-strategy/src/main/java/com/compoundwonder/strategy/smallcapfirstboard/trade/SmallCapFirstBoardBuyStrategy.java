@@ -2,32 +2,20 @@ package com.compoundwonder.strategy.smallcapfirstboard.trade;
 
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
-import com.compoundwonder.strategy.TradingStrategy;
+import com.compoundwonder.strategy.BuyStrategy;
 
 /**
- * 小市值首板模式独立交易规则。
+ * 小市值首板模式买入规则聚合入口。
  *
- * <p>当前版本从原统一交易规则完整复制，后续只在本包内按该模式逐步调整买入、卖出和撤单。</p>
+ * <p>只负责分发上海集合竞价、深圳集合竞价、连续竞价打板和买入撤单。
+ * 持仓卖出由独立的板高/市值分发器处理。</p>
  */
-public final class SmallCapFirstBoardTradingStrategy implements TradingStrategy {
+public final class SmallCapFirstBoardBuyStrategy implements BuyStrategy {
 
     @Override
     public boolean evaluateBuy(TradeMarketState market, TradeRuleRecord record) {
         // 调用小市值首板买入规则。
-        return ConditionEvaluatorBuy.evaluate(market, record);
-    }
-
-    @Override
-    public boolean evaluateSell(TradeMarketState market, TradeRuleRecord record) {
-        // 调用小市值首板盘口卖出规则。
-        return ConditionEvaluatorSell.evaluate(market, record);
-    }
-
-    @Override
-    public boolean evaluateAveragePriceSell(int calculateIndex, TradeMarketState market,
-                                            TradeRuleRecord record) {
-        // 调用小市值首板分钟均价卖出规则。
-        return ConditionEvaluatorSell.averagePriceSellStrategy(calculateIndex, market, record);
+        return ContinuousLimitUpBuyEvaluator.evaluate(market, record);
     }
 
     @Override
@@ -53,7 +41,7 @@ public final class SmallCapFirstBoardTradingStrategy implements TradingStrategy 
                                           long totalBuyVolume, long totalSellVolume,
                                           long requiredBuyVolume, long limitUpBuyAmount) {
         // 调用小市值首板上海集合竞价买入规则。
-        return AuctionEvaluator.evaluateShanghaiBuy(time, price, limitUpPrice,
+        return ShanghaiAuctionBuyEvaluator.evaluateBuy(time, price, limitUpPrice,
                 totalBuyVolume, totalSellVolume, requiredBuyVolume, limitUpBuyAmount);
     }
 
@@ -62,7 +50,7 @@ public final class SmallCapFirstBoardTradingStrategy implements TradingStrategy 
                                              long totalBuyVolume, long totalSellVolume,
                                              long requiredBuyVolume) {
         // 调用小市值首板上海集合竞价撤单规则。
-        return AuctionEvaluator.evaluateShanghaiCancel(price, limitUpPrice,
+        return ShanghaiAuctionBuyEvaluator.evaluateCancel(price, limitUpPrice,
                 totalBuyVolume, totalSellVolume, requiredBuyVolume);
     }
 
@@ -72,7 +60,7 @@ public final class SmallCapFirstBoardTradingStrategy implements TradingStrategy 
                                          long totalSellVolume, long requiredBuyVolume,
                                          long limitUpBuyAmount, long circulation) {
         // 调用小市值首板深圳集合竞价买入规则。
-        return AuctionEvaluator.evaluateShenzhenBuy(dataType, price, limitUpPrice,
+        return ShenzhenAuctionBuyEvaluator.evaluateBuy(dataType, price, limitUpPrice,
                 orderQuantity, limitUpBuyVolume, totalSellVolume, requiredBuyVolume,
                 limitUpBuyAmount, circulation);
     }
@@ -81,22 +69,15 @@ public final class SmallCapFirstBoardTradingStrategy implements TradingStrategy 
     public int evaluateShenzhenAuctionCancel(long limitUpBuyVolume, long totalSellVolume,
                                             long requiredBuyVolume) {
         // 调用小市值首板深圳集合竞价撤单规则。
-        return AuctionEvaluator.evaluateShenzhenCancel(
+        return ShenzhenAuctionBuyEvaluator.evaluateCancel(
                 limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
     }
 
     @Override
     public int evaluateShenzhenSnapshotAuctionCancel(int price, int limitUpPrice) {
         // 调用小市值首板深圳快照集合竞价撤单规则。
-        return AuctionEvaluator.evaluateShenzhenSnapshotCancel(price, limitUpPrice);
-    }
-
-    @Override
-    public boolean evaluateClosingAuctionSell(int price, int limitUpPrice,
-                                              long totalBuyVolume, long totalSellVolume) {
-        // 调用小市值首板尾盘集合竞价卖出规则。
-        return AuctionEvaluator.evaluateClosingSell(
-                price, limitUpPrice, totalBuyVolume, totalSellVolume);
+        return ShenzhenAuctionBuyEvaluator.evaluateSnapshotCancel(price, limitUpPrice);
     }
 
 }
+

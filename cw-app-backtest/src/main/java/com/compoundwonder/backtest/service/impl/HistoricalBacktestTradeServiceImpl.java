@@ -10,6 +10,7 @@ import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.entity.StockTradeCalendar;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.strategy.sell.BreakBoardNextOpenSellPolicy;
 import com.compoundwonder.trader.entity.BacktestDailyRecord;
 import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
@@ -252,7 +253,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         BacktestDailyRecord dailyRecord = buildDailyRecord(tradeDate, account);
         if (newPosition != null) {
             account.positionBuyKlineState = dailyRecord.getKlineState();
-            if (isLimitUpBreakState(dailyRecord.getKlineState())) {
+            if (BreakBoardNextOpenSellPolicy.shouldSellAtNextOpen(dailyRecord.getKlineState())) {
                 account.limitUpBreakCount++;
             }
         }
@@ -473,7 +474,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     private RuleRecordDTO createBreakBoardNextOpenSellRule(BacktestPosition position,
                                                             LocalDate tradeDate,
                                                             Integer buyKlineState) {
-        if (!tradeDate.isAfter(position.getBuyDate()) || !isLimitUpBreakState(buyKlineState)) {
+        if (!tradeDate.isAfter(position.getBuyDate())
+                || !BreakBoardNextOpenSellPolicy.shouldSellAtNextOpen(buyKlineState)) {
             return null;
         }
 
@@ -492,10 +494,6 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         rule.setRemark("回测卖出 - 买入日炸板，下一交易日按开盘价成交；买入日K线状态="
                 + buyKlineState);
         return rule;
-    }
-
-    private boolean isLimitUpBreakState(Integer klineState) {
-        return klineState != null && klineState >= 11 && klineState <= 13;
     }
 
     private RuleRecordDTO overnightBuyRule(BacktestReplayResult result, Double dailyTurnover) {

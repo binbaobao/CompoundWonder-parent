@@ -1,43 +1,44 @@
 # cw-core-trading-strategy
 
-该模块保存与数据库、ClickHouse、Disruptor 和券商接口无关的选股及交易规则。
+`cw-core-trading-strategy` 只负责选股规则与交易信号判断。它不查询数据库、不修改订单簿，也不发送券商委托。实盘和回测应用都通过 `cw-common` 的接口调用本模块，因此两种运行环境使用同一套规则代码。
 
 ## 模块边界
 
 - `cw-common`：按来源模块划分接口与中立数据对象，不能依赖任何实现模块。
-- `cw-mysql-data`：实现 common 中的原始选股数据接口；选股完成后只负责转换实体和落库。
-- `cw-core-order-book`：维护 Handler 私有订单簿，通过 common 接口调用交易规则，不依赖策略实现。
-- `cw-core-trading-strategy`：完整拥有三种模式的选股、买入、卖出和撤单规则；只依赖 common。
-- `cw-app-live`、`cw-app-backtest`：组装根，负责把数据、策略、订单簿和交易出口实现组合起来。
+- `cw-mysql-data`：实现 common 中的原始选股数据接口；选股完成后只负责实体转换和落库。
+- `cw-core-order-book`：维护 Handler 私有订单簿，通过 common 接口调用规则，不依赖策略实现。
+- `cw-core-trading-strategy`：完整拥有三种模式的选股、买入、撤单，以及按板高和市值划分的卖出规则；只依赖 common。
+- `cw-app-live`、`cw-app-backtest`：组装根，负责组合数据、策略、订单簿和交易出口实现。
 
-除 app 组装根外，功能模块之间禁止直接依赖；跨模块调用必须经过 `cw-common` 接口。
+除两个 app 组装根外，功能模块之间禁止直接依赖；跨模块调用必须经过 `cw-common` 接口。
 
-## 三种模式
+三个买入模式各自拥有独立的 `selection` 和 `trade` 包，禁止模式之间调用实现。持仓卖出不属于任何买入模式，统一放在 `strategy/sell` 下。
 
-每种模式都拥有独立的 `selection` 和 `trade` 包，禁止模式之间调用选股或交易实现：
+## 买入场景
 
-```text
-strategy
-├── relay
-│   ├── selection   # mode=1 连板接力
-│   └── trade       # 独立买入、卖出、撤单规则
-├── firstboard
-│   ├── selection   # mode=2 普通首板
-│   └── trade
-└── smallcapfirstboard
-    ├── selection   # mode=3 小市值首板
-    └── trade
-```
+买入由订单簿的 `tradeMode` 固定分发：
 
-当前三套交易代码由原统一 evaluator 和两个市场 Handler 中的交易判断完整复制，行为保持一致，包含
-连续竞价买入、盘口卖出、分钟均价卖出、盘中撤单，以及上海/深圳集合竞价买入、撤单和尾盘卖出。
-后续优化某种模式时，只修改该模式包。
+| tradeMode | 模式 | 上海集合竞价 | 深圳集合竞价 | 09:31 后连续竞价 |
+|---|---|---|---|---|
+| 1 | 连板 | `relay/trade/ShanghaiAuctionBuyEvaluator` | `relay/trade/ShenzhenAuctionBuyEvaluator` | `relay/trade/ContinuousLimitUpBuyEvaluator` |
+| 2 | 普通首板 | `firstboard/trade/ShanghaiAuctionBuyEvaluator` | `firstboard/trade/ShenzhenAuctionBuyEvaluator` | `firstboard/trade/ContinuousLimitUpBuyEvaluator` |
+| 3 | 小市值首板 | `smallcapfirstboard/trade/ShanghaiAuctionBuyEvaluator` | `smallcapfirstboard/trade/ShenzhenAuctionBuyEvaluator` | `smallcapfirstboard/trade/ContinuousLimitUpBuyEvaluator` |
 
-## 高频调用
+集合竞价撤单与对应市场的集合竞价买入放在同一文件，因为两者共享撮合价、买卖总量和挂单状态。盘中撤单仍由各模式的 `ConditionEvaluatorCancel` 管理。
 
-`OrderBook.tradeMode` 保存任务或持仓的稳定模式编号。Handler 调用 `TradeStrategyDispatcher`，分发器只用
-`switch` 选择预创建的策略实例；热路径不使用 Map、反射、Spring Bean 查询或临时快照对象。
+## 卖出场景
 
-规则记录通过 common 的 `TradeRuleRecord` 写入订单簿预分配缓冲区，策略只读取 common 的
-`TradeMarketState`，因此不会破坏
-Handler 私有订单簿的线程模型。
+卖出不读取历史买入 `tradeMode`。`SellStrategyDispatcher` 先按订单簿 `lbcs` 判断“2进3”至“8进9”或更高板，再由每个板高类按启动流通市值分档：
+
+- 小市值：`initialMarketValue < 119999` 万元。
+- 普通市值：`initialMarketValue >= 119999` 万元。
+- 每个板高类都显式保留四个修改入口：小市值盘口、普通市值盘口、小市值分钟均价、普通市值分钟均价。
+- 当前四个入口先调用 `LegacySellRules`，保持拆分前的阈值、规则优先级、规则编号和日志内容不变。后续按回测结果逐个替换，不修改总分发器。
+
+收盘集合竞价由 `ClosingAuctionSellEvaluator` 独立处理。买入日炸板后次日按开盘价卖出的回测特例由 `BreakBoardNextOpenSellPolicy` 判断，执行时间仍为集合竞价结束的 09:25，不进入 09:31 盘中卖出规则。
+
+不建立“常规早盘低开立即卖出”场景。现有分钟走势规则仍按原优先级保留，本次结构拆分不主动修改任何已有卖出条件。
+
+## 高频路径约束
+
+所有分发器都持有常驻策略实例并使用直接 `switch`。热路径不使用反射、Map、Spring Bean 查找，也不为每条 Tick 创建策略上下文对象。订单簿只保存 `tradeMode`、`lbcs`、启动市值等状态，不保存策略实现引用。

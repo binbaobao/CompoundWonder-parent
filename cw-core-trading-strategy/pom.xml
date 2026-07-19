@@ -11,7 +11,7 @@
 
     <artifactId>cw-core-trading-strategy</artifactId>
     <name>cw-core-trading-strategy</name>
-    <description>三种交易模式各自独立的选股、买入、卖出与撤单规则</description>
+    <description>三种模式独立选股与买入、按板高和市值独立分发卖出的交易策略模块</description>
 
     <dependencies>
         <dependency>

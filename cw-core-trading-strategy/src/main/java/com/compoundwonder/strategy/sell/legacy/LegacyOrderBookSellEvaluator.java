@@ -1,4 +1,4 @@
-package com.compoundwonder.strategy.relay.trade;
+package com.compoundwonder.strategy.sell.legacy;
 
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
@@ -8,14 +8,14 @@ import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 基于涨停状态、封单变化和换手率的卖出条件。
+ * 场景拆分前的涨停状态、封单变化和换手率卖出规则。
  *
  * <p>条件按优先级顺序执行，首个命中的条件会生成规则记录并结束本轮评估。</p>
  */
 @Slf4j
-final class LimitUpSellEvaluator {
+public final class LegacyOrderBookSellEvaluator {
 
-    private LimitUpSellEvaluator() {
+    private LegacyOrderBookSellEvaluator() {
     }
 
     /**
@@ -25,7 +25,7 @@ final class LimitUpSellEvaluator {
      * @param ruleRecord 调用方预分配的规则记录
      * @return 命中任意涨停盘口卖出规则时返回 {@code true}
      */
-    static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
+    public static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
         // 当日截至当前时刻的累计换手率，单位：%。
@@ -248,3 +248,4 @@ final class LimitUpSellEvaluator {
         return true;
     }
 }
+

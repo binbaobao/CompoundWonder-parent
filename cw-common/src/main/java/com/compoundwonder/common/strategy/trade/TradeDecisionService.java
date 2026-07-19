@@ -16,7 +16,7 @@ public interface TradeDecisionService {
     boolean evaluateBuy(TradeMarketState market, TradeRuleRecord record);
 
     /**
-     * 判断盘口、涨停封单和炸板相关的盘中卖出规则。
+     * 按昨日板高和启动流通市值，判断盘口、涨停封单和炸板相关的盘中卖出规则。
      *
      * @param market Handler 私有订单簿提供的只读市场状态
      * @param record 命中规则后写入的预分配记录对象
@@ -25,7 +25,7 @@ public interface TradeDecisionService {
     boolean evaluateSell(TradeMarketState market, TradeRuleRecord record);
 
     /**
-     * 判断基于分钟最新价和分钟均价序列的卖出规则。
+     * 按昨日板高和启动流通市值，判断基于分钟最新价和分钟均价序列的卖出规则。
      *
      * @param calculateIndex 当前有效分钟槽位下标
      * @param market Handler 私有订单簿提供的只读市场状态
@@ -139,7 +139,7 @@ public interface TradeDecisionService {
                                              int price, int limitUpPrice);
 
     /**
-     * 判断收盘集合竞价是否应快速卖出。
+     * 判断收盘集合竞价是否应快速卖出；该场景不依赖买入模式和板高分发。
      *
      * @param market Handler 私有订单簿提供的只读市场状态
      * @param price 收盘竞价价格，整数价格口径为元乘以 100

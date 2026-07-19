@@ -16,7 +16,9 @@ public interface TradeMarketState {
     /** @return 涨停状态变更序号；奇数表示封板中，偶数表示未封板或已炸板 */
     int getStatus();
 
-    /** @return 初始化订单簿时传入的连续涨停天数 */
+    /**
+     * @return 初始化订单簿时传入的昨日连续涨停高度；卖出分发中 2 表示今日处于 2 进 3
+     */
     int getLbcs();
 
     /** @return 当前已处理行情时间，格式为 {@code HHmmssSSS} */

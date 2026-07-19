@@ -1,4 +1,4 @@
-package com.compoundwonder.strategy.smallcapfirstboard.trade;
+package com.compoundwonder.strategy.sell.legacy;
 
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
@@ -8,14 +8,14 @@ import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 基于分钟价格和均价走势的卖出条件。
+ * 场景拆分前的分钟价格和均价走势卖出规则。
  *
  * <p>条件按优先级顺序执行，首个命中的条件会生成规则记录并结束本轮评估。</p>
  */
 @Slf4j
-final class AveragePriceSellEvaluator {
+public final class LegacyAveragePriceSellEvaluator {
 
-    private AveragePriceSellEvaluator() {
+    private LegacyAveragePriceSellEvaluator() {
     }
 
     /**
@@ -26,7 +26,7 @@ final class AveragePriceSellEvaluator {
      * @param ruleRecord 调用方预分配的规则记录
      * @return 命中任意分钟走势卖出规则时返回 {@code true}
      */
-    static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
+    public static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
         // 当日截至当前时刻的累计换手率，单位：%。
@@ -265,3 +265,4 @@ final class AveragePriceSellEvaluator {
         return true;
     }
 }
+
