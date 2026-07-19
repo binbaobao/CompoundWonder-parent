@@ -2,6 +2,7 @@ package com.compoundwonder.strategy;
 
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 
 /**
  * 单一买入模式的交易判断契约。
@@ -28,30 +29,30 @@ public interface BuyStrategy {
     /**
      * 上海早盘集合竞价买入。价格单位为分，数量单位为股，金额单位为万元。
      *
-     * @return 0 表示不触发，否则返回稳定规则编号
+     * @return 命中规则并完成记录填充时返回 {@code true}
      */
-    int evaluateShanghaiAuctionBuy(int time, int price, int limitUpPrice,
-                                   long totalBuyVolume, long totalSellVolume,
-                                   long requiredBuyVolume, long limitUpBuyAmount);
+    boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
+                                       int recordTime, TradeRuleRecord record);
 
-    /** 上海早盘集合竞价撤单；返回 0 表示保留挂单，否则返回稳定撤单规则编号。 */
-    int evaluateShanghaiAuctionCancel(int price, int limitUpPrice,
-                                      long totalBuyVolume, long totalSellVolume,
-                                      long requiredBuyVolume);
+    /** 上海早盘集合竞价撤单；命中规则并完成记录填充时返回 {@code true}。 */
+    boolean evaluateShanghaiAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
+                                          int recordTime, TradeRuleRecord record);
 
     /**
      * 深圳逐笔委托驱动的早盘集合竞价买入。价格单位为分，数量和流通股本单位为股，
-     * 金额单位为万元；返回 0 表示不触发，否则返回稳定规则编号。
+     * 金额单位为万元；命中规则并完成记录填充时返回 {@code true}。
      */
-    int evaluateShenzhenAuctionBuy(byte dataType, int price, int limitUpPrice,
-                                  int orderQuantity, long limitUpBuyVolume,
-                                  long totalSellVolume, long requiredBuyVolume,
-                                  long limitUpBuyAmount, long circulation);
+    boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
+                                      int recordTime, long limitUpBuyVolume,
+                                      long totalSellVolume, TradeRuleRecord record);
 
-    /** 深圳逐笔委托驱动的早盘集合竞价撤单；返回 0 表示保留挂单。 */
-    int evaluateShenzhenAuctionCancel(long limitUpBuyVolume, long totalSellVolume,
-                                     long requiredBuyVolume);
+    /** 深圳逐笔委托驱动的早盘集合竞价撤单；命中时返回 {@code true}。 */
+    boolean evaluateShenzhenAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
+                                         int recordTime, long limitUpBuyVolume,
+                                         long totalSellVolume, TradeRuleRecord record);
 
-    /** 深圳快照撮合价驱动的补充撤单判断；返回 0 表示保留挂单。 */
-    int evaluateShenzhenSnapshotAuctionCancel(int price, int limitUpPrice);
+    /** 深圳快照撮合价驱动的补充撤单判断；命中时返回 {@code true}。 */
+    boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
+                                                  AuctionMarketEvent event,
+                                                  int recordTime, TradeRuleRecord record);
 }

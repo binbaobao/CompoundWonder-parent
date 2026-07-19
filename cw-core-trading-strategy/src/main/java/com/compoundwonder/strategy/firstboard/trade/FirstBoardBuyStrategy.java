@@ -1,5 +1,6 @@
 package com.compoundwonder.strategy.firstboard.trade;
 
+import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.strategy.BuyStrategy;
@@ -37,47 +38,45 @@ public final class FirstBoardBuyStrategy implements BuyStrategy {
     }
 
     @Override
-    public int evaluateShanghaiAuctionBuy(int time, int price, int limitUpPrice,
-                                          long totalBuyVolume, long totalSellVolume,
-                                          long requiredBuyVolume, long limitUpBuyAmount) {
-        // 调用普通首板上海集合竞价买入规则。
-        return ShanghaiAuctionBuyEvaluator.evaluateBuy(time, price, limitUpPrice,
-                totalBuyVolume, totalSellVolume, requiredBuyVolume, limitUpBuyAmount);
+    public boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
+                                              int recordTime, TradeRuleRecord record) {
+        // 调用当前模式上海集合竞价买入规则。
+        return ShanghaiAuctionBuyEvaluator.evaluateBuy(market, event, recordTime, record);
     }
 
     @Override
-    public int evaluateShanghaiAuctionCancel(int price, int limitUpPrice,
-                                             long totalBuyVolume, long totalSellVolume,
-                                             long requiredBuyVolume) {
-        // 调用普通首板上海集合竞价撤单规则。
-        return ShanghaiAuctionBuyEvaluator.evaluateCancel(price, limitUpPrice,
-                totalBuyVolume, totalSellVolume, requiredBuyVolume);
+    public boolean evaluateShanghaiAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
+                                                 int recordTime, TradeRuleRecord record) {
+        // 调用当前模式上海集合竞价撤单规则。
+        return ShanghaiAuctionBuyEvaluator.evaluateCancel(market, event, recordTime, record);
     }
 
     @Override
-    public int evaluateShenzhenAuctionBuy(byte dataType, int price, int limitUpPrice,
-                                         int orderQuantity, long limitUpBuyVolume,
-                                         long totalSellVolume, long requiredBuyVolume,
-                                         long limitUpBuyAmount, long circulation) {
-        // 调用普通首板深圳集合竞价买入规则。
-        return ShenzhenAuctionBuyEvaluator.evaluateBuy(dataType, price, limitUpPrice,
-                orderQuantity, limitUpBuyVolume, totalSellVolume, requiredBuyVolume,
-                limitUpBuyAmount, circulation);
+    public boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
+                                              int recordTime, long limitUpBuyVolume,
+                                              long totalSellVolume, TradeRuleRecord record) {
+        // 调用当前模式深圳集合竞价买入规则。
+        return ShenzhenAuctionBuyEvaluator.evaluateBuy(
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override
-    public int evaluateShenzhenAuctionCancel(long limitUpBuyVolume, long totalSellVolume,
-                                            long requiredBuyVolume) {
-        // 调用普通首板深圳集合竞价撤单规则。
+    public boolean evaluateShenzhenAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
+                                                 int recordTime, long limitUpBuyVolume,
+                                                 long totalSellVolume, TradeRuleRecord record) {
+        // 调用当前模式深圳逐笔集合竞价撤单规则。
         return ShenzhenAuctionBuyEvaluator.evaluateCancel(
-                limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override
-    public int evaluateShenzhenSnapshotAuctionCancel(int price, int limitUpPrice) {
-        // 调用普通首板深圳快照集合竞价撤单规则。
-        return ShenzhenAuctionBuyEvaluator.evaluateSnapshotCancel(price, limitUpPrice);
+    public boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
+                                                         AuctionMarketEvent event,
+                                                         int recordTime,
+                                                         TradeRuleRecord record) {
+        // 调用当前模式深圳快照集合竞价撤单规则。
+        return ShenzhenAuctionBuyEvaluator.evaluateSnapshotCancel(
+                market, event, recordTime, record);
     }
-
 }
 

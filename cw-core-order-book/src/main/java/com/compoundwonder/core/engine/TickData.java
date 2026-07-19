@@ -1,13 +1,14 @@
 package com.compoundwonder.core.engine;
 
 
+import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.util.HighPrecisionClock;
 
 /**
  * 逐笔数据
  * 逐笔委托或逐笔成交数据
  */
-public class TickData {
+public class TickData implements AuctionMarketEvent {
     // --- Padding 1: 隔离对象头 ---
     protected long p1, p2, p3;
     // --- 4字节区 (8个int, 总共32字节, 完美对齐) ---
@@ -80,6 +81,41 @@ public class TickData {
     // 因为前面数据区(32 + 3 = 35字节) + 对象头(12/16字节)
     // 我们需要补齐到 64 字节的倍数
     protected long p8, p9, p10;
+
+    @Override
+    public byte getDataType() {
+        return dataType;
+    }
+
+    @Override
+    public int getTime() {
+        return time;
+    }
+
+    @Override
+    public int getPrice() {
+        return price;
+    }
+
+    @Override
+    public int getQuantity() {
+        return quantity;
+    }
+
+    @Override
+    public int getOrderId() {
+        return orderId;
+    }
+
+    @Override
+    public int getBuyerOrderId() {
+        return buyerOrderId;
+    }
+
+    @Override
+    public int getSellerOrderId() {
+        return sellerOrderId;
+    }
 
     @Override
     public String toString() {

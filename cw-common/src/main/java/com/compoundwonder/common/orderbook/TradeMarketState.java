@@ -42,6 +42,9 @@ public interface TradeMarketState {
     /** @return 当日涨停价，整数价格口径为元乘以 100 */
     int getLimitUpPrice();
 
+    /** @return 当日跌停价，整数价格口径为元乘以 100 */
+    int getLimitDownPrice();
+
     /** @return 集合竞价确定的当日开盘价，整数价格口径为元乘以 100 */
     int getOpenPrice();
 

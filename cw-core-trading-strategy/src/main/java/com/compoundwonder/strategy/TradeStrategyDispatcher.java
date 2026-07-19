@@ -2,11 +2,13 @@ package com.compoundwonder.strategy;
 
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.strategy.firstboard.trade.FirstBoardBuyStrategy;
 import com.compoundwonder.strategy.relay.trade.RelayBuyStrategy;
-import com.compoundwonder.strategy.sell.ClosingAuctionSellEvaluator;
+import com.compoundwonder.strategy.sell.ShanghaiClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.sell.SellStrategyDispatcher;
+import com.compoundwonder.strategy.sell.ShenzhenClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.smallcapfirstboard.trade.SmallCapFirstBoardBuyStrategy;
 
 /**
@@ -59,55 +61,67 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
     }
 
     @Override
-    public int evaluateShanghaiAuctionBuy(TradeMarketState market, int time, int price,
-                                          int limitUpPrice, long totalBuyVolume,
-                                          long totalSellVolume, long requiredBuyVolume,
-                                          long limitUpBuyAmount) {
-        return buyStrategy(market.getTradeMode()).evaluateShanghaiAuctionBuy(
-                time, price, limitUpPrice, totalBuyVolume, totalSellVolume,
-                requiredBuyVolume, limitUpBuyAmount);
-    }
-
-    @Override
-    public int evaluateShanghaiAuctionCancel(TradeMarketState market, int price,
-                                             int limitUpPrice, long totalBuyVolume,
-                                             long totalSellVolume, long requiredBuyVolume) {
-        return buyStrategy(market.getTradeMode()).evaluateShanghaiAuctionCancel(
-                price, limitUpPrice, totalBuyVolume, totalSellVolume, requiredBuyVolume);
-    }
-
-    @Override
-    public int evaluateShenzhenAuctionBuy(TradeMarketState market, byte dataType,
-                                         int price, int limitUpPrice, int orderQuantity,
-                                         long limitUpBuyVolume, long totalSellVolume,
-                                         long requiredBuyVolume, long limitUpBuyAmount,
-                                         long circulation) {
-        return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionBuy(
-                dataType, price, limitUpPrice, orderQuantity, limitUpBuyVolume,
-                totalSellVolume, requiredBuyVolume, limitUpBuyAmount, circulation);
-    }
-
-    @Override
-    public int evaluateShenzhenAuctionCancel(TradeMarketState market,
-                                            long limitUpBuyVolume, long totalSellVolume,
-                                            long requiredBuyVolume) {
-        return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionCancel(
-                limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
-    }
-
-    @Override
-    public int evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
-                                                     int price, int limitUpPrice) {
+    public boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
+                                              int recordTime, TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode())
-                .evaluateShenzhenSnapshotAuctionCancel(price, limitUpPrice);
+                .evaluateShanghaiAuctionBuy(market, event, recordTime, record);
     }
 
     @Override
-    public boolean evaluateClosingAuctionSell(TradeMarketState market, int price,
-                                              int limitUpPrice, long totalBuyVolume,
-                                              long totalSellVolume) {
-        return ClosingAuctionSellEvaluator.evaluate(
-                price, limitUpPrice, totalBuyVolume, totalSellVolume);
+    public boolean evaluateShanghaiAuctionCancel(TradeMarketState market,
+                                                 AuctionMarketEvent event,
+                                                 int recordTime, TradeRuleRecord record) {
+        return buyStrategy(market.getTradeMode())
+                .evaluateShanghaiAuctionCancel(market, event, recordTime, record);
+    }
+
+    @Override
+    public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
+                                              AuctionMarketEvent event,
+                                              int recordTime,
+                                              long limitUpBuyVolume,
+                                              long totalSellVolume,
+                                              TradeRuleRecord record) {
+        return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionBuy(
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+    }
+
+    @Override
+    public boolean evaluateShenzhenAuctionCancel(TradeMarketState market,
+                                                 AuctionMarketEvent event,
+                                                 int recordTime,
+                                                 long limitUpBuyVolume,
+                                                 long totalSellVolume,
+                                                 TradeRuleRecord record) {
+        return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionCancel(
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+    }
+
+    @Override
+    public boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
+                                                         AuctionMarketEvent event,
+                                                         int recordTime,
+                                                         TradeRuleRecord record) {
+        return buyStrategy(market.getTradeMode())
+                .evaluateShenzhenSnapshotAuctionCancel(market, event, recordTime, record);
+    }
+
+    @Override
+    public boolean evaluateShanghaiClosingAuctionSell(TradeMarketState market,
+                                                      AuctionMarketEvent event,
+                                                      int recordTime,
+                                                      TradeRuleRecord record) {
+        return ShanghaiClosingAuctionSellEvaluator.evaluate(
+                market, event, recordTime, record);
+    }
+
+    @Override
+    public boolean evaluateShenzhenClosingAuctionSell(TradeMarketState market,
+                                                      AuctionMarketEvent event,
+                                                      int recordTime,
+                                                      TradeRuleRecord record) {
+        return ShenzhenClosingAuctionSellEvaluator.evaluate(
+                market, event, recordTime, record);
     }
 
     /**

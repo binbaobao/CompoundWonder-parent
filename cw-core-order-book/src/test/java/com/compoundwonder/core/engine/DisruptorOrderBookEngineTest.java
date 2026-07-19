@@ -2,6 +2,7 @@ package com.compoundwonder.core.engine;
 
 import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
@@ -421,46 +422,62 @@ class DisruptorOrderBookEngineTest {
         }
 
         @Override
-        public int evaluateShanghaiAuctionBuy(TradeMarketState market, int time, int price,
-                                              int limitUpPrice, long totalBuyVolume,
-                                              long totalSellVolume, long requiredBuyVolume,
-                                              long limitUpBuyAmount) {
-            return 0;
+        public boolean evaluateShanghaiAuctionBuy(TradeMarketState market,
+                                                  AuctionMarketEvent event,
+                                                  int recordTime,
+                                                  TradeRuleRecord record) {
+            return false;
         }
 
         @Override
-        public int evaluateShanghaiAuctionCancel(TradeMarketState market, int price,
-                                                 int limitUpPrice, long totalBuyVolume,
-                                                 long totalSellVolume, long requiredBuyVolume) {
-            return 0;
+        public boolean evaluateShanghaiAuctionCancel(TradeMarketState market,
+                                                     AuctionMarketEvent event,
+                                                     int recordTime,
+                                                     TradeRuleRecord record) {
+            return false;
         }
 
         @Override
-        public int evaluateShenzhenAuctionBuy(TradeMarketState market, byte dataType,
-                                             int price, int limitUpPrice, int orderQuantity,
-                                             long limitUpBuyVolume, long totalSellVolume,
-                                             long requiredBuyVolume, long limitUpBuyAmount,
-                                             long circulation) {
-            return 0;
+        public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
+                                                 AuctionMarketEvent event,
+                                                 int recordTime,
+                                                 long limitUpBuyVolume,
+                                                 long totalSellVolume,
+                                                 TradeRuleRecord record) {
+            return false;
         }
 
         @Override
-        public int evaluateShenzhenAuctionCancel(TradeMarketState market,
-                                                long limitUpBuyVolume, long totalSellVolume,
-                                                long requiredBuyVolume) {
-            return 0;
+        public boolean evaluateShenzhenAuctionCancel(TradeMarketState market,
+                                                    AuctionMarketEvent event,
+                                                    int recordTime,
+                                                    long limitUpBuyVolume,
+                                                    long totalSellVolume,
+                                                    TradeRuleRecord record) {
+            return false;
         }
 
         @Override
-        public int evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
-                                                        int price, int limitUpPrice) {
-            return 0;
+        public boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
+                                                            AuctionMarketEvent event,
+                                                            int recordTime,
+                                                            TradeRuleRecord record) {
+            return false;
         }
 
         @Override
-        public boolean evaluateClosingAuctionSell(TradeMarketState market, int price,
-                                                  int limitUpPrice, long totalBuyVolume,
-                                                  long totalSellVolume) {
+        public boolean evaluateShanghaiClosingAuctionSell(TradeMarketState market,
+                                                          AuctionMarketEvent event,
+                                                          int recordTime,
+                                                          TradeRuleRecord record) {
+            return true;
+        }
+
+        @Override
+        public boolean evaluateShenzhenClosingAuctionSell(TradeMarketState market,
+                                                          AuctionMarketEvent event,
+                                                          int recordTime,
+                                                          TradeRuleRecord record) {
             return true;
         }
     }

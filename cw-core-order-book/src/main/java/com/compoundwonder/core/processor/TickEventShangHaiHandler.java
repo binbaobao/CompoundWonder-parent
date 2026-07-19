@@ -1,10 +1,7 @@
 package com.compoundwonder.core.processor;
 
 
-import cn.hutool.core.util.StrUtil;
-
 import com.compoundwonder.constant.ConstantUtil;
-import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.RuleRecordBuffer;
 import com.compoundwonder.core.engine.TickNode;
@@ -133,75 +130,51 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
             order.time3 = System.nanoTime();
             return;
         } else if (order.dataType == 4) {
-            // 集合竞价下单只适合小市值股票
             // 上交所集合竞价期间用三秒一次的快照数据 || ConstantUtil.TIME_1457 <= order.time
             if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
                 if (order.time > ConstantUtil.TIME_920) {
                     orderBook.updateLowestPrice(order.price);
                 }
-                // 涨停价格 && transStatus >= 1 && transStatus <= 2
-                int limitUpPrice = orderBook.getLimitUpPrice();
-                // 总涨停买 金额 单位 W
-                long limitUpBuyAmount = order.buyerOrderId / 100L * limitUpPrice / 10000L;
-                int marketValue = orderBook.getInitialMarketValue();
-                long circulation = orderBook.getCirculation();
-                double increase = (order.price - orderBook.getClosePrice()) * 100.0 / orderBook.getClosePrice();
-                // 流通值的 5% 或者是最大换手的 20%，谁小用谁 , 20/5=4,15/5=3,12/5=2.4
-                long buyVolume = marketValue < 120000 ? Math.min(circulation / 20, orderBook.getMaxVolume() / 5):circulation / 20 + order.sellerOrderId;
-                // 调用当前模式上海集合竞价买入规则。
-                int auctionBuyRule = transStatus == 1
-                        ? tradeDecisionService.evaluateShanghaiAuctionBuy(
-                        orderBook, order.time, order.price, limitUpPrice,
-                        order.buyerOrderId, order.sellerOrderId, buyVolume, limitUpBuyAmount)
-                        : 0;
-                if (auctionBuyRule != 0) {
+                if (transStatus == 1) {
                     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                    executionGateway.buy(orderBook.getDate(), order.symbolId,
-                            orderBook.getLimitUpPrice(), order.time);
-                    orderBook.setTransactionStatus(2);
-                    String remark = StrUtil.format("买入 - 上午早盘竞价 {}，涨停总买占最大成交 {} % 股票代码 {},涨停总买量 {} 手,占流通股:{} %，涨停总买:{} W,", order.time, order.buyerOrderId * 100.0 / orderBook.getMaxVolume(), order.symbolId, order.buyerOrderId, order.buyerOrderId * 100.0 / circulation, limitUpBuyAmount);
-                    log.info(remark);
-                    ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, auctionBuyRule,
-                            orderBook.getSymbol(), time, limitUpPrice, increase, remark);
-                    ruleRecordBuffer.commit();
-                    transStatus = 2;
-                }
-                // 盯盘卖出状态下。尾盘竞价盯盘，最后几秒判断是否是涨停 上海 后期要设置一个 145958 的定时任务去检查订单簿的状态
-                if (transStatus == -1 && ConstantUtil.TIME_1459 <= order.time && ConstantUtil.TIME_1500 > order.time) {
-                    // 如果竞价价格比涨停价格低 或者竞价买小于竞价卖
-                    // 调用当前模式尾盘集合竞价卖出规则。
-                    if (tradeDecisionService.evaluateClosingAuctionSell(
-                            orderBook, order.price, orderBook.getLimitUpPrice(),
-                            order.buyerOrderId, order.sellerOrderId)) {
-                        executionGateway.sell(orderBook.getSymbol(), orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
-                        String remark = StrUtil.format("卖出 - 尾盘 {} 竞价 ： 如果竞价价格 {} 比涨停价格低 {} 或者竞价买 {} 小于竞价卖 {}, 股票代码 {} 以跌停价格 {} 卖出", order.time, order.price, orderBook.getLimitUpPrice(), order.buyerOrderId, order.sellerOrderId, orderBook.getSymbol(), orderBook.getLimitDownPrice());
-                        log.info(remark);
-                        orderBook.setTransactionStatus(-2);
-                        transStatus = -2;
-                        RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                        ruleRecord.fill(RuleConstant.TRADING_MODE_SELL, 1, orderBook.getSymbol(), time, order.price, increase, remark);
+                    // 调用当前模式上海集合竞价买入规则。
+                    if (tradeDecisionService.evaluateShanghaiAuctionBuy(
+                            orderBook, order, time, ruleRecord)) {
+                        executionGateway.buy(orderBook.getDate(), order.symbolId,
+                                orderBook.getLimitUpPrice(), order.time);
+                        orderBook.setTransactionStatus(2);
                         ruleRecordBuffer.commit();
+                        transStatus = 2;
                     }
                 }
 
-                // 如果是下单状态，在 9:19:56:500 之后判断是否撤单。总涨停买如果小于 4.5% 则撤单
-                if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
+                if (transStatus == -1
+                        && ConstantUtil.TIME_1459 <= order.time
+                        && ConstantUtil.TIME_1500 > order.time) {
+                    RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
+                    // 调用上海尾盘集合竞价卖出规则。
+                    if (tradeDecisionService.evaluateShanghaiClosingAuctionSell(
+                            orderBook, order, time, ruleRecord)) {
+                        executionGateway.sell(orderBook.getSymbol(),
+                                orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
+                        orderBook.setTransactionStatus(-2);
+                        ruleRecordBuffer.commit();
+                        transStatus = -2;
+                    }
+                }
+
+                // 上海竞价撤单观察窗口由 Handler 控制；具体撤单条件和原业务注释已迁入场景类。
+                if (transStatus == 2
+                        && order.time < ConstantUtil.TIME_920
+                        && order.time > ConstantUtil.TIME_91530) {
                     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                     // 调用当前模式上海集合竞价撤单规则；价格不匹配规则优先于封单减弱规则。
-                    int auctionCancelRule = tradeDecisionService.evaluateShanghaiAuctionCancel(
-                            orderBook, order.price, orderBook.getLimitUpPrice(),
-                            order.buyerOrderId, order.sellerOrderId, buyVolume);
-                    if (auctionCancelRule != 0) {
+                    if (tradeDecisionService.evaluateShanghaiAuctionCancel(
+                            orderBook, order, time, ruleRecord)) {
                         executionGateway.cancel(orderBook.getSymbol());
                         orderBook.setTransactionStatus(1);
-                        String remark = auctionCancelRule == 1
-                                ? StrUtil.format("撤单 - 早盘竞价 {}，股票代码:{} 竞价 {} 不等于涨停价 {} 直接撤单", order.time, order.symbolId, order.price, orderBook.getLimitUpPrice())
-                                : StrUtil.format("撤单 - 早盘竞价 {}，股票代码:{} 竞价 {} 买单占最大换手 {} % ,占流通股:{} %", order.time, order.symbolId, order.price, order.buyerOrderId * 100.0 / orderBook.getMaxVolume(), order.buyerOrderId * 100.0 / circulation);
-                        log.info(remark);
-                        transStatus = 1;
-                        ruleRecord.fill(RuleConstant.TRADING_MODE_CANCEL, auctionCancelRule,
-                                orderBook.getSymbol(), time, order.price, increase, remark);
                         ruleRecordBuffer.commit();
+                        transStatus = 1;
                     }
                 }
             } else if (order.time < ConstantUtil.TIME_1457) {
