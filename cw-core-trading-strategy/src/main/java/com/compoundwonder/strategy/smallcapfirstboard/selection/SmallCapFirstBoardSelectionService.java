@@ -33,16 +33,26 @@ public class SmallCapFirstBoardSelectionService {
 
     private final StockSelectionDataService selectionDataService;
 
+    /** @param selectionDataService 小市值首板需要的只读选股数据端口 */
     public SmallCapFirstBoardSelectionService(StockSelectionDataService selectionDataService) {
         this.selectionDataService = selectionDataService;
     }
 
-    /** 判断该启动流通市值是否归小市值首板模式所有。 */
+    /**
+     * 判断启动流通市值是否归小市值首板模式所有。
+     *
+     * @param startMarketCap 首板前一交易日收盘流通市值，单位：万元
+     */
     public static boolean ownsStartMarketCap(double startMarketCap) {
         return startMarketCap < MAX_START_MARKET_CAP_EXCLUSIVE;
     }
 
-    /** 执行小市值首板选股并返回 mode=3 的中立任务结果。 */
+    /**
+     * 执行小市值首板候选查询、指标构建、过滤、评分和 Top2 截断。
+     *
+     * @param tradeDate 选股所依据的收盘交易日
+     * @return {@code tradeMode=3} 的下一交易日盯盘任务
+     */
     public List<SelectionTaskData> select(LocalDate tradeDate) {
         // 调用小市值首板基础候选查询方法。
         List<StockDailyData> dailyList = listBaseCandidates(tradeDate);
@@ -63,6 +73,7 @@ public class SmallCapFirstBoardSelectionService {
         return tasks;
     }
 
+    /** 查询选股日涨幅小于 11%、流通市值小于 30 亿元的非 ST 首板基础池。 */
     private List<StockDailyData> listBaseCandidates(LocalDate tradeDate) {
         return selectionDataService.listDailyByTradeDate(tradeDate).stream()
                 .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
@@ -73,10 +84,12 @@ public class SmallCapFirstBoardSelectionService {
                 .toList();
     }
 
+    /** 查询选股日仍有有效可转债的正股代码。 */
     private Set<String> listConvertibleBondStockCodes(LocalDate tradeDate) {
         return selectionDataService.listConvertibleBondStockCodes(tradeDate);
     }
 
+    /** 从基础池排除有效可转债正股，并逐只记录过滤原因。 */
     private List<StockDailyData> filterConvertibleBondStocks(
             List<StockDailyData> dailyList,
             Set<String> convertibleBondStockCodes) {
@@ -90,6 +103,7 @@ public class SmallCapFirstBoardSelectionService {
         }).toList();
     }
 
+    /** 逐只执行小市值首板核心策略，仅把通过候选转换为盯盘任务。 */
     private List<SelectionTaskData> selectEligibleTasks(
             List<SmallCapFirstBoardSelectionAssist> assistList) {
         List<SelectionTaskData> result = new ArrayList<>();
@@ -107,6 +121,7 @@ public class SmallCapFirstBoardSelectionService {
         return result;
     }
 
+    /** 将可变辅助对象压缩为核心策略只读候选。 */
     private SmallCapFirstBoardSelectionCandidate toSelectionCandidate(
             SmallCapFirstBoardSelectionAssist assist) {
         return new SmallCapFirstBoardSelectionCandidate(
@@ -116,11 +131,13 @@ public class SmallCapFirstBoardSelectionService {
                 assist.getTenDayChangeRate());
     }
 
+    /** 为基础日 K 候选逐只补齐小市值首板专用辅助指标。 */
     private List<SmallCapFirstBoardSelectionAssist> buildSelectionAssistList(
             List<StockDailyData> dailyList) {
         return dailyList.stream().map(this::buildSelectionAssist).toList();
     }
 
+    /** 构建单只首板股票的启动市值、历史硬指标、异常次数和近期形态。 */
     private SmallCapFirstBoardSelectionAssist buildSelectionAssist(StockDailyData stockDaily) {
         List<StockDailyData> recentDailyList = listRecentDaily(stockDaily);
         List<StockDailyData> ascendingRecentDailyList = recentDailyList.stream()
@@ -156,38 +173,45 @@ public class SmallCapFirstBoardSelectionService {
         return assist;
     }
 
+    /** 查询截至选股日最近 23 根日 K，覆盖 10 日形态及首板前 20 日异常窗口。 */
     private List<StockDailyData> listRecentDaily(StockDailyData stockDaily) {
         return selectionDataService.listLatestDaily(
                 stockDaily.getStockCode(), stockDaily.getTradeDate(), 23);
     }
 
+    /** 查询截至选股日的 18 个月日 K，仅用于异常状态统计。 */
     private List<StockDailyData> listSelectionWindowDaily(StockDailyData stockDaily) {
         return selectionDataService.listDailyBetween(stockDaily.getStockCode(),
                 stockDaily.getTradeDate().minusMonths(18), stockDaily.getTradeDate());
     }
 
+    /** 查询首板前一交易日及以前最近 200 根日 K，用于模式独立硬过滤。 */
     private List<StockDailyData> listHistoryDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) return List.of();
         return selectionDataService.listLatestDaily(stockCode, historyEndDate, 200);
     }
 
+    /** 查询最早 11 根日 K，用第 11 根确定排除新股早期数据后的起算日。 */
     private List<StockDailyData> listEarliestStoredDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) return List.of();
         return selectionDataService.listEarliestDaily(stockCode, historyEndDate, 11);
     }
 
+    /** 统计 18 个月窗口内非零 K 线状态数，并排除本次首板。 */
     private int countAbnormalKlineState(List<StockDailyData> dailyList) {
         long count = dailyList.stream().map(StockDailyData::getKlineState)
                 .filter(Objects::nonNull).filter(state -> state != 0).count();
         return Math.max(0, Math.toIntExact(count) - 1);
     }
 
+    /** 跳过当日首板后，统计之前 20 个交易日的非零 K 线状态数。 */
     static int countPriorTwentyDayAbnormalKlineState(List<StockDailyData> recentDailyList) {
         return Math.toIntExact(recentDailyList.stream().skip(1).limit(20)
                 .map(StockDailyData::getKlineState)
                 .filter(Objects::nonNull).filter(state -> state != 0).count());
     }
 
+    /** 以最近 3 日最低复权价为基准，计算至选股日复权收盘价的振幅。 */
     static double calculateThreeDayAdjustedAmplitude(List<StockDailyData> dailyList) {
         if (dailyList.size() < 3) return 0D;
         List<StockDailyData> window = dailyList.subList(dailyList.size() - 3, dailyList.size());
@@ -198,6 +222,7 @@ public class SmallCapFirstBoardSelectionService {
         return (currentClose - lowest) * 100 / lowest;
     }
 
+    /** 以窗口起点复权收盘价为基准计算指定交易日数的复权涨跌幅。 */
     private double calculateAdjustedCloseChangeRate(List<StockDailyData> dailyList, int days) {
         if (dailyList.size() <= days) return 0D;
         Double base = dailyList.get(dailyList.size() - 1 - days).getAdjustClosePrice();
@@ -206,6 +231,7 @@ public class SmallCapFirstBoardSelectionService {
         return (current - base) * 100 / base;
     }
 
+    /** 将通过策略的候选转换为下一交易日、模式 3 的盯盘任务。 */
     private SelectionTaskData buildWatchingTask(SmallCapFirstBoardSelectionAssist assist, int score) {
         SelectionTaskData task = new SelectionTaskData();
         task.setStockCode(assist.getStockCode());
@@ -219,10 +245,12 @@ public class SmallCapFirstBoardSelectionService {
         return task;
     }
 
+    /** 查询推荐日之后的下一个交易日。 */
     private LocalDate findNextTradeDate(LocalDate recommendDate) {
         return selectionDataService.findNextTradeDate(recommendDate);
     }
 
+    /** 按分数降序、同分价格升序、再按代码升序稳定排序。 */
     static void sortSelectionTasks(List<SelectionTaskData> tasks, Map<String, Double> priceMap) {
         tasks.sort(Comparator
                 .comparing(SelectionTaskData::getLimitUpScore,
@@ -233,6 +261,7 @@ public class SmallCapFirstBoardSelectionService {
                         Comparator.nullsLast(Comparator.naturalOrder())));
     }
 
+    /** 建立股票代码到选股日收盘价的索引，供同分候选排序。 */
     private Map<String, Double> indexCurrentPrices(
             List<SmallCapFirstBoardSelectionAssist> assistList) {
         return assistList.stream().filter(assist -> assist.getStockCode() != null)
@@ -241,6 +270,7 @@ public class SmallCapFirstBoardSelectionService {
                         (left, right) -> left));
     }
 
+    /** 排序后保留前 2 只，并记录因数量上限被淘汰的候选。 */
     private List<SelectionTaskData> takeTopTasks(List<SelectionTaskData> tasks) {
         if (tasks.size() <= TASK_LIMIT) return tasks;
         List<SelectionTaskData> selected = new ArrayList<>(tasks.subList(0, TASK_LIMIT));
@@ -252,10 +282,12 @@ public class SmallCapFirstBoardSelectionService {
         return selected;
     }
 
+    /** 空值不通过的严格小于比较。 */
     private static boolean lessThan(Double value, double upperBound) {
         return value != null && value < upperBound;
     }
 
+    /** 统一输出小市值首板被过滤的股票、层级和指标明细。 */
     private void logFiltered(SmallCapFirstBoardSelectionAssist assist, String step, String detail) {
         log.info("小市值首板选股过滤 tradeDate={} stockCode={} stockName={} step={} detail={}",
                 assist.getTradeDate(), assist.getStockCode(), assist.getStockName(), step, detail);

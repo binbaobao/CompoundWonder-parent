@@ -107,6 +107,15 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
                 price, limitUpPrice, totalBuyVolume, totalSellVolume);
     }
 
+    /**
+     * 将订单簿固化的交易模式映射到常驻策略实例。
+     *
+     * <p>未知模式直接失败，避免高频链路在错误配置下悄悄套用其他模式规则。</p>
+     *
+     * @param tradeMode 交易模式：1 连板、2 普通首板、3 小市值首板
+     * @return 与交易模式一一对应的常驻策略实例
+     * @throws IllegalStateException 交易模式未设置或不受支持
+     */
     private TradingStrategy strategy(int tradeMode) {
         return switch (tradeMode) {
             case 1 -> relayStrategy;

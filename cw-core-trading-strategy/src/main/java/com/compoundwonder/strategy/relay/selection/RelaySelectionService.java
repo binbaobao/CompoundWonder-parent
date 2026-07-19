@@ -22,6 +22,9 @@ import java.util.Set;
 
 /**
  * 连板接力模式独立选股服务。
+ *
+ * <p>负责 2/3 板基础池、专用辅助指标、严格通道、冰点 3/4 板通道、
+ * 唯一弱 5 板兜底和最终数量截断；不与两种首板模式共享候选或回退结果。</p>
  */
 @Slf4j
 public class RelaySelectionService {
@@ -38,16 +41,16 @@ public class RelaySelectionService {
 
     private final StockSelectionDataService selectionDataService;
 
-    /**
-     * 创建股票盯盘任务服务。
-     * 作用：注入日 K 服务，用于根据日 K 结果生成选股盯盘任务。
-     */
+    /** @param selectionDataService 连板接力需要的只读选股数据端口 */
     public RelaySelectionService(StockSelectionDataService selectionDataService) {
         this.selectionDataService = selectionDataService;
     }
 
     /**
-     * 执行连板接力模式选股并返回 mode=1 的中立任务结果。
+     * 执行连板接力候选查询、指标构建、分通道过滤和数量截断。
+     *
+     * @param tradeDate 选股所依据的收盘交易日
+     * @return {@code tradeMode=1} 的下一交易日盯盘任务
      */
     public List<SelectionTaskData> select(LocalDate tradeDate) {
         // 调用可转债正股查询方法。
@@ -239,6 +242,7 @@ public class RelaySelectionService {
         return eligibleTasks;
     }
 
+    /** 将可变辅助对象压缩为核心策略只读候选。 */
     private RelaySelectionCandidate toSelectionCandidate(RelaySelectionAssist dto) {
         return new RelaySelectionCandidate(
                 dto.getConsecutiveLimitUpDays(), dto.isTwoAcceleratedShrinkVolumeLimitUps(),
@@ -724,10 +728,12 @@ public class RelaySelectionService {
         return (currentClosePrice - lowestPrice) * 100 / lowestPrice;
     }
 
+    /** 空值不通过的严格小于比较。 */
     private static boolean lessThan(Double value, double upperBound) {
         return value != null && value < upperBound;
     }
 
+    /** 空值不通过的闭区间整数比较。 */
     private static boolean between(Integer value, int lowerBound, int upperBound) {
         return value != null && value >= lowerBound && value <= upperBound;
     }

@@ -41,6 +41,7 @@ public final class WeakFiveBoardFallbackPolicy {
      * @param todayHighestLimitUp      当日市场最高连板数
      * @param hasNormalRecommendations 常规连板严格/冰点流程是否已产生内存候选
      * @param fiveBoardQualities       当天过滤 ST 后的 5 板质量快照
+     * @return 是否启动严格 2 板兜底以及对应判断层级和明细
      */
     public static Decision evaluate(int todayHighestLimitUp,
                              boolean hasNormalRecommendations,
@@ -127,4 +128,3 @@ public final class WeakFiveBoardFallbackPolicy {
         }
     }
 }
-

@@ -17,6 +17,18 @@ final class RelayHistoricalMetricsCalculator {
     private RelayHistoricalMetricsCalculator() {
     }
 
+    /**
+     * 计算本轮首板启动日前的连板筹码历史指标。
+     *
+     * <p>先排除上市最早 10 根 K 线，再从不晚于 {@code historicalEndDate} 的数据中
+     * 取最近 200 根；90 日指标使用自然日窗口。数据不足时各指标返回 {@code null}，
+     * 由选股策略的数据完整性层统一拒绝。</p>
+     *
+     * @param rawWindowDailyList 启动日前最多 200 根日 K
+     * @param earliestStoredDailyList 数据库中最早的 11 根日 K
+     * @param historicalEndDate 本轮首板启动日前一交易日
+     * @return 最大换手、最大成交量、历史高度和 90 日指标集合
+     */
     static HistoricalMetrics calculateHistoricalMetrics(
             List<StockDailyData> rawWindowDailyList,
             List<StockDailyData> earliestStoredDailyList,
@@ -85,6 +97,17 @@ final class RelayHistoricalMetricsCalculator {
     }
 
     /** 数据模块根据历史日 K 计算出的筹码指标集合。 */
+    /**
+     * 连板接力历史筹码指标集合。
+     *
+     * @param maxTurnoverRate 最近 200 根有效 K 线最大换手率，单位：%
+     * @param maxVolume 最近 200 根有效 K 线最大成交量，单位：股
+     * @param twoHundredKlineHighestBoard 最近 200 根有效 K 线最高连板数
+     * @param ninetyDayHighestBoard 前 90 个自然日最高连板数
+     * @param ninetyDayMaxTurnoverRate 前 90 个自然日最大换手率，单位：%
+     * @param maxVolumeDayTurnoverRate 最大成交量日换手率，单位：%
+     * @param maxVolumeDayTurnover 最大成交量日成交额，单位：万元
+     */
     record HistoricalMetrics(Double maxTurnoverRate,
                              Long maxVolume,
                              Integer twoHundredKlineHighestBoard,

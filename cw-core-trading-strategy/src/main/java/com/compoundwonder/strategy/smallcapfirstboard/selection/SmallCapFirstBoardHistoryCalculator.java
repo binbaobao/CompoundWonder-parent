@@ -18,6 +18,17 @@ final class SmallCapFirstBoardHistoryCalculator {
     private SmallCapFirstBoardHistoryCalculator() {
     }
 
+    /**
+     * 计算小市值首板启动日前的独立历史硬指标。
+     *
+     * <p>排除上市最早 10 根 K 线后，只保留不晚于 {@code historyEndDate} 的最近
+     * 200 根日 K。数据不足时返回空指标，由策略的数据完整性和默认值口径继续处理。</p>
+     *
+     * @param rawHistory 启动日前最多 200 根日 K
+     * @param earliestStoredDailyList 数据库中最早的 11 根日 K
+     * @param historyEndDate 本次首板启动日前一交易日
+     * @return 历史最大换手率和最高连板数
+     */
     static HistoricalMetrics calculate(List<StockDailyData> rawHistory,
                                        List<StockDailyData> earliestStoredDailyList,
                                        LocalDate historyEndDate) {
@@ -54,6 +65,12 @@ final class SmallCapFirstBoardHistoryCalculator {
         return new HistoricalMetrics(maxTurnoverRate, highestBoard);
     }
 
+    /**
+     * 小市值首板历史硬指标。
+     *
+     * @param maxTurnoverRate 最近 200 根有效 K 线最大换手率，单位：%
+     * @param highestBoard 最近 200 根有效 K 线最高连板数
+     */
     record HistoricalMetrics(Double maxTurnoverRate, Integer highestBoard) {
     }
 }

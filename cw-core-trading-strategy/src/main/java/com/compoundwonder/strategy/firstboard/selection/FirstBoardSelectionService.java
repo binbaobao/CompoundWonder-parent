@@ -35,16 +35,26 @@ public class FirstBoardSelectionService {
 
     private final StockSelectionDataService selectionDataService;
 
+    /** @param selectionDataService 普通首板需要的只读选股数据端口 */
     public FirstBoardSelectionService(StockSelectionDataService selectionDataService) {
         this.selectionDataService = selectionDataService;
     }
 
-    /** 判断该启动流通市值是否归普通首板模式所有。 */
+    /**
+     * 判断启动流通市值是否归普通首板模式所有。
+     *
+     * @param startMarketCap 首板前一交易日收盘流通市值，单位：万元
+     */
     public static boolean ownsStartMarketCap(double startMarketCap) {
         return startMarketCap >= MIN_START_MARKET_CAP;
     }
 
-    /** 执行普通首板选股并返回 mode=2 的中立任务结果。 */
+    /**
+     * 执行普通首板候选查询、指标构建、过滤、评分和 Top3 截断。
+     *
+     * @param tradeDate 选股所依据的收盘交易日
+     * @return {@code tradeMode=2} 的下一交易日盯盘任务
+     */
     public List<SelectionTaskData> select(LocalDate tradeDate) {
         // 调用普通首板基础候选查询方法。
         List<StockDailyData> dailyList = listBaseCandidates(tradeDate);
@@ -65,6 +75,7 @@ public class FirstBoardSelectionService {
         return tasks;
     }
 
+    /** 查询选股日涨幅小于 11%、流通市值小于 30 亿元的非 ST 首板基础池。 */
     private List<StockDailyData> listBaseCandidates(LocalDate tradeDate) {
         return selectionDataService.listDailyByTradeDate(tradeDate).stream()
                 .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
@@ -75,10 +86,12 @@ public class FirstBoardSelectionService {
                 .toList();
     }
 
+    /** 查询选股日仍有有效可转债的正股代码。 */
     private Set<String> listConvertibleBondStockCodes(LocalDate tradeDate) {
         return selectionDataService.listConvertibleBondStockCodes(tradeDate);
     }
 
+    /** 从基础池排除有效可转债正股，并逐只记录过滤原因。 */
     private List<StockDailyData> filterConvertibleBondStocks(
             List<StockDailyData> dailyList,
             Set<String> convertibleBondStockCodes) {
@@ -94,6 +107,7 @@ public class FirstBoardSelectionService {
                 .toList();
     }
 
+    /** 逐只执行普通首板核心策略，仅把通过候选转换为盯盘任务。 */
     private List<SelectionTaskData> selectEligibleTasks(List<FirstBoardSelectionAssist> assistList) {
         List<SelectionTaskData> result = new ArrayList<>();
         for (FirstBoardSelectionAssist assist : assistList) {
@@ -110,6 +124,7 @@ public class FirstBoardSelectionService {
         return result;
     }
 
+    /** 将可变辅助对象压缩为核心策略只读候选。 */
     private FirstBoardSelectionCandidate toSelectionCandidate(FirstBoardSelectionAssist assist) {
         return new FirstBoardSelectionCandidate(
                 assist.getStartMarketCap(), assist.getCurrentPrice(), assist.getStartPrice(),
@@ -122,10 +137,12 @@ public class FirstBoardSelectionService {
                 assist.getTenDayChangeRate());
     }
 
+    /** 为基础日 K 候选逐只补齐普通首板专用辅助指标。 */
     private List<FirstBoardSelectionAssist> buildSelectionAssistList(List<StockDailyData> dailyList) {
         return dailyList.stream().map(this::buildSelectionAssist).toList();
     }
 
+    /** 构建单只首板股票的启动指标、历史筹码、异常次数和近期形态。 */
     private FirstBoardSelectionAssist buildSelectionAssist(StockDailyData stockDaily) {
         List<StockDailyData> recentDailyList = listRecentDaily(stockDaily);
         List<StockDailyData> ascRecentDailyList = recentDailyList.stream()
@@ -168,31 +185,37 @@ public class FirstBoardSelectionService {
         return assist;
     }
 
+    /** 查询截至选股日最近 23 根日 K，覆盖 10 日形态及首板前 20 日异常窗口。 */
     private List<StockDailyData> listRecentDaily(StockDailyData stockDaily) {
         return selectionDataService.listLatestDaily(
                 stockDaily.getStockCode(), stockDaily.getTradeDate(), 23);
     }
 
+    /** 查询截至选股日的 18 个月日 K，仅用于异常状态统计。 */
     private List<StockDailyData> listSelectionWindowDaily(StockDailyData stockDaily) {
         return selectionDataService.listDailyBetween(stockDaily.getStockCode(),
                 stockDaily.getTradeDate().minusMonths(18), stockDaily.getTradeDate());
     }
 
+    /** 查询首板前一交易日及以前最近 200 根日 K，用于筹码过滤。 */
     private List<StockDailyData> listChipHistoryDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) return List.of();
         return selectionDataService.listLatestDaily(stockCode, historyEndDate, 200);
     }
 
+    /** 查询最早 11 根日 K，用第 11 根确定排除新股早期数据后的起算日。 */
     private List<StockDailyData> listEarliestStoredDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) return List.of();
         return selectionDataService.listEarliestDaily(stockCode, historyEndDate, 11);
     }
 
+    /** 查询省份字段，供地域评分使用。 */
     private String findProvince(String stockCode) {
         StockCurrentStatusData status = selectionDataService.findCurrentStatus(stockCode);
         return status == null ? null : status.regionName();
     }
 
+    /** 计算上次摘帽次日或上市日起至选股日的非 ST 自然月数。 */
     private Integer calculateNonStMonthCount(StockDailyData stockDaily) {
         LocalDate lastStDate = selectionDataService.findLatestStDate(
                 stockDaily.getStockCode(), stockDaily.getTradeDate());
@@ -203,6 +226,7 @@ public class FirstBoardSelectionService {
                 startDate.withDayOfMonth(1), stockDaily.getTradeDate().withDayOfMonth(1)));
     }
 
+    /** 计算上市首个交易日至选股日的自然月数。 */
     private Integer calculateListingMonthCount(StockDailyData stockDaily) {
         LocalDate firstTradeDate = selectionDataService.findFirstTradeDate(
                 stockDaily.getStockCode(), stockDaily.getTradeDate());
@@ -212,18 +236,21 @@ public class FirstBoardSelectionService {
                 stockDaily.getTradeDate().withDayOfMonth(1)));
     }
 
+    /** 统计 18 个月窗口内非零 K 线状态数，并排除本次连板占用的次数。 */
     private int countAbnormalKlineState(List<StockDailyData> dailyList, int currentBoardCount) {
         long count = dailyList.stream().map(StockDailyData::getKlineState)
                 .filter(Objects::nonNull).filter(state -> state != 0).count();
         return Math.max(0, Math.toIntExact(count) - currentBoardCount);
     }
 
+    /** 跳过当日首板后，统计之前 20 个交易日的非零 K 线状态数。 */
     static int countPriorTwentyDayAbnormalKlineState(List<StockDailyData> recentDailyList) {
         return Math.toIntExact(recentDailyList.stream().skip(1).limit(20)
                 .map(StockDailyData::getKlineState)
                 .filter(Objects::nonNull).filter(state -> state != 0).count());
     }
 
+    /** 以最近 3 日最低复权价为基准，计算至选股日复权收盘价的振幅。 */
     static double calculateThreeDayAdjustedAmplitude(List<StockDailyData> ascendingDailyList) {
         if (ascendingDailyList.size() < 3) return 0D;
         List<StockDailyData> window = ascendingDailyList.subList(
@@ -235,6 +262,7 @@ public class FirstBoardSelectionService {
         return (currentClose - lowest) * 100 / lowest;
     }
 
+    /** 以窗口起点复权收盘价为基准计算指定交易日数的复权涨跌幅。 */
     private double calculateAdjustedCloseChangeRate(List<StockDailyData> dailyList, int days) {
         if (dailyList.size() <= days) return 0D;
         Double base = dailyList.get(dailyList.size() - 1 - days).getAdjustClosePrice();
@@ -243,6 +271,7 @@ public class FirstBoardSelectionService {
         return (current - base) * 100 / base;
     }
 
+    /** 将通过策略的候选转换为下一交易日、模式 2 的盯盘任务。 */
     private SelectionTaskData buildWatchingTask(FirstBoardSelectionAssist assist, int score) {
         SelectionTaskData task = new SelectionTaskData();
         task.setStockCode(assist.getStockCode());
@@ -256,10 +285,12 @@ public class FirstBoardSelectionService {
         return task;
     }
 
+    /** 查询推荐日之后的下一个交易日。 */
     private LocalDate findNextTradeDate(LocalDate recommendDate) {
         return selectionDataService.findNextTradeDate(recommendDate);
     }
 
+    /** 按分数降序、同分价格升序、再按代码升序稳定排序。 */
     static void sortSelectionTasks(List<SelectionTaskData> tasks, Map<String, Double> priceMap) {
         tasks.sort(Comparator
                 .comparing(SelectionTaskData::getLimitUpScore,
@@ -270,6 +301,7 @@ public class FirstBoardSelectionService {
                         Comparator.nullsLast(Comparator.naturalOrder())));
     }
 
+    /** 建立股票代码到选股日收盘价的索引，供同分候选排序。 */
     private Map<String, Double> indexCurrentPrices(List<FirstBoardSelectionAssist> assistList) {
         return assistList.stream().filter(assist -> assist.getStockCode() != null)
                 .collect(Collectors.toMap(FirstBoardSelectionAssist::getStockCode,
@@ -277,6 +309,7 @@ public class FirstBoardSelectionService {
                         (left, right) -> left));
     }
 
+    /** 排序后保留前 3 只，并记录因数量上限被淘汰的候选。 */
     private List<SelectionTaskData> takeTopTasks(List<SelectionTaskData> tasks) {
         if (tasks.size() <= TASK_LIMIT) return tasks;
         List<SelectionTaskData> selected = new ArrayList<>(tasks.subList(0, TASK_LIMIT));
@@ -288,10 +321,12 @@ public class FirstBoardSelectionService {
         return selected;
     }
 
+    /** 空值不通过的严格小于比较。 */
     private static boolean lessThan(Double value, double upperBound) {
         return value != null && value < upperBound;
     }
 
+    /** 统一输出普通首板被过滤的股票、层级和指标明细。 */
     private void logFiltered(FirstBoardSelectionAssist assist, String step, String detail) {
         log.info("普通首板选股过滤 tradeDate={} stockCode={} stockName={} step={} detail={}",
                 assist.getTradeDate(), assist.getStockCode(), assist.getStockName(), step, detail);

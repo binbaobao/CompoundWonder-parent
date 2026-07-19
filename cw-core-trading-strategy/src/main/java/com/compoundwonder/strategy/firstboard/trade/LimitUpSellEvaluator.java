@@ -18,6 +18,13 @@ final class LimitUpSellEvaluator {
     private LimitUpSellEvaluator() {
     }
 
+    /**
+     * 按既定优先级评估涨停盘口卖出规则；首个命中规则会填充记录并立即返回。
+     *
+     * @param orderBook 当前 Handler 私有订单簿的只读交易视图
+     * @param ruleRecord 调用方预分配的规则记录
+     * @return 命中任意涨停盘口卖出规则时返回 {@code true}
+     */
     static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
@@ -241,4 +248,3 @@ final class LimitUpSellEvaluator {
         return true;
     }
 }
-

@@ -13,6 +13,14 @@ public final class RelaySelectionPolicy {
     private RelaySelectionPolicy() {
     }
 
+    /**
+     * 执行连板接力过滤，并按市场高度选择严格通道或冰点 3/4 板通道。
+     *
+     * @param candidate 已完成数据准备的 2 板或 3 板候选
+     * @param todayMaxLbc 选股日全市场最高连板数
+     * @param allowIcePoint 是否允许在最高 3/4 板时进入宽松通道；弱 5 板兜底必须传 {@code false}
+     * @return 是否通过、最终分数以及首个拒绝层或通过层的明细
+     */
     public static Decision evaluate(RelaySelectionCandidate candidate,
                                     int todayMaxLbc, boolean allowIcePoint) {
         if (candidate == null) return Decision.rejected("数据完整性", "候选为空");
@@ -188,6 +196,12 @@ public final class RelaySelectionPolicy {
         return false;
     }
 
+    /**
+     * 计算连板候选分数，并扣除超过市值豁免数量的异常 K 线次数。
+     *
+     * @param candidate 连板候选指标
+     * @return 不小于 0 的最终分数
+     */
     public static int calculateSelectionScore(RelaySelectionCandidate candidate) {
         int score = scoreStartMarketCap(candidate.startMarketCap())
                 + scoreMaxTurnover(candidate.maxTurnoverRate())
@@ -252,6 +266,14 @@ public final class RelaySelectionPolicy {
         return (int) Math.round(minScore + (value - min) * (maxScore - minScore) / (max - min));
     }
 
+    /**
+     * 连板接力策略判定结果。
+     *
+     * @param passed 是否通过当前通道全部过滤
+     * @param score 通过时的最终选股分数，拒绝时固定为 0
+     * @param layer 通过或首个拒绝条件所属层级
+     * @param detail 用于选股过滤日志的指标明细
+     */
     public record Decision(boolean passed, int score, String layer, String detail) {
         private static Decision passed(int score, String layer, String detail) {
             return new Decision(true, score, layer, detail);

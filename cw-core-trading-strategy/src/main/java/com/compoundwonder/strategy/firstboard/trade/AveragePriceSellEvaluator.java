@@ -18,6 +18,14 @@ final class AveragePriceSellEvaluator {
     private AveragePriceSellEvaluator() {
     }
 
+    /**
+     * 按既定优先级评估分钟走势卖出规则；首个命中规则会填充记录并立即返回。
+     *
+     * @param calculateIndex 当前分钟采样下标
+     * @param orderBook 当前 Handler 私有订单簿的只读交易视图
+     * @param ruleRecord 调用方预分配的规则记录
+     * @return 命中任意分钟走势卖出规则时返回 {@code true}
+     */
     static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
@@ -257,4 +265,3 @@ final class AveragePriceSellEvaluator {
         return true;
     }
 }
-

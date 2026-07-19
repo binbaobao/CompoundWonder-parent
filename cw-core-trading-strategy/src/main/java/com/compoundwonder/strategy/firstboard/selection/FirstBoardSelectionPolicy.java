@@ -10,11 +10,18 @@ import java.util.Objects;
  */
 public final class FirstBoardSelectionPolicy {
 
+    /** 普通首板独占启动流通市值大于等于 119999 万元的候选。 */
     public static final double MIN_START_MARKET_CAP = 119_999D;
 
     private FirstBoardSelectionPolicy() {
     }
 
+    /**
+     * 依次执行普通首板的模式归属、异常 K 线、近期形态、评分和筹码过滤。
+     *
+     * @param candidate 已完成数据准备的普通首板候选
+     * @return 是否通过、最终分数以及首个拒绝层或通过层的明细
+     */
     public static Decision evaluate(FirstBoardSelectionCandidate candidate) {
         if (candidate == null || candidate.startMarketCap() == null
                 || candidate.currentPrice() == null) {
@@ -192,6 +199,14 @@ public final class FirstBoardSelectionPolicy {
                 + turnover + "%, currentPrice=" + price + "元";
     }
 
+    /**
+     * 普通首板策略判定结果。
+     *
+     * @param passed 是否通过全部过滤
+     * @param score 通过时的最终选股分数，拒绝时固定为 0
+     * @param layer 通过或首个拒绝条件所属层级
+     * @param detail 用于选股过滤日志的指标明细
+     */
     public record Decision(boolean passed, int score, String layer, String detail) {
         private static Decision passed(int score, String layer, String detail) {
             return new Decision(true, score, layer, detail);

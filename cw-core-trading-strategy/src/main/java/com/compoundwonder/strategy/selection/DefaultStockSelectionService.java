@@ -23,6 +23,11 @@ public class DefaultStockSelectionService implements StockSelectionService {
     private final FirstBoardSelectionService firstBoardSelectionService;
     private final SmallCapFirstBoardSelectionService smallCapFirstBoardSelectionService;
 
+    /**
+     * 使用同一个只读数据端口创建三套彼此独立的选股服务。
+     *
+     * @param selectionDataService 由应用组装根提供的选股数据端口
+     */
     public DefaultStockSelectionService(StockSelectionDataService selectionDataService) {
         this.relaySelectionService = new RelaySelectionService(selectionDataService);
         this.firstBoardSelectionService = new FirstBoardSelectionService(selectionDataService);
@@ -30,6 +35,12 @@ public class DefaultStockSelectionService implements StockSelectionService {
                 new SmallCapFirstBoardSelectionService(selectionDataService);
     }
 
+    /**
+     * 按固定模式顺序执行收盘后选股并聚合任务，不在模式之间回退候选。
+     *
+     * @param tradeDate 选股所依据的收盘交易日
+     * @return 各已启用模式生成的下一交易日盯盘任务只读列表
+     */
     @Override
     public List<SelectionTaskData> selectAll(LocalDate tradeDate) {
         List<SelectionTaskData> tasks = new ArrayList<>();

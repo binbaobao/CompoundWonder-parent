@@ -15,6 +15,14 @@ public final class SmallCapFirstBoardSelectionPolicy {
     private SmallCapFirstBoardSelectionPolicy() {
     }
 
+    /**
+     * 依次执行小市值首板的市值归属、历史换手、高度、异常 K 线和近期形态过滤。
+     *
+     * <p>本模式只按启动流通市值评分，不复用普通首板的换手和价格筹码阶梯。</p>
+     *
+     * @param candidate 已完成数据准备的小市值首板候选
+     * @return 是否通过、启动市值分数以及首个拒绝层或通过层的明细
+     */
     public static Decision evaluate(SmallCapFirstBoardSelectionCandidate candidate) {
         if (candidate == null || candidate.startMarketCap() == null) {
             return Decision.rejected("模式市值归属", "缺少启动流通市值");
@@ -72,6 +80,14 @@ public final class SmallCapFirstBoardSelectionPolicy {
                 + (value - min) * (maxScore - minScore) / (max - min));
     }
 
+    /**
+     * 小市值首板策略判定结果。
+     *
+     * @param passed 是否通过全部过滤
+     * @param score 通过时的启动市值分数，拒绝时固定为 0
+     * @param layer 通过或首个拒绝条件所属层级
+     * @param detail 用于选股过滤日志的指标明细
+     */
     public record Decision(boolean passed, int score, String layer, String detail) {
         private static Decision passed(int score) {
             return new Decision(true, score, "小市值首板核心规则", "score=" + score);
