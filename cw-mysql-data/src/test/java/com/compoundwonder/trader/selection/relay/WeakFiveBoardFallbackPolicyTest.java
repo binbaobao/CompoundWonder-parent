@@ -1,4 +1,4 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
 import org.junit.jupiter.api.Test;
 
@@ -86,3 +86,4 @@ class WeakFiveBoardFallbackPolicyTest {
                 "600001", currentMarketCap, currentTurnoverRate, currentAmplitude, startPrice);
     }
 }
+

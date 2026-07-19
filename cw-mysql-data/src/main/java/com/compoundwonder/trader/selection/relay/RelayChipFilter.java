@@ -1,7 +1,6 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 
 import java.time.LocalDate;
 import java.util.Comparator;
@@ -18,7 +17,7 @@ import java.util.Objects;
  * <p>过滤顺序固定为：数据完整性、历史最大换手、200 根日 K 历史最高板、
  * 90 日历史最高板、市值换手价格阶梯、低换手低筹码金额特殊通道。</p>
  */
-final class StockChipFilter {
+final class RelayChipFilter {
 
     /** 历史最大换手率超过 55% 时，不论当前是几板都直接过滤。 */
     private static final double MAX_ALLOWED_HISTORICAL_TURNOVER_RATE = 55D;
@@ -41,7 +40,7 @@ final class StockChipFilter {
     /** 特殊通道最大筹码金额，单位：万元，即 7.58 亿元。 */
     private static final double SPECIAL_MAX_CHIP_AMOUNT = 75_800D;
 
-    private StockChipFilter() {
+    private RelayChipFilter() {
     }
 
     /**
@@ -125,7 +124,7 @@ final class StockChipFilter {
     /**
      * 按固定层级执行筹码过滤，并返回命中的层级与指标明细。
      */
-    static Decision evaluate(StockSelectionAssistDTO assist) {
+    static Decision evaluate(RelaySelectionAssist assist) {
         if (assist == null || assist.getStartMarketCap() == null || assist.getCurrentPrice() == null) {
             return Decision.rejected("筹码数据完整性", "缺少启动市值、当前价格或历史筹码指标");
         }
@@ -169,7 +168,7 @@ final class StockChipFilter {
      * 冰点 3/4 板宽松通道可以绕过普通市值换手价格阶梯，但不能绕过 55% 历史最大换手、
      * 200 根 K 线历史最高板和 90 日历史最高板限制。
      */
-    static Decision evaluateHistoricalHardLimits(StockSelectionAssistDTO assist) {
+    static Decision evaluateHistoricalHardLimits(RelaySelectionAssist assist) {
         if (assist == null
                 || assist.getMaxTurnoverRate() == null
                 || assist.getHighestConsecutiveLimitUpDays() == null
@@ -204,7 +203,7 @@ final class StockChipFilter {
      * <p>该规则在严格通道、冰点 3/4 板宽松通道和弱 5 板兜底分流前执行，
      * 因此任何连板后续通道都不能绕过；首板流程不调用本方法。</p>
      */
-    static Decision evaluateRelayNinetyDayTurnoverLimit(StockSelectionAssistDTO assist) {
+    static Decision evaluateRelayNinetyDayTurnoverLimit(RelaySelectionAssist assist) {
         if (assist == null || assist.getPriorNinetyDayMaxTurnoverRate() == null) {
             return Decision.rejected("筹码数据完整性", "缺少90日历史最大换手率");
         }
@@ -306,3 +305,4 @@ final class StockChipFilter {
                              Double maxVolumeDayTurnover) {
     }
 }
+

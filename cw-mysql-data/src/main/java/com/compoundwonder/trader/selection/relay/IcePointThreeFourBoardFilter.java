@@ -1,6 +1,5 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 
 /**
  * 连板冰点 3/4 板宽松通道过滤器。
@@ -42,7 +41,7 @@ final class IcePointThreeFourBoardFilter {
      * 按候选连板数和启动流通市值分档判断能否进入冰点 3/4 板宽松候选池。
      * 近期形态由 {@link RelayRecentPatternFilter} 在进入本过滤器前统一判断。
      */
-    static Decision evaluate(StockSelectionAssistDTO assist) {
+    static Decision evaluate(RelaySelectionAssist assist) {
         if (assist == null
                 || assist.getConsecutiveLimitUpDays() == null
                 || assist.getStartMarketCap() == null
@@ -59,7 +58,7 @@ final class IcePointThreeFourBoardFilter {
                     "actual=" + consecutiveLimitUpDays + ", required=2或3");
         }
 
-        StockChipFilter.Decision hardLimitDecision = StockChipFilter.evaluateHistoricalHardLimits(assist);
+        RelayChipFilter.Decision hardLimitDecision = RelayChipFilter.evaluateHistoricalHardLimits(assist);
         if (!hardLimitDecision.passed()) {
             return Decision.rejected(hardLimitDecision.layer(), hardLimitDecision.detail());
         }
@@ -109,7 +108,7 @@ final class IcePointThreeFourBoardFilter {
         return Decision.passed("13至44亿冰点3/4板", commonDetail(assist));
     }
 
-    private static String commonDetail(StockSelectionAssistDTO assist) {
+    private static String commonDetail(RelaySelectionAssist assist) {
         return "candidateLbc=" + assist.getConsecutiveLimitUpDays()
                 + ", startMarketCap=" + assist.getStartMarketCap() + "万元"
                 + ", currentPrice=" + assist.getCurrentPrice() + "元"
@@ -136,3 +135,4 @@ final class IcePointThreeFourBoardFilter {
         }
     }
 }
+

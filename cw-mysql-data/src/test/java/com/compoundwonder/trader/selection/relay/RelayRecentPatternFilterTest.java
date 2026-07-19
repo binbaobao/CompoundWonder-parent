@@ -1,6 +1,5 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,16 +10,16 @@ class RelayRecentPatternFilterTest {
 
     @Test
     void threeBoardKeepsCurrentFiveDayAmplitudeAndTenDayChangeBoundaries() {
-        StockSelectionAssistDTO passing = assist(3, 48D, 49.99D);
+        RelaySelectionAssist passing = assist(3, 48D, 49.99D);
         assertTrue(RelayRecentPatternFilter.evaluate(passing).passed());
 
-        StockSelectionAssistDTO amplitudeAboveBoundary = assist(3, 48.01D, 40D);
+        RelaySelectionAssist amplitudeAboveBoundary = assist(3, 48.01D, 40D);
         RelayRecentPatternFilter.Decision amplitudeDecision =
                 RelayRecentPatternFilter.evaluate(amplitudeAboveBoundary);
         assertFalse(amplitudeDecision.passed());
         assertEquals("5日振幅", amplitudeDecision.layer());
 
-        StockSelectionAssistDTO tenDayBoundary = assist(3, 40D, 50D);
+        RelaySelectionAssist tenDayBoundary = assist(3, 40D, 50D);
         RelayRecentPatternFilter.Decision tenDayDecision =
                 RelayRecentPatternFilter.evaluate(tenDayBoundary);
         assertFalse(tenDayDecision.passed());
@@ -29,7 +28,7 @@ class RelayRecentPatternFilterTest {
 
     @Test
     void twoBoardKeepsCurrentFiveDayAmplitudeAndTenDayChangeRange() {
-        StockSelectionAssistDTO passing = assist(2, 33.99D, 11.51D);
+        RelaySelectionAssist passing = assist(2, 33.99D, 11.51D);
         assertTrue(RelayRecentPatternFilter.evaluate(passing).passed());
 
         assertFalse(RelayRecentPatternFilter.evaluate(assist(2, 34D, 20D)).passed());
@@ -46,13 +45,14 @@ class RelayRecentPatternFilterTest {
         assertEquals("候选连板数", decision.layer());
     }
 
-    private StockSelectionAssistDTO assist(int consecutiveLimitUpDays,
+    private RelaySelectionAssist assist(int consecutiveLimitUpDays,
                                            double fiveDayAmplitude,
                                            double tenDayChangeRate) {
-        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+        RelaySelectionAssist assist = new RelaySelectionAssist();
         assist.setConsecutiveLimitUpDays(consecutiveLimitUpDays);
-        assist.setSelectionAmplitude(fiveDayAmplitude);
+        assist.setFiveDayAmplitude(fiveDayAmplitude);
         assist.setTenDayChangeRate(tenDayChangeRate);
         return assist;
     }
 }
+

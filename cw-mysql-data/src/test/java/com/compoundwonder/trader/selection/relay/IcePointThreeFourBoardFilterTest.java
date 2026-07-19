@@ -1,6 +1,5 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,13 +10,13 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void allowsMidCapThreeBoardAtExpandedRelaxedBoundaries() {
-        StockSelectionAssistDTO assist = eligibleAssist(439_999.99D);
+        RelaySelectionAssist assist = eligibleAssist(439_999.99D);
         assist.setMaxTurnoverRate(55D);
         assist.setCurrentPrice(44.99D);
         assist.setCurrentTurnoverRate(49.99D);
         assist.setCurrentTurnover(249_999.99D);
         assist.setCurrentAmplitude(14.99D);
-        assist.setSelectionAmplitude(44.99D);
+        assist.setFiveDayAmplitude(44.99D);
         assist.setTenDayChangeRate(54.99D);
         assist.setMaxVolumeDayTurnoverRate(49.99D);
         assist.setMaxVolumeDayTurnover(299_999.99D);
@@ -30,7 +29,7 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void keepsFiftyFivePercentHistoricalMaxTurnoverAsHardLimit() {
-        StockSelectionAssistDTO assist = eligibleAssist(200_000D);
+        RelaySelectionAssist assist = eligibleAssist(200_000D);
         assist.setMaxTurnoverRate(55.01D);
 
         IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
@@ -41,12 +40,12 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void keepsHistoricalBoardHeightRulesAsHardLimits() {
-        StockSelectionAssistDTO twoHundredKlineBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist twoHundredKlineBoundary = eligibleAssist(200_000D);
         twoHundredKlineBoundary.setHighestConsecutiveLimitUpDays(6);
         assertEquals("200根K线历史最高板",
                 IcePointThreeFourBoardFilter.evaluate(twoHundredKlineBoundary).layer());
 
-        StockSelectionAssistDTO ninetyDayBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist ninetyDayBoundary = eligibleAssist(200_000D);
         ninetyDayBoundary.setPriorNinetyDayHighestConsecutiveLimitUpDays(3);
         assertEquals("90日历史最高板",
                 IcePointThreeFourBoardFilter.evaluate(ninetyDayBoundary).layer());
@@ -54,7 +53,7 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void smallCapThreeBoardDoesNotApplyMidCapLiquidityLimits() {
-        StockSelectionAssistDTO assist = eligibleAssist(129_999.99D);
+        RelaySelectionAssist assist = eligibleAssist(129_999.99D);
         assist.setCurrentTurnoverRate(80D);
         assist.setCurrentTurnover(500_000D);
         assist.setMaxVolumeDayTurnover(500_000D);
@@ -68,24 +67,24 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void midCapThreeBoardRejectsExpandedTurnoverAmountBoundaries() {
-        StockSelectionAssistDTO currentTurnoverRateBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist currentTurnoverRateBoundary = eligibleAssist(200_000D);
         currentTurnoverRateBoundary.setCurrentTurnoverRate(50D);
         assertEquals("当日换手率",
                 IcePointThreeFourBoardFilter.evaluate(currentTurnoverRateBoundary).layer());
 
-        StockSelectionAssistDTO maxVolumeTurnoverRateBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist maxVolumeTurnoverRateBoundary = eligibleAssist(200_000D);
         maxVolumeTurnoverRateBoundary.setMaxVolumeDayTurnoverRate(50D);
         assertEquals("最大成交量日换手率",
                 IcePointThreeFourBoardFilter.evaluate(maxVolumeTurnoverRateBoundary).layer());
 
-        StockSelectionAssistDTO currentAmountBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist currentAmountBoundary = eligibleAssist(200_000D);
         currentAmountBoundary.setCurrentTurnover(250_000D);
         IcePointThreeFourBoardFilter.Decision currentAmountDecision =
                 IcePointThreeFourBoardFilter.evaluate(currentAmountBoundary);
         assertFalse(currentAmountDecision.passed());
         assertEquals("当日成交额", currentAmountDecision.layer());
 
-        StockSelectionAssistDTO maxVolumeAmountBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist maxVolumeAmountBoundary = eligibleAssist(200_000D);
         maxVolumeAmountBoundary.setMaxVolumeDayTurnover(300_000D);
         IcePointThreeFourBoardFilter.Decision maxVolumeAmountDecision =
                 IcePointThreeFourBoardFilter.evaluate(maxVolumeAmountBoundary);
@@ -95,8 +94,8 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void doesNotDuplicateRecentPatternRules() {
-        StockSelectionAssistDTO assist = eligibleAssist(200_000D);
-        assist.setSelectionAmplitude(99D);
+        RelaySelectionAssist assist = eligibleAssist(200_000D);
+        assist.setFiveDayAmplitude(99D);
         assist.setTenDayChangeRate(99D);
 
         IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(assist);
@@ -106,21 +105,21 @@ class IcePointThreeFourBoardFilterTest {
 
     @Test
     void rejectsDailyAmplitudePriceAndMarketCapUpperBoundaries() {
-        StockSelectionAssistDTO dailyAmplitudeBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist dailyAmplitudeBoundary = eligibleAssist(200_000D);
         dailyAmplitudeBoundary.setCurrentAmplitude(15D);
         assertFalse(IcePointThreeFourBoardFilter.evaluate(dailyAmplitudeBoundary).passed());
 
-        StockSelectionAssistDTO priceBoundary = eligibleAssist(200_000D);
+        RelaySelectionAssist priceBoundary = eligibleAssist(200_000D);
         priceBoundary.setCurrentPrice(45D);
         assertFalse(IcePointThreeFourBoardFilter.evaluate(priceBoundary).passed());
 
-        StockSelectionAssistDTO marketCapBoundary = eligibleAssist(440_000D);
+        RelaySelectionAssist marketCapBoundary = eligibleAssist(440_000D);
         assertFalse(IcePointThreeFourBoardFilter.evaluate(marketCapBoundary).passed());
     }
 
     @Test
     void rejectsCandidatesOutsideTwoAndThreeBoards() {
-        StockSelectionAssistDTO fourBoard = eligibleAssist(200_000D);
+        RelaySelectionAssist fourBoard = eligibleAssist(200_000D);
         fourBoard.setConsecutiveLimitUpDays(4);
 
         IcePointThreeFourBoardFilter.Decision decision = IcePointThreeFourBoardFilter.evaluate(fourBoard);
@@ -129,8 +128,8 @@ class IcePointThreeFourBoardFilterTest {
         assertEquals("候选连板数", decision.layer());
     }
 
-    private StockSelectionAssistDTO eligibleAssist(double startMarketCap) {
-        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+    private RelaySelectionAssist eligibleAssist(double startMarketCap) {
+        RelaySelectionAssist assist = new RelaySelectionAssist();
         assist.setStockCode("600001");
         assist.setConsecutiveLimitUpDays(3);
         assist.setStartMarketCap(startMarketCap);
@@ -138,7 +137,7 @@ class IcePointThreeFourBoardFilterTest {
         assist.setCurrentTurnoverRate(30D);
         assist.setCurrentTurnover(100_000D);
         assist.setCurrentAmplitude(10D);
-        assist.setSelectionAmplitude(40D);
+        assist.setFiveDayAmplitude(40D);
         assist.setTenDayChangeRate(40D);
         assist.setMaxTurnoverRate(40D);
         assist.setHighestConsecutiveLimitUpDays(5);

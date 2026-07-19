@@ -53,7 +53,7 @@ public class StockWatchingTask {
     private LocalDate tradeDate;
 
     /**
-     * 交易模式。
+     * 交易模式：1 连板接力，2 普通首板，3 小市值首板。
      */
     private Integer tradeMode;
 

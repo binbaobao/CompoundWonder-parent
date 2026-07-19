@@ -1,7 +1,6 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -12,14 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class StockChipFilterTest {
+class RelayChipFilterTest {
 
     @Test
     void rejectsAnyStockWhenHistoricalMaxTurnoverExceedsFiftyFivePercent() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setMaxTurnoverRate(55.01D);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("历史最大换手", decision.layer());
@@ -27,10 +26,10 @@ class StockChipFilterTest {
 
     @Test
     void rejectsMoreThanFiveBoardsInPriorTwoHundredKlines() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setHighestConsecutiveLimitUpDays(6);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("200根K线历史最高板", decision.layer());
@@ -38,19 +37,19 @@ class StockChipFilterTest {
 
     @Test
     void allowsExactlyFiveBoardsOutsidePriorNinetyDays() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setHighestConsecutiveLimitUpDays(5);
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(2);
 
-        assertTrue(StockChipFilter.evaluate(assist).passed());
+        assertTrue(RelayChipFilter.evaluate(assist).passed());
     }
 
     @Test
     void rejectsExactlyThreeBoardsInPriorNinetyNaturalDays() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setPriorNinetyDayHighestConsecutiveLimitUpDays(3);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("90日历史最高板", decision.layer());
@@ -58,19 +57,19 @@ class StockChipFilterTest {
 
     @Test
     void allowsExactlyThirtyFivePercentTurnoverInPriorNinetyNaturalDaysForRelaySelection() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setPriorNinetyDayMaxTurnoverRate(35D);
 
-        assertTrue(StockChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist).passed());
+        assertTrue(RelayChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist).passed());
     }
 
     @Test
     void rejectsTurnoverAboveThirtyFivePercentInPriorNinetyNaturalDaysForRelaySelection() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setPriorNinetyDayMaxTurnoverRate(35.01D);
 
-        StockChipFilter.Decision decision =
-                StockChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist);
+        RelayChipFilter.Decision decision =
+                RelayChipFilter.evaluateRelayNinetyDayTurnoverLimit(assist);
 
         assertFalse(decision.passed());
         assertEquals("90日历史最大换手", decision.layer());
@@ -78,43 +77,43 @@ class StockChipFilterTest {
 
     @Test
     void doesNotApplyRelayNinetyDayTurnoverLimitToFirstBoardChipEvaluation() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setPriorNinetyDayMaxTurnoverRate(40D);
 
-        assertTrue(StockChipFilter.evaluate(assist).passed());
+        assertTrue(RelayChipFilter.evaluate(assist).passed());
     }
 
     @Test
     void appliesMutuallyExclusiveMarketCapTurnoverAndPriceBands() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setStartMarketCap(168_000D);
         assist.setMaxTurnoverRate(38.99D);
         assist.setCurrentPrice(21.99D);
 
-        assertTrue(StockChipFilter.evaluate(assist).passed());
+        assertTrue(RelayChipFilter.evaluate(assist).passed());
 
         assist.setCurrentPrice(22D);
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
         assertFalse(decision.passed());
         assertEquals("市值换手价格阶梯及特殊通道", decision.layer());
     }
 
     @Test
     void smallestMarketCapBandAllowsTurnoverJustBelowFiftyFivePercent() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setStartMarketCap(93_000D);
         assist.setMaxTurnoverRate(54.99D);
 
-        assertTrue(StockChipFilter.evaluate(assist).passed());
+        assertTrue(RelayChipFilter.evaluate(assist).passed());
     }
 
     @Test
     void smallestMarketCapBandStillRejectsExactlyFiftyFivePercent() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setStartMarketCap(93_000D);
         assist.setMaxTurnoverRate(55D);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("市值换手价格阶梯及特殊通道", decision.layer());
@@ -135,33 +134,33 @@ class StockChipFilterTest {
                 new BandCase(250_000D, 25D, 16D));
 
         for (BandCase bandCase : bandCases) {
-            StockSelectionAssistDTO passing = eligibleAssist();
+            RelaySelectionAssist passing = eligibleAssist();
             passing.setStartMarketCap(bandCase.marketCap());
             passing.setMaxTurnoverRate(bandCase.turnoverLimit() - 0.01D);
             if (bandCase.priceLimit() != null) {
                 passing.setCurrentPrice(bandCase.priceLimit() - 0.01D);
             }
-            assertTrue(StockChipFilter.evaluate(passing).passed(), bandCase.toString());
+            assertTrue(RelayChipFilter.evaluate(passing).passed(), bandCase.toString());
 
-            StockSelectionAssistDTO turnoverBoundary = eligibleAssist();
+            RelaySelectionAssist turnoverBoundary = eligibleAssist();
             turnoverBoundary.setStartMarketCap(bandCase.marketCap());
             turnoverBoundary.setMaxTurnoverRate(bandCase.turnoverLimit());
             if (bandCase.priceLimit() != null) {
                 turnoverBoundary.setCurrentPrice(bandCase.priceLimit() - 0.01D);
             }
-            assertFalse(StockChipFilter.evaluate(turnoverBoundary).passed(), bandCase.toString());
+            assertFalse(RelayChipFilter.evaluate(turnoverBoundary).passed(), bandCase.toString());
         }
     }
 
     @Test
     void preservesLowTurnoverLowChipAmountSpecialChannel() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setStartMarketCap(280_000D);
         assist.setMaxTurnoverRate(17.99D);
         assist.setCurrentPrice(17.49D);
         assist.setHistoricalMaxVolume(22_750_000L);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertTrue(decision.passed());
         assertEquals("低换手低筹码金额特殊通道", decision.layer());
@@ -169,10 +168,10 @@ class StockChipFilterTest {
 
     @Test
     void rejectsWhenRequiredHistoricalChipDataIsMissing() {
-        StockSelectionAssistDTO assist = eligibleAssist();
+        RelaySelectionAssist assist = eligibleAssist();
         assist.setMaxTurnoverRate(null);
 
-        StockChipFilter.Decision decision = StockChipFilter.evaluate(assist);
+        RelayChipFilter.Decision decision = RelayChipFilter.evaluate(assist);
 
         assertFalse(decision.passed());
         assertEquals("筹码数据完整性", decision.layer());
@@ -192,7 +191,7 @@ class StockChipFilterTest {
             rawWindow.add(daily);
         }
 
-        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+        RelayChipFilter.HistoricalMetrics metrics = RelayChipFilter.calculateHistoricalMetrics(
                 rawWindow, earliestStored, LocalDate.of(2026, 7, 1));
 
         assertEquals(20D, metrics.maxTurnoverRate());
@@ -211,7 +210,7 @@ class StockChipFilterTest {
                 daily(LocalDate.of(2025, 12, 1), 42D, 8_000_000L, 5),
                 daily(LocalDate.of(2026, 6, 15), 30D, 5_000_000L, 3));
 
-        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+        RelayChipFilter.HistoricalMetrics metrics = RelayChipFilter.calculateHistoricalMetrics(
                 rawWindow, earliestStored, LocalDate.of(2026, 7, 1));
 
         assertEquals(42D, metrics.maxTurnoverRate());
@@ -239,7 +238,7 @@ class StockChipFilterTest {
                     outsideLatestTwoHundred ? 6 : 2));
         }
 
-        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+        RelayChipFilter.HistoricalMetrics metrics = RelayChipFilter.calculateHistoricalMetrics(
                 rawHistory, earliestStored, historyEndDate);
 
         assertEquals(20D, metrics.maxTurnoverRate());
@@ -261,7 +260,7 @@ class StockChipFilterTest {
                 LocalDate.of(2026, 6, 2), 49D, 2_000_000L, 2);
         maximumVolumeDay.setTurnover(280_000D);
 
-        StockChipFilter.HistoricalMetrics metrics = StockChipFilter.calculateHistoricalMetrics(
+        RelayChipFilter.HistoricalMetrics metrics = RelayChipFilter.calculateHistoricalMetrics(
                 List.of(lowerVolumeDay, maximumVolumeDay), earliestStored, LocalDate.of(2026, 7, 1));
 
         assertEquals(2_000_000L, metrics.maxVolume());
@@ -269,8 +268,8 @@ class StockChipFilterTest {
         assertEquals(280_000D, metrics.maxVolumeDayTurnover());
     }
 
-    private StockSelectionAssistDTO eligibleAssist() {
-        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+    private RelaySelectionAssist eligibleAssist() {
+        RelaySelectionAssist assist = new RelaySelectionAssist();
         assist.setStockCode("600001");
         assist.setStartMarketCap(90_000D);
         assist.setCurrentPrice(20D);
@@ -295,3 +294,4 @@ class StockChipFilterTest {
     private record BandCase(double marketCap, double turnoverLimit, Double priceLimit) {
     }
 }
+

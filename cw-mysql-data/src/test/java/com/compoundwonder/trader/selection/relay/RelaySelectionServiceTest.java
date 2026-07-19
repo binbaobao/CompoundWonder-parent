@@ -1,7 +1,6 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class StockWatchingTaskServiceImplTest {
+class RelaySelectionServiceTest {
 
     @Test
     void relayBoardCalculatesFiveDayAmplitudeIncludingCurrentDay() {
@@ -26,26 +25,12 @@ class StockWatchingTaskServiceImplTest {
                 daily("2026-07-14", 9.4, 10.4),
                 daily("2026-07-15", 8.0, 10.8));
 
-        double amplitude = StockWatchingTaskServiceImpl
+        double amplitude = RelaySelectionService
                 .calculateSelectionAdjustedAmplitude(dailyList, 2);
 
         assertEquals(35.0, amplitude, 0.000001);
     }
 
-    @Test
-    void firstBoardCalculatesThreeDayAmplitudeIncludingCurrentDay() {
-        List<StockDailyEntity> dailyList = List.of(
-                daily("2026-07-09", 7.0, 10.1),
-                daily("2026-07-10", 8.0, 10.2),
-                daily("2026-07-13", 9.0, 10.3),
-                daily("2026-07-14", 9.4, 10.4),
-                daily("2026-07-15", 9.2, 10.8));
-
-        double amplitude = StockWatchingTaskServiceImpl
-                .calculateSelectionAdjustedAmplitude(dailyList, 1);
-
-        assertEquals(20.0, amplitude, 0.000001);
-    }
 
     @Test
     void returnsZeroWhenSelectedAmplitudeWindowIsUnavailable() {
@@ -53,7 +38,7 @@ class StockWatchingTaskServiceImplTest {
                 daily("2026-07-14", 9.4, 10.4),
                 daily("2026-07-15", 9.0, 10.8));
 
-        double amplitude = StockWatchingTaskServiceImpl
+        double amplitude = RelaySelectionService
                 .calculateSelectionAdjustedAmplitude(dailyList, 1);
 
         assertEquals(0.0, amplitude);
@@ -67,7 +52,7 @@ class StockWatchingTaskServiceImplTest {
             descendingDailyList.add(daily(LocalDate.of(2026, 7, 15).minusDays(i).toString(), klineState));
         }
 
-        int abnormalCount = StockWatchingTaskServiceImpl
+        int abnormalCount = RelaySelectionService
                 .countPriorTwentyDayAbnormalKlineState(descendingDailyList, 2);
 
         assertEquals(3, abnormalCount);
@@ -81,7 +66,7 @@ class StockWatchingTaskServiceImplTest {
             descendingDailyList.add(daily(LocalDate.of(2026, 7, 15).minusDays(i).toString(), klineState));
         }
 
-        int abnormalCount = StockWatchingTaskServiceImpl
+        int abnormalCount = RelaySelectionService
                 .countPriorTwentyDayAbnormalKlineState(descendingDailyList, 3);
 
         assertEquals(4, abnormalCount);
@@ -89,8 +74,8 @@ class StockWatchingTaskServiceImplTest {
 
     @Test
     void onlyAllowsFewerThanFourAbnormalKlinesInPriorTwentyTradingDays() {
-        assertTrue(StockWatchingTaskServiceImpl.isRecentAbnormalKlineCountAllowed(3));
-        assertFalse(StockWatchingTaskServiceImpl.isRecentAbnormalKlineCountAllowed(4));
+        assertTrue(RelaySelectionService.isRecentAbnormalKlineCountAllowed(3));
+        assertFalse(RelaySelectionService.isRecentAbnormalKlineCountAllowed(4));
     }
 
     @Test
@@ -99,7 +84,7 @@ class StockWatchingTaskServiceImplTest {
                 acceleratedDaily(3, 8D, 30D),
                 acceleratedDaily(1, 2.99D, 30D));
 
-        assertTrue(StockWatchingTaskServiceImpl
+        assertTrue(RelaySelectionService
                 .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 2));
     }
 
@@ -110,7 +95,7 @@ class StockWatchingTaskServiceImplTest {
                 acceleratedDaily(1, 8D, 30D),
                 acceleratedDaily(1, 1D, 30D));
 
-        assertTrue(StockWatchingTaskServiceImpl
+        assertTrue(RelaySelectionService
                 .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 3));
     }
 
@@ -120,7 +105,7 @@ class StockWatchingTaskServiceImplTest {
                 acceleratedDaily(1, 2D, 30D),
                 acceleratedDaily(1, 8D, 10D));
 
-        assertFalse(StockWatchingTaskServiceImpl
+        assertFalse(RelaySelectionService
                 .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 2));
     }
 
@@ -131,89 +116,17 @@ class StockWatchingTaskServiceImplTest {
                 acceleratedDaily(1, 8D, 15D),
                 acceleratedDaily(1, 8D, 30D));
 
-        assertFalse(StockWatchingTaskServiceImpl
+        assertFalse(RelaySelectionService
                 .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 3));
     }
 
-    @Test
-    void smallMarketCapFirstBoardUsesPreviousCloseMarketCapAndAllowsHistoricalTurnoverAtThirtyPercent() {
-        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(119_998D);
-        assist.setCurrentTurnoverRate(80D);
-        assist.setMaxTurnoverRate(30D);
 
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardCandidate(assist, false));
-    }
 
-    @Test
-    void smallMarketCapFirstBoardRejectsHistoricalTurnoverAboveThirtyPercent() {
-        StockSelectionAssistDTO assist = smallMarketCapFirstBoard(100_000D);
-        assist.setMaxTurnoverRate(30.001D);
 
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardCandidate(assist, false));
-    }
 
-    @Test
-    void smallMarketCapFirstBoardKeepsStrictMarketCapAndConvertibleBondBoundaries() {
-        assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
-                smallMarketCapFirstBoard(119_999D), false));
-        assertFalse(StockWatchingTaskServiceImpl.isSmallMarketCapFirstBoardCandidate(
-                smallMarketCapFirstBoard(100_000D), true));
 
-        StockSelectionAssistDTO relayBoard = smallMarketCapFirstBoard(100_000D);
-        relayBoard.setConsecutiveLimitUpDays(2);
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardCandidate(relayBoard, false));
-    }
 
-    @Test
-    void smallMarketCapFirstBoardRejectsHistoricalThreeBoardOrHigherInPriorTwoHundredKlines() {
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(2));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(3));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardHistoricalHeightAllowed(5));
-    }
 
-    @Test
-    void smallMarketCapFirstBoardAllowsAtMostTwentyFiveAbnormalKlines() {
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardAbnormalCountAllowed(25));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardAbnormalCountAllowed(26));
-    }
-
-    @Test
-    void smallMarketCapFirstBoardRequiresBothRecentAndLongWindowAbnormalLimits() {
-        assertTrue(StockWatchingTaskServiceImpl
-                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(3, 25));
-        assertFalse(StockWatchingTaskServiceImpl
-                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(4, 25));
-        assertFalse(StockWatchingTaskServiceImpl
-                .areSmallMarketCapFirstBoardAbnormalCountsAllowed(3, 26));
-    }
-
-    @Test
-    void smallMarketCapFirstBoardRequiresThreeDayAmplitudeBelowTwentyPercent() {
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardAmplitudeAllowed(19.999D));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardAmplitudeAllowed(20D));
-    }
-
-    @Test
-    void smallMarketCapFirstBoardRequiresTenDayChangeBetweenMinusTwoAndTwentyFivePercent() {
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardTenDayChangeAllowed(-1.999D));
-        assertTrue(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardTenDayChangeAllowed(24.999D));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardTenDayChangeAllowed(-2D));
-        assertFalse(StockWatchingTaskServiceImpl
-                .isSmallMarketCapFirstBoardTenDayChangeAllowed(25D));
-    }
 
     @Test
     void candidateTasksWithSameScorePreferLowerCurrentPrice() {
@@ -223,7 +136,7 @@ class StockWatchingTaskServiceImplTest {
         List<StockWatchingTask> tasks = new ArrayList<>(List.of(
                 expensiveSameScore, cheapSameScore, higherScore));
 
-        StockWatchingTaskServiceImpl.sortSelectionTasks(tasks, Map.of(
+        RelaySelectionService.sortSelectionTasks(tasks, Map.of(
                 "600001", 20D,
                 "600002", 10D,
                 "600003", 30D));
@@ -234,26 +147,22 @@ class StockWatchingTaskServiceImplTest {
 
     @Test
     void icePointThreeFourBoardMarketRelaxesAllRelayCandidates() {
-        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 2));
-        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 3));
-        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 2));
-        assertTrue(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 3));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(2, 2));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(5, 3));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(3, 1));
-        assertFalse(StockWatchingTaskServiceImpl.isIcePointThreeFourBoardCandidate(4, 4));
+        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 2));
+        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 3));
+        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 2));
+        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 3));
+        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(2, 2));
+        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(5, 3));
+        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 1));
+        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 4));
     }
 
     @Test
     void normalRelayKeepsFourTasksAndWeakFiveBoardFallbackKeepsThree() {
-        assertEquals(4, StockWatchingTaskServiceImpl.NORMAL_RELAY_TASK_LIMIT);
-        assertEquals(3, StockWatchingTaskServiceImpl.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
+        assertEquals(4, RelaySelectionService.NORMAL_RELAY_TASK_LIMIT);
+        assertEquals(3, RelaySelectionService.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
     }
 
-    @Test
-    void smallMarketCapFirstBoardSupplementKeepsAtMostTwoTasks() {
-        assertEquals(2, StockWatchingTaskServiceImpl.SMALL_MARKET_CAP_FIRST_BOARD_TASK_LIMIT);
-    }
 
     @Test
     void weakFiveBoardQualityUsesDailyCurrentMetricsAndAssistStartPrice() {
@@ -264,12 +173,12 @@ class StockWatchingTaskServiceImplTest {
         daily.setAmplitude(14D);
         daily.setClosePrice(25D);
 
-        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
+        RelaySelectionAssist assist = new RelaySelectionAssist();
         assist.setStockCode("600001");
         assist.setStartPrice(8D);
 
         WeakFiveBoardFallbackPolicy.FiveBoardQuality quality =
-                StockWatchingTaskServiceImpl.toFiveBoardQuality(daily, assist);
+                RelaySelectionService.toFiveBoardQuality(daily, assist);
 
         assertEquals(460_000D, quality.currentMarketCap());
         assertEquals(46D, quality.currentTurnoverRate());
@@ -283,7 +192,7 @@ class StockWatchingTaskServiceImplTest {
         StockDailyEntity highPriceTwoBoard = relayDaily("600002", 2, 40D);
         StockDailyEntity threeBoard = relayDaily("600003", 3, 20D);
 
-        List<StockDailyEntity> candidates = StockWatchingTaskServiceImpl
+        List<StockDailyEntity> candidates = RelaySelectionService
                 .selectWeakFiveBoardFallbackDailyCandidates(
                         List.of(eligibleTwoBoard, highPriceTwoBoard, threeBoard));
 
@@ -326,12 +235,6 @@ class StockWatchingTaskServiceImplTest {
         return daily;
     }
 
-    private StockSelectionAssistDTO smallMarketCapFirstBoard(double startMarketCap) {
-        StockSelectionAssistDTO assist = new StockSelectionAssistDTO();
-        assist.setConsecutiveLimitUpDays(1);
-        assist.setStartMarketCap(startMarketCap);
-        return assist;
-    }
 
     private StockWatchingTask watchingTask(String stockCode, int score) {
         StockWatchingTask task = new StockWatchingTask();
@@ -340,3 +243,4 @@ class StockWatchingTaskServiceImplTest {
         return task;
     }
 }
+

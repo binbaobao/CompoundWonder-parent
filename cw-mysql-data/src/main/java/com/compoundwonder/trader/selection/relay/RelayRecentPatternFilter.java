@@ -1,6 +1,5 @@
-package com.compoundwonder.trader.service.impl;
+package com.compoundwonder.trader.selection.relay;
 
-import com.compoundwonder.trader.dto.StockSelectionAssistDTO;
 
 /**
  * 连板候选近期形态过滤器。
@@ -32,16 +31,16 @@ final class RelayRecentPatternFilter {
     /**
      * 判断 2、3 连板候选的近期形态是否符合要求。
      */
-    static Decision evaluate(StockSelectionAssistDTO assist) {
+    static Decision evaluate(RelaySelectionAssist assist) {
         if (assist == null
                 || assist.getConsecutiveLimitUpDays() == null
-                || assist.getSelectionAmplitude() == null
+                || assist.getFiveDayAmplitude() == null
                 || assist.getTenDayChangeRate() == null) {
             return Decision.rejected("数据完整性", "缺少连板数、5日振幅或10日涨跌幅");
         }
 
         int consecutiveLimitUpDays = assist.getConsecutiveLimitUpDays();
-        double fiveDayAmplitude = assist.getSelectionAmplitude();
+        double fiveDayAmplitude = assist.getFiveDayAmplitude();
         double tenDayChangeRate = assist.getTenDayChangeRate();
 
         if (consecutiveLimitUpDays == 3) {
@@ -102,3 +101,4 @@ final class RelayRecentPatternFilter {
         }
     }
 }
+
