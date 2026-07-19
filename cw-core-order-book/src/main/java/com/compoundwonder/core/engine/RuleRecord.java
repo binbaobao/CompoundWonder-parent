@@ -2,8 +2,9 @@ package com.compoundwonder.core.engine;
 
 
 import com.compoundwonder.dto.RuleRecordDTO;
+import com.compoundwonder.strategy.TradeRuleRecord;
 
-public final class RuleRecord {
+public final class RuleRecord implements TradeRuleRecord {
 
     /**
      * BUY / SELL / CANCEL / REBUY
@@ -56,6 +57,7 @@ public final class RuleRecord {
      * 填充记录规则的
      *
      */
+    @Override
     public void fill(int actionType, int ruleCode, String symbol, int time, int price, double increase, String remark) {
 
         this.actionType = actionType;

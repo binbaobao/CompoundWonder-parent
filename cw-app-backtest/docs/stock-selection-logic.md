@@ -21,13 +21,10 @@
 主要源码：
 
 - `StockWatchingTaskServiceImpl`：只负责依次调用三个独立模式；
-- `selection.relay`：连板接力专用辅助对象、过滤、评分、排序和落库；
-- `selection.firstboard`：普通首板专用辅助对象、筹码过滤、评分、排序和落库；
-- `selection.smallcapfirstboard`：小市值首板专用辅助对象、历史指标、评分、排序和落库；
-- `RelayChipFilter`、`FirstBoardChipFilter`：两种模式各自拥有的 200 根 K 线筹码计算和过滤代码；
-- `RelayRecentPatternFilter`：2/3 连板近期形态；
-- `IcePointThreeFourBoardFilter`：最高板为 3/4 板时的宽松通道；
-- `WeakFiveBoardFallbackPolicy`：唯一弱 5 板严格 2 板兜底。
+- `cw-core-trading-strategy/.../relay/selection`：连板接力过滤、评分、冰点通道和弱 5 板规则；
+- `cw-core-trading-strategy/.../firstboard/selection`：普通首板过滤、评分和筹码阶梯；
+- `cw-core-trading-strategy/.../smallcapfirstboard/selection`：小市值首板独立过滤和评分；
+- `cw-mysql-data/.../selection`：三种模式各自的数据查询、历史指标准备、排序截断和落库适配。
 
 ## 2. 总体流程
 
@@ -55,7 +52,7 @@ flowchart TD
     D8 --> E
 ```
 
-入口不再承载任何选股业务，只按顺序调用连板、普通首板和小市值首板三个服务。三个服务分别查询候选和可转债正股，分别构建自己的辅助对象，并独立过滤、评分、排序和落库。当前只复用数据库实体、数据服务、交易日历和 `TradeMode` 编号协议，不复用选股业务对象或过滤代码。
+入口不再承载任何选股业务，只按顺序调用连板、普通首板和小市值首板三个服务。三个服务分别查询候选和可转债正股、构建自己的辅助对象，再调用 `cw-core-trading-strategy` 中对应模式的核心选股策略。核心策略返回通过状态、过滤层级、明细和分数；数据模块只负责日志、排序截断和落库。三个模式只复用稳定的 `TradeMode` 编号协议，不复用选股候选或规则实现。
 
 ## 3. 日期、单位和核心字段口径
 

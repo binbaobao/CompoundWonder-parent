@@ -1,11 +1,10 @@
-package com.compoundwonder.core.processor.evaluator;
+package com.compoundwonder.strategy.firstboard.trade;
 
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
-import com.compoundwonder.core.engine.OrderBook;
-import com.compoundwonder.core.engine.RuleRecord;
-import com.compoundwonder.core.engine.TickNode;
+import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.strategy.TradeRuleRecord;
 import com.compoundwonder.util.CompactTimeUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -105,7 +104,7 @@ public final class ConditionEvaluatorBuy {
      * @param ruleRecord 预分配的规则记录，只有规则命中时才会填充
      * @return 命中买入规则返回 {@code true}
      */
-    public static boolean evaluate(OrderBook orderBook, RuleRecord ruleRecord) {
+    public static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
         // 当日截至当前时刻的累计换手率，单位：%。
@@ -154,13 +153,12 @@ public final class ConditionEvaluatorBuy {
         }
 
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
-        TickNode largestBuyOrder = orderBook.buyMaxOrder;
-        if (largestBuyOrder.getPrice() != 0
-                && largestBuyOrder.getPrice() == limitUpPrice
+        if (orderBook.getLargestBuyOrderPrice() != 0
+                && orderBook.getLargestBuyOrderPrice() == limitUpPrice
                 && sealChangePercent >= 0) {
             // 由启动市值、涨停价和最大买单股数组合匹配出的规则编号；0 表示未命中。
             int largeOrderRule = matchLargeOrderRule(
-                    marketValue, limitUpPrice, largestBuyOrder.getQuantity());
+                    marketValue, limitUpPrice, orderBook.getLargestBuyOrderQuantity());
             if (largeOrderRule != 0) {
                 fillLargeOrderRecord(orderBook, ruleRecord, largeOrderRule);
                 return true;
@@ -189,7 +187,7 @@ public final class ConditionEvaluatorBuy {
     /**
      * 判断当前换手是否达到历史最大换手或固定换手门槛。
      */
-    private static boolean isTurnoverEligible(OrderBook orderBook, double turnoverRate) {
+    private static boolean isTurnoverEligible(TradeMarketState orderBook, double turnoverRate) {
         if (turnoverRate > MAX_TURNOVER_RATE) {
             return false;
         }
@@ -283,8 +281,8 @@ public final class ConditionEvaluatorBuy {
     /**
      * 只在大单规则命中后生成说明并填充记录，未命中路径不创建字符串。
      */
-    private static void fillLargeOrderRecord(OrderBook orderBook,
-                                             RuleRecord ruleRecord,
+    private static void fillLargeOrderRecord(TradeMarketState orderBook,
+                                             TradeRuleRecord ruleRecord,
                                              int ruleCode) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
@@ -295,7 +293,7 @@ public final class ConditionEvaluatorBuy {
         // 涨停买单数量 EMA 的环比变化率，单位：%。
         double sealChangePercent = orderBook.getChangePercent();
         // 当前仍在订单簿中的最大单笔买委托数量，单位：股。
-        int orderQuantity = orderBook.buyMaxOrder.getQuantity();
+        int orderQuantity = orderBook.getLargestBuyOrderQuantity();
         String remark;
         if (ruleCode == RULE_LARGE_HIGH_PRICE_ORDER) {
             remark = StrUtil.format(
@@ -316,3 +314,4 @@ public final class ConditionEvaluatorBuy {
                 orderBook.getTime(), orderBook.getLastPrice(), orderBook.getIncrease(), remark);
     }
 }
+

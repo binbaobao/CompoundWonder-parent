@@ -1,5 +1,6 @@
 package com.compoundwonder.trader.selection.relay;
 
+import com.compoundwonder.strategy.relay.selection.WeakFiveBoardFallbackPolicy;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import org.junit.jupiter.api.Test;
@@ -243,4 +244,3 @@ class RelaySelectionServiceTest {
         return task;
     }
 }
-

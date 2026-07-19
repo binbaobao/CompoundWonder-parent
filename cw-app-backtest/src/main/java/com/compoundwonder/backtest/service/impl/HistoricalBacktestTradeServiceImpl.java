@@ -183,7 +183,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             if (sellRule == null) {
                 BacktestReplayResult sellResult = replayService.replay(
                         tradeDate, previousPosition.getSymbol(), BacktestReplayMode.SELL, null,
-                        dailyTicks);
+                        dailyTicks, previousPosition.getTradeMode());
                 triggeredRules.addAll(previousPosition, sellResult.records());
                 sellRule = sellResult.firstSellRecord().orElse(null);
             }
@@ -214,7 +214,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             } else {
                 BacktestReplayResult overnightResult = replayService.replay(
                         tradeDate, overnightTask.getStockCode(), BacktestReplayMode.OVERNIGHT_BUY,
-                        null, dailyTicks);
+                        null, dailyTicks, overnightTask.getTradeMode());
                 triggeredRules.addAll(overnightTask, overnightResult.records());
                 RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
                 if (cancelRule != null) {
@@ -344,7 +344,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             }
             try {
                 BacktestReplayResult result = replayService.replay(
-                        tradeDate, symbol, replayMode, allowedAfterTime, dailyTicks);
+                        tradeDate, symbol, replayMode, allowedAfterTime, dailyTicks,
+                        task.getTradeMode());
                 triggeredRules.addAll(task, result.records());
                 ReplayBuyCandidate candidate = firstReplayBuyCandidate(
                         task, result, allowedAfterTime);

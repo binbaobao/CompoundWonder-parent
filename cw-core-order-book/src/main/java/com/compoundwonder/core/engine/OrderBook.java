@@ -1,6 +1,7 @@
 package com.compoundwonder.core.engine;
 
 import com.compoundwonder.constant.MarketEnum;
+import com.compoundwonder.strategy.TradeMarketState;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -15,7 +16,7 @@ import java.util.function.Consumer;
  */
 @Getter
 @ToString
-public class OrderBook {
+public class OrderBook implements TradeMarketState {
 
     private static final int DEFAULT_ACTIVE_ORDER_CAPACITY = 5_000;
 
@@ -50,6 +51,13 @@ public class OrderBook {
     // 0 任务暂时不执行 或 任务已经执行(已经买入或者已经卖出)， 1 待买入，2 买入待撤单  -1待卖出 -2 卖出待撤单
     @Setter
     private int transactionStatus = 0;
+    /**
+     * 交易模式：1 连板接力，2 普通首板，3 小市值首板。
+     *
+     * <p>默认值 1 只用于兼容未显式设置模式的旧调用；回测和实盘初始化必须按任务覆盖。</p>
+     */
+    @Setter
+    private int tradeMode = 1;
     /**
      * 连班次数
      */
@@ -390,6 +398,30 @@ public class OrderBook {
      */
     public boolean containsOrder(int orderId) {
         return idIndex.containsKey(orderId);
+    }
+
+    /** 交易策略读取指定分钟的最新价，不对外暴露可替换的数组引用。 */
+    @Override
+    public int getMinutePriceAt(int index) {
+        return price[index];
+    }
+
+    /** 交易策略读取指定分钟的均价，不对外暴露可替换的数组引用。 */
+    @Override
+    public int getAveragePriceAt(int index) {
+        return avgPrice[index];
+    }
+
+    /** 当前仍在订单簿中的最大买委托价格，单位：分。 */
+    @Override
+    public int getLargestBuyOrderPrice() {
+        return buyMaxOrder.getPrice();
+    }
+
+    /** 当前仍在订单簿中的最大买委托剩余数量，单位：股。 */
+    @Override
+    public int getLargestBuyOrderQuantity() {
+        return buyMaxOrder.getQuantity();
     }
 
     private int priceToIndex(int price) {

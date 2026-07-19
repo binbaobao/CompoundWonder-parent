@@ -9,11 +9,10 @@ import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.RuleRecordBuffer;
 import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.core.engine.TickNodePool;
-import com.compoundwonder.core.processor.evaluator.ConditionEvaluatorBuy;
-import com.compoundwonder.core.processor.evaluator.ConditionEvaluatorSell;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.strategy.TradeStrategyDispatcher;
 import com.compoundwonder.util.CompactTimeUtil;
 import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +33,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     private int time;
 
     private final OrderExecutionGateway executionGateway;
+
+    /** 按订单簿 tradeMode 以 switch 分发到三套独立交易规则。 */
+    private final TradeStrategyDispatcher tradeStrategyDispatcher = new TradeStrategyDispatcher();
 
     private final TickNodePool tickNodePool = new TickNodePool(100000);
 
@@ -118,14 +120,17 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 orderBook.setLastPrice(order.price);
                 RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                 if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
-                    //集合竞价期间价格不等于涨停价直接撤单,然后把状态设置为 1 ，继续等待买入状态
-                    if (order.price != orderBook.getLimitUpPrice()) {
+                    // 调用当前模式深圳快照集合竞价撤单规则。
+                    int auctionCancelRule = tradeStrategyDispatcher.evaluateShenzhenSnapshotAuctionCancel(
+                            orderBook, order.price, orderBook.getLimitUpPrice());
+                    if (auctionCancelRule != 0) {
                         executionGateway.cancel(orderBook.getSymbol());
                         orderBook.setTransactionStatus(1);
                         String remark = StrUtil.format("早盘竞价 {}，股票代码:{} 竞价 {} 不等于涨停价{}直接撤单", order.time, order.symbolId, order.price, orderBook.getLimitUpPrice());
                         transStatus = 1;
                         log.info(remark);
-                        ruleRecord.fill(RuleConstant.TRADING_MODE_CANCEL, 1, orderBook.getSymbol(), time,order.price, increase, remark);
+                        ruleRecord.fill(RuleConstant.TRADING_MODE_CANCEL, auctionCancelRule,
+                                orderBook.getSymbol(), time, order.price, increase, remark);
                         ruleRecordBuffer.commit();
 
                     }
@@ -133,7 +138,10 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 // 盯盘卖出状态下。尾盘竞价盯盘，最后几秒判断是否是涨停, 深圳要用 level 2 数据判断是不是涨停
                 if (transStatus == -1 && ConstantUtil.TIME_1459 <= order.time && ConstantUtil.TIME_1500 > order.time) {
                     // 如果竞价价格比涨停价格低 或者竞价买小于竞价卖
-                    if (order.price < orderBook.getLimitUpPrice() || order.buyerOrderId < order.sellerOrderId) {
+                    // 调用当前模式尾盘集合竞价卖出规则。
+                    if (tradeStrategyDispatcher.evaluateClosingAuctionSell(
+                            orderBook, order.price, orderBook.getLimitUpPrice(),
+                            order.buyerOrderId, order.sellerOrderId)) {
                         executionGateway.sell(orderBook.getSymbol(), orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
                         orderBook.setTransactionStatus(-2);
                         transStatus = -2;
@@ -171,7 +179,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 }
                 orderBook.price[calculateIndex] = order.price;
                 // 执行均价卖出策略
-                if (transStatus == -1 && calculateIndex >= 5 && ConditionEvaluatorSell.averagePriceSellStrategy(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
+                if (transStatus == -1 && calculateIndex >= 5 && tradeStrategyDispatcher.evaluateAveragePriceSell(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
                     executionGateway.quickSell(orderBook.getSymbol(), order.price, orderBook.getLimitDownPrice());
                     orderBook.setTransactionStatus(-2);
                     transStatus = 0;
@@ -199,25 +207,27 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             int marketValue = orderBook.getInitialMarketValue();
             long buyVolume = marketValue < 120000 ? Math.min(circulation / 20, orderBook.getMaxVolume() / 5):circulation / 20 + order.sellerOrderId;
             // 涨停总买手，大于 全部总卖手，全部总卖全部以涨停价格成交，总卖小于 2500w ，如果遇到 委托买单 大于 200w，则跟单 orderBook.getInitialMarketValue() < 120_000 || orderBook.getLbcs() > 1 || transStatus == 2) && transStatus != 0
-            if (transStatus == 1 && totalSellVolume * 100.0 / limitUpBuyVolume <= 40) {
-                // 买入方向的委托单，委托价格是涨停价格，委托金额大于 200w，
-                if (order.dataType == 1 && limitUpBuyAmount > 1500 && order.price == limitUpPrice
-                        && (order.quantity > 900000 || order.quantity / 100L * limitUpPrice / 10000L > 600) && limitUpBuyVolume * 100.0 / circulation > 2) {
+            // 调用当前模式深圳集合竞价买入规则；规则 6 的大单买入优先于规则 7 的总买量买入。
+            int auctionBuyRule = transStatus == 1
+                    ? tradeStrategyDispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook, order.dataType, order.price, limitUpPrice, order.quantity,
+                    limitUpBuyVolume, totalSellVolume, buyVolume, limitUpBuyAmount, circulation)
+                    : 0;
+            if (auctionBuyRule != 0) {
+                if (auctionBuyRule == 6) {
                     executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                     orderBook.setTransactionStatus(2);
                     String remark = StrUtil.format("买入 - 深圳早盘竞价，大单买 股票代码 {} 时间 :{} 触发单号 OrderId :{} ,买单数:{}，买单金额 {} W", order.symbolId, order.time, order.orderId, order.quantity, order.price / 100L * order.quantity / 10000);
                     log.info(remark);
-                    ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, 6, orderBook.getSymbol(), time,order.price, increase, remark);
+                    ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, auctionBuyRule, orderBook.getSymbol(), time,order.price, increase, remark);
                     ruleRecordBuffer.commit();
                     transStatus = 2;
-                }
-                // 如果上面没有修改交易状态，就去判断 总涨停买如果大于最大换手 20% 则下单买入, 总卖单不能太多，不能占涨停总买的 35%
-                if (transStatus == 1 && limitUpBuyVolume > buyVolume) {
+                } else {
                     executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                     orderBook.setTransactionStatus(2);
                     String remark = StrUtil.format("买入 - 深圳早盘竞价  股票代码 {} 时间 :{} 触发单号 OrderId :{},总买超过占最大换手 {} % ,占流通股:{} % ,涨停总买:{}", order.symbolId, order.time, order.orderId, limitUpBuyVolume * 100.0 / orderBook.getMaxVolume(), order.buyerOrderId * 100.0 / circulation, limitUpBuyVolume);
                     log.info(remark);
-                    ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, 7, orderBook.getSymbol(), time, order.price,increase, remark);
+                    ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, auctionBuyRule, orderBook.getSymbol(), time, order.price,increase, remark);
                     ruleRecordBuffer.commit();
                     transStatus = 2;
                 }
@@ -226,12 +236,16 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             if (transStatus == 2 && order.time >= ConstantUtil.TIME_91952 && order.time < ConstantUtil.TIME_920) {
                 // 总卖大于涨停买，涨停买小于 流通的 4.5% 或者涨停卖大于 3500 w，或者 涨停买减去全部卖小于 2.5%
                 //// 封单如果大于流通市值的 40% 可能是三班组，也撤单  TODO ,只要是节点票或者1进2 就不怕三班组
-                if (limitUpBuyVolume <= buyVolume || totalSellVolume * 100.0 / limitUpBuyVolume > 40) {
+                // 调用当前模式深圳集合竞价撤单规则。
+                int auctionCancelRule = tradeStrategyDispatcher.evaluateShenzhenAuctionCancel(
+                        orderBook, limitUpBuyVolume, totalSellVolume, buyVolume);
+                if (auctionCancelRule != 0) {
                     executionGateway.cancel(orderBook.getSymbol());
                     orderBook.setTransactionStatus(1);
                     String remark = StrUtil.format("撤单 - 深圳早盘竞价 早盘撤单,股票代码 {} 时间 :{} 总涨停买占最大换手 {} % ,占流通股:{} %   触发单号 OrderId :{}，数据类型:({}) 封单变化：{},涨停总买:{}", order.symbolId, order.time, limitUpBuyVolume * 100.0 / orderBook.getMaxVolume(), limitUpBuyVolume * 100.0 / circulation, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), limitUpBuyVolume);
                     log.info(remark);
-                    ruleRecord.fill(RuleConstant.TRADING_MODE_CANCEL, 2, orderBook.getSymbol(), time, order.price,increase, remark);
+                    ruleRecord.fill(RuleConstant.TRADING_MODE_CANCEL, auctionCancelRule,
+                            orderBook.getSymbol(), time, order.price,increase, remark);
                     ruleRecordBuffer.commit();
                     transStatus = 1;
                 }
@@ -239,21 +253,22 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         }
         // 深交所盘中策略统一从 09:31 开始，避开开盘初段行情延迟。
         if (transStatus != 0 && order.time >= ConstantUtil.TIME_931 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
-            // 以开盘价为基准 跌幅 >= 5 如果是擒龙捉妖就去打开其他的
-            if (transStatus == 1 && order.time < ConstantUtil.TIME_939 && (orderBook.getOpenIncrease() - orderBook.getIncrease() >= 5) && orderBook.getIncrease() <= -1) {
-                if (orderBook.getLbcs() > 1) {
-                    executionGateway.enableFirstLimitUpTradingMode(orderBook.getSymbol());
-                }
+            // 调用当前模式的盘中交易模式切换规则。
+            if (transStatus == 1
+                    && tradeStrategyDispatcher.shouldEnableFirstBoardTradingMode(orderBook)) {
+                executionGateway.enableFirstLimitUpTradingMode(orderBook.getSymbol());
             }
-            // 可交易状态 涨停价成交才能,14点半之后不打板，很可能是悟道偷鸡板
-            if (transStatus == 1 && order.time < ConstantUtil.TIME_1430 && ConditionEvaluatorBuy.evaluate(orderBook, ruleRecordBuffer.nextRecord())) {
+            // 调用当前模式连续竞价买入时段与买入规则。
+            if (transStatus == 1
+                    && tradeStrategyDispatcher.isContinuousBuyTimeAllowed(orderBook, order.time)
+                    && tradeStrategyDispatcher.evaluateBuy(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                 orderBook.setTransactionStatus(2);
                 log.info("打板,股票代码 {} 触发单号 OrderId :{}，数据类型:({}) 封单变化：{},封单金额:{},换手:{}%", order.symbolId, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getLimitUpBuyAmount(), orderBook.getTurnoverRate());
                 ruleRecordBuffer.commit();
             }
             // 卖出监控中
-            if (transStatus == -1 && ConditionEvaluatorSell.evaluate(orderBook, ruleRecordBuffer.nextRecord())) {
+            if (transStatus == -1 && tradeStrategyDispatcher.evaluateSell(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.quickSell(orderBook.getSymbol(), orderBook.getLastPrice(), orderBook.getLimitDownPrice());
                 orderBook.setTransactionStatus(-2);
                 log.info("卖出,股票代码 {} 触发单号 OrderId :{}，数据类型:({}) 封单变化：{},封单金额:{},换手:{}%", order.symbolId, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getLimitUpBuyAmount(), orderBook.getTurnoverRate());

@@ -15,10 +15,10 @@ import lombok.extern.slf4j.Slf4j;
  *
  * 使用方式：
  *
- * RuleRecord record = buffer.acquire();
- * ConditionEvaluatorBuy.evaluate(orderBook, record);
+ * RuleRecord record = buffer.nextRecord();
+ * tradeStrategyDispatcher.evaluateBuy(orderBook, record);
  *
- * if (record.passed) {
+ * if (matched) {
  *     buffer.commit();
  *     buy(...);
  * } else {

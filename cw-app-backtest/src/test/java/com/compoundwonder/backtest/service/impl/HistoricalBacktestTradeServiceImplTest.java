@@ -694,6 +694,13 @@ class HistoricalBacktestTradeServiceImplTest {
                 Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks) {
             return replay(tradeDate, stockCode, mode, allowedAfterTime);
         }
+
+        @Override
+        public synchronized BacktestReplayResult replay(
+                LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
+                Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks, Integer tradeMode) {
+            return replay(tradeDate, stockCode, mode, allowedAfterTime);
+        }
     }
 
     private static final class FakePersistenceService extends BacktestPersistenceService {

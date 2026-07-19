@@ -3,6 +3,7 @@ package com.compoundwonder.core.processor.evaluator;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.RuleRecord;
+import com.compoundwonder.strategy.TradeStrategyDispatcher;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -14,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConditionEvaluatorSellTest {
+
+    private final TradeStrategyDispatcher dispatcher = new TradeStrategyDispatcher();
 
     @Test
     void allSellRulesHaveUniqueCodes() {
@@ -45,14 +48,14 @@ class ConditionEvaluatorSellTest {
 
         RuleRecord record = new RuleRecord();
 
-        assertTrue(ConditionEvaluatorSell.averagePriceSellStrategy(index, orderBook, record));
+        assertTrue(dispatcher.evaluateAveragePriceSell(index, orderBook, record));
         assertEquals(201, record.ruleCode);
     }
 
     @Test
     void latePeakDrawdownUsesPreviousPriceIncreaseInsteadOfRawPrice() {
         OrderBook orderBook = averageStrategyOrderBook(1);
-        orderBook.updatePrice(0, 0, 1_000, 93_000_000);
+        orderBook.updatePrice(0, 0, 1_060, 93_000_000);
         orderBook.updatePrice(0, 0, 1_090, 100_000_000);
         orderBook.updatePrice(0, 0, 940, 140_000_000);
 
@@ -60,7 +63,10 @@ class ConditionEvaluatorSellTest {
         orderBook.avgPrice[index - 3] = 980;
         orderBook.avgPrice[index - 2] = 970;
         orderBook.avgPrice[index - 1] = 950;
-        orderBook.avgPrice[index] = 940;
+        orderBook.avgPrice[index] = 950;
+        // 最近 15 分钟内形成“开盘高点 -> 回落 -> 二次冲高 -> 再回落”完整结构。
+        orderBook.price[index - 10] = 940;
+        orderBook.price[index - 5] = 1_090;
         orderBook.price[index - 3] = 970;
         orderBook.price[index - 2] = 950;
         orderBook.price[index - 1] = 940;
@@ -68,7 +74,7 @@ class ConditionEvaluatorSellTest {
 
         RuleRecord record = new RuleRecord();
 
-        assertTrue(ConditionEvaluatorSell.averagePriceSellStrategy(index, orderBook, record));
+        assertTrue(dispatcher.evaluateAveragePriceSell(index, orderBook, record));
         assertEquals(205, record.ruleCode);
     }
 
@@ -82,7 +88,7 @@ class ConditionEvaluatorSellTest {
         setField(smallCap, "lastSealAmount", 20_000L);
 
         RuleRecord smallCapRecord = new RuleRecord();
-        assertTrue(ConditionEvaluatorSell.evaluate(smallCap, smallCapRecord));
+        assertTrue(dispatcher.evaluateSell(smallCap, smallCapRecord));
         assertEquals(101, smallCapRecord.ruleCode);
 
         OrderBook afternoon = limitUpStrategyOrderBook(140_000);
@@ -92,7 +98,7 @@ class ConditionEvaluatorSellTest {
         setField(afternoon, "time", 120_000_000);
 
         RuleRecord afternoonRecord = new RuleRecord();
-        assertTrue(ConditionEvaluatorSell.evaluate(afternoon, afternoonRecord));
+        assertTrue(dispatcher.evaluateSell(afternoon, afternoonRecord));
         assertEquals(102, afternoonRecord.ruleCode);
     }
 

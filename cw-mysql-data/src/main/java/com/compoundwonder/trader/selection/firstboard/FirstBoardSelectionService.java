@@ -11,7 +11,9 @@ import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
-import com.compoundwonder.trader.selection.TradeMode;
+import com.compoundwonder.strategy.TradeMode;
+import com.compoundwonder.strategy.firstboard.selection.FirstBoardSelectionCandidate;
+import com.compoundwonder.strategy.firstboard.selection.FirstBoardSelectionPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +40,7 @@ import java.util.stream.Collectors;
 public class FirstBoardSelectionService extends ServiceImpl<StockWatchingTaskMapper, StockWatchingTask> {
 
     /** 普通首板与小市值首板的强制分界，单位：万元。 */
-    public static final double MIN_START_MARKET_CAP = 119_999D;
+    public static final double MIN_START_MARKET_CAP = FirstBoardSelectionPolicy.MIN_START_MARKET_CAP;
 
     /** 普通首板最终最多保留 3 只。 */
     static final int TASK_LIMIT = 3;
@@ -119,65 +121,29 @@ public class FirstBoardSelectionService extends ServiceImpl<StockWatchingTaskMap
     private List<StockWatchingTask> selectEligibleTasks(List<FirstBoardSelectionAssist> assistList) {
         List<StockWatchingTask> result = new ArrayList<>();
         for (FirstBoardSelectionAssist assist : assistList) {
-            if (assist.getStartMarketCap() == null || !ownsStartMarketCap(assist.getStartMarketCap())) {
-                logFiltered(assist, "模式市值归属", "actual=" + assist.getStartMarketCap()
-                        + "万元, required>=119999万元; 小市值股票不得回退普通首板");
-                continue;
-            }
-            int priorTwentyAbnormal = Objects.requireNonNullElse(
-                    assist.getPriorTwentyDayAbnormalKlineStateCount(), 0);
-            if (priorTwentyAbnormal >= 4) {
-                logFiltered(assist, "前20日非正常K线次数",
-                        "actual=" + priorTwentyAbnormal + ", required<4");
-                continue;
-            }
-            int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
-            if (abnormalCount > 20) {
-                logFiltered(assist, "18个月非正常状态次数",
-                        "actual=" + abnormalCount + ", required<=20");
-                continue;
-            }
-            double maxTurnoverRate = Objects.requireNonNullElse(assist.getMaxTurnoverRate(), 0D);
-            int nonStMonthCount = Objects.requireNonNullElse(assist.getNonStMonthCount(), 0);
-            int listingMonthCount = Objects.requireNonNullElse(assist.getListingMonthCount(), 0);
-            if (maxTurnoverRate <= 25 && nonStMonthCount < 18 && nonStMonthCount < listingMonthCount) {
-                logFiltered(assist, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
-                        + ", nonStMonthCount=" + nonStMonthCount
-                        + ", listingMonthCount=" + listingMonthCount);
-                continue;
-            }
-            double threeDayAmplitude = Objects.requireNonNullElse(assist.getThreeDayAmplitude(), 0D);
-            if (threeDayAmplitude >= 20) {
-                logFiltered(assist, "3日振幅", "actual=" + threeDayAmplitude + ", required<20");
-                continue;
-            }
-            double tenDayChangeRate = Objects.requireNonNullElse(assist.getTenDayChangeRate(), 0D);
-            if (tenDayChangeRate <= -2 || tenDayChangeRate >= 25) {
-                logFiltered(assist, "10日涨跌幅", "actual=" + tenDayChangeRate
-                        + ", required=(-2,25)");
-                continue;
-            }
-            double startPrice = Objects.requireNonNullElse(assist.getStartPrice(), 0D);
-            if (startPrice <= 3) {
-                logFiltered(assist, "启动价格", "actual=" + startPrice + ", required>3");
-                continue;
-            }
-            // 调用普通首板评分方法。
-            int score = calculateSelectionScore(assist);
-            if (score <= 30) {
-                logFiltered(assist, "选股评分", "actual=" + score + ", required>30");
-                continue;
-            }
-            // 调用普通首板筹码过滤方法。
-            FirstBoardChipFilter.Decision chipDecision = FirstBoardChipFilter.evaluate(assist);
-            if (!chipDecision.passed()) {
-                logFiltered(assist, "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
+            // 调用普通首板核心选股方法。
+            FirstBoardSelectionPolicy.Decision decision =
+                    FirstBoardSelectionPolicy.evaluate(toSelectionCandidate(assist));
+            if (!decision.passed()) {
+                logFiltered(assist, decision.layer(), decision.detail());
                 continue;
             }
             // 调用普通首板任务构建方法。
-            result.add(buildWatchingTask(assist, score));
+            result.add(buildWatchingTask(assist, decision.score()));
         }
         return result;
+    }
+
+    private FirstBoardSelectionCandidate toSelectionCandidate(FirstBoardSelectionAssist assist) {
+        return new FirstBoardSelectionCandidate(
+                assist.getStartMarketCap(), assist.getCurrentPrice(), assist.getStartPrice(),
+                assist.getCurrentTurnoverRate(), assist.getProvince(), assist.getNonStMonthCount(),
+                assist.getListingMonthCount(), assist.getMaxTurnoverRate(),
+                assist.getHighestConsecutiveLimitUpDays(),
+                assist.getPriorNinetyDayHighestConsecutiveLimitUpDays(),
+                assist.getHistoricalMaxVolume(), assist.getAbnormalKlineStateCount(),
+                assist.getPriorTwentyDayAbnormalKlineStateCount(), assist.getThreeDayAmplitude(),
+                assist.getTenDayChangeRate());
     }
 
     private List<FirstBoardSelectionAssist> buildSelectionAssistList(List<StockDailyEntity> dailyList) {
@@ -197,7 +163,8 @@ public class FirstBoardSelectionService extends ServiceImpl<StockWatchingTaskMap
         List<StockDailyEntity> earliestStoredDailyList =
                 listEarliestStoredDaily(stockDaily.getStockCode(), historyEndDate);
         // 调用普通首板历史筹码指标计算方法。
-        FirstBoardChipFilter.HistoricalMetrics metrics = FirstBoardChipFilter.calculateHistoricalMetrics(
+        FirstBoardHistoricalMetricsCalculator.HistoricalMetrics metrics =
+                FirstBoardHistoricalMetricsCalculator.calculateHistoricalMetrics(
                 chipHistoryDailyList, earliestStoredDailyList, historyEndDate);
 
         FirstBoardSelectionAssist assist = new FirstBoardSelectionAssist();
@@ -328,67 +295,6 @@ public class FirstBoardSelectionService extends ServiceImpl<StockWatchingTaskMap
         Double current = dailyList.get(dailyList.size() - 1).getAdjustClosePrice();
         if (base == null || current == null || base == 0) return 0D;
         return (current - base) * 100 / base;
-    }
-
-    private int calculateSelectionScore(FirstBoardSelectionAssist assist) {
-        int score = scoreStartMarketCap(assist.getStartMarketCap())
-                + scoreMaxTurnover(assist.getMaxTurnoverRate())
-                + scoreStartPrice(assist.getStartPrice())
-                + scoreProvince(assist.getProvince())
-                + scoreCurrentTurnover(assist.getCurrentTurnoverRate());
-        int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
-        int noDeductionCount = calculateAbnormalNoDeductionCount(assist.getStartMarketCap());
-        return Math.max(0, score - Math.max(0, abnormalCount - noDeductionCount));
-    }
-
-    private int calculateAbnormalNoDeductionCount(Double startMarketCap) {
-        if (startMarketCap == null) return 0;
-        return Math.max(0, 27 - (int) Math.round(startMarketCap / 10_000D));
-    }
-
-    private int scoreStartMarketCap(Double value) {
-        if (value == null || value > 200_000) return 0;
-        if (value <= 81_000) return 30;
-        if (value <= 95_000) return interpolate(value, 81_000, 95_000, 30, 20);
-        if (value <= 150_000) return interpolate(value, 95_000, 150_000, 20, 10);
-        return interpolate(value, 150_000, 200_000, 10, 0);
-    }
-
-    private int scoreMaxTurnover(Double value) {
-        if (value == null || value > 55) return 0;
-        if (value <= 15) return 25;
-        if (value <= 25) return interpolate(value, 15, 25, 25, 20);
-        if (value <= 37.5) return interpolate(value, 25, 37.5, 20, 15);
-        return interpolate(value, 37.5, 55, 15, 0);
-    }
-
-    private int scoreStartPrice(Double value) {
-        if (value == null || value < 3.3 || value > 19.5) return 0;
-        if (value <= 4) return 10;
-        if (value <= 10) return 15;
-        if (value <= 12.5) return interpolate(value, 10, 12.5, 15, 10);
-        if (value <= 15.5) return interpolate(value, 12.5, 15.5, 10, 7);
-        return interpolate(value, 15.5, 19.5, 7, 0);
-    }
-
-    private int scoreProvince(String province) {
-        if (province == null || province.length() < 2) return 0;
-        String prefix = province.substring(0, 2);
-        if (List.of("江苏", "浙江", "广东", "上海", "深圳").contains(prefix)) return 10;
-        if (List.of("山东", "湖南", "湖北", "安徽").contains(prefix)) return 7;
-        if (List.of("吉林", "辽宁", "黑龙江", "四川").contains(prefix)) return 3;
-        return 0;
-    }
-
-    private int scoreCurrentTurnover(Double value) {
-        if (value == null || value > 55) return 0;
-        if (value <= 17) return 10;
-        if (value <= 30) return 7;
-        return interpolate(value, 30, 55, 7, 2);
-    }
-
-    private int interpolate(double value, double min, double max, int minScore, int maxScore) {
-        return (int) Math.round(minScore + (value - min) * (maxScore - minScore) / (max - min));
     }
 
     private StockWatchingTask buildWatchingTask(FirstBoardSelectionAssist assist, int score) {

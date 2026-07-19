@@ -1,4 +1,4 @@
-package com.compoundwonder.trader.selection.relay;
+package com.compoundwonder.strategy.relay.selection;
 
 import java.util.List;
 
@@ -12,7 +12,7 @@ import java.util.List;
  * 此时低位 2 板仍然受到高位股压制；如果再放宽 2 板质地要求，很容易在竞争中炸板。
  * 因此本策略只负责判断是否启动兜底，具体候选必须继续执行完整的正常严格过滤。</p>
  */
-final class WeakFiveBoardFallbackPolicy {
+public final class WeakFiveBoardFallbackPolicy {
 
     /** 触发兜底的当日流通市值下限，单位：万元，即超过 45 亿元视为体量过大。 */
     private static final double MAX_CURRENT_MARKET_CAP = 450_000D;
@@ -42,7 +42,7 @@ final class WeakFiveBoardFallbackPolicy {
      * @param hasNormalRecommendations 常规连板严格/冰点流程是否已产生内存候选
      * @param fiveBoardQualities       当天过滤 ST 后的 5 板质量快照
      */
-    static Decision evaluate(int todayHighestLimitUp,
+    public static Decision evaluate(int todayHighestLimitUp,
                              boolean hasNormalRecommendations,
                              List<FiveBoardQuality> fiveBoardQualities) {
         if (todayHighestLimitUp != 5) {
@@ -102,7 +102,7 @@ final class WeakFiveBoardFallbackPolicy {
      * 唯一 5 板质量快照。
      * 当日指标来自 5 板日 K；启动价格必须来自选股辅助对象，保持本轮首板前一交易日口径。
      */
-    record FiveBoardQuality(String stockCode,
+    public record FiveBoardQuality(String stockCode,
                             Double currentMarketCap,
                             Double currentTurnoverRate,
                             Double currentAmplitude,
@@ -116,7 +116,7 @@ final class WeakFiveBoardFallbackPolicy {
      * @param layer     触发或未触发的判断层级
      * @param detail    判断明细
      */
-    record Decision(boolean triggered, String layer, String detail) {
+    public record Decision(boolean triggered, String layer, String detail) {
 
         private static Decision triggered(String layer, String detail) {
             return new Decision(true, layer, detail);
@@ -127,3 +127,4 @@ final class WeakFiveBoardFallbackPolicy {
         }
     }
 }
+

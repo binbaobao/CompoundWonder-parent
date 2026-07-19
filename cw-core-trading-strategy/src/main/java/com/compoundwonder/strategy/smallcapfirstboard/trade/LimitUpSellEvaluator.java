@@ -1,10 +1,10 @@
-package com.compoundwonder.core.processor.evaluator;
+package com.compoundwonder.strategy.smallcapfirstboard.trade;
 
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
-import com.compoundwonder.core.engine.OrderBook;
-import com.compoundwonder.core.engine.RuleRecord;
+import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.strategy.TradeRuleRecord;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,7 +18,7 @@ final class LimitUpSellEvaluator {
     private LimitUpSellEvaluator() {
     }
 
-    static boolean evaluate(OrderBook orderBook, RuleRecord ruleRecord) {
+    static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
         // 当日截至当前时刻的累计换手率，单位：%。
@@ -227,17 +227,18 @@ final class LimitUpSellEvaluator {
         return 45;
     }
 
-    private static boolean record(OrderBook orderBook, RuleRecord ruleRecord, int ruleCode,
+    private static boolean record(TradeMarketState orderBook, TradeRuleRecord ruleRecord, int ruleCode,
                                   int price, double increase, String remark) {
         ruleRecord.fill(RuleConstant.TRADING_MODE_SELL, ruleCode, orderBook.getSymbol(),
                 orderBook.getTime(), price, increase, remark);
         return true;
     }
 
-    private static boolean recordAndLog(OrderBook orderBook, RuleRecord ruleRecord, int ruleCode,
+    private static boolean recordAndLog(TradeMarketState orderBook, TradeRuleRecord ruleRecord, int ruleCode,
                                         int price, double increase, String remark) {
         record(orderBook, ruleRecord, ruleCode, price, increase, remark);
         log.info(remark);
         return true;
     }
 }
+

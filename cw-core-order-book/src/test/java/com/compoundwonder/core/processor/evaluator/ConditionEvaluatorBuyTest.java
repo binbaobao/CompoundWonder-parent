@@ -3,6 +3,7 @@ package com.compoundwonder.core.processor.evaluator;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.TickNode;
+import com.compoundwonder.strategy.TradeStrategyDispatcher;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -10,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConditionEvaluatorBuyTest {
+
+    private final TradeStrategyDispatcher dispatcher = new TradeStrategyDispatcher();
 
     @Test
     void matchesNineMillionYuanOrderForHigherPricedStock() {
@@ -65,7 +68,7 @@ class ConditionEvaluatorBuyTest {
         OrderBook orderBook = eligibleOrderBook(15.00, 160_000, 2_000);
         RuleRecord record = new RuleRecord();
 
-        assertFalse(ConditionEvaluatorBuy.evaluate(orderBook, record));
+        assertFalse(dispatcher.evaluateBuy(orderBook, record));
         assertEquals(0, record.ruleCode);
     }
 
@@ -84,12 +87,24 @@ class ConditionEvaluatorBuyTest {
         setLargestBuyOrder(orderBook, 300_000);
         RuleRecord record = new RuleRecord();
 
-        assertFalse(ConditionEvaluatorBuy.evaluate(orderBook, record));
+        assertFalse(dispatcher.evaluateBuy(orderBook, record));
+    }
+
+    @Test
+    void dispatchesAllThreeTradeModesToIndependentRuleCopies() {
+        for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
+            OrderBook orderBook = eligibleOrderBook(15.00, 160_000, 2_001);
+            orderBook.setTradeMode(tradeMode);
+            RuleRecord record = new RuleRecord();
+
+            assertTrue(dispatcher.evaluateBuy(orderBook, record));
+            assertEquals(14, record.ruleCode);
+        }
     }
 
     private RuleRecord evaluate(OrderBook orderBook) {
         RuleRecord record = new RuleRecord();
-        assertTrue(ConditionEvaluatorBuy.evaluate(orderBook, record));
+        assertTrue(dispatcher.evaluateBuy(orderBook, record));
         return record;
     }
 

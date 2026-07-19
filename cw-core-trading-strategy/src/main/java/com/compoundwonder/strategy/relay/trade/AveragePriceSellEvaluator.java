@@ -1,10 +1,10 @@
-package com.compoundwonder.core.processor.evaluator;
+package com.compoundwonder.strategy.relay.trade;
 
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
-import com.compoundwonder.core.engine.OrderBook;
-import com.compoundwonder.core.engine.RuleRecord;
+import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.strategy.TradeRuleRecord;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,7 +18,7 @@ final class AveragePriceSellEvaluator {
     private AveragePriceSellEvaluator() {
     }
 
-    static boolean evaluate(int calculateIndex, OrderBook orderBook, RuleRecord ruleRecord) {
+    static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
         // 当日截至当前时刻的累计换手率，单位：%。
@@ -43,7 +43,7 @@ final class AveragePriceSellEvaluator {
         double maxHs = orderBook.getMaxHs();
 
         // 当前分钟最新价，单位：分。
-        int currentPrice = orderBook.price[calculateIndex];
+        int currentPrice = orderBook.getMinutePriceAt(calculateIndex);
         // 根据启动市值分档得到的允许换手率上限，单位：%。
         double maxTurnover = maxTurnover(marketValue);
 
@@ -64,19 +64,19 @@ final class AveragePriceSellEvaluator {
         }
 
         // 三分钟前的分钟均价，单位：分。
-        int averagePrice3 = orderBook.avgPrice[calculateIndex - 3];
+        int averagePrice3 = orderBook.getAveragePriceAt(calculateIndex - 3);
         // 两分钟前的分钟均价，单位：分。
-        int averagePrice2 = orderBook.avgPrice[calculateIndex - 2];
+        int averagePrice2 = orderBook.getAveragePriceAt(calculateIndex - 2);
         // 上一分钟的分钟均价，单位：分。
-        int previousAveragePrice = orderBook.avgPrice[calculateIndex - 1];
+        int previousAveragePrice = orderBook.getAveragePriceAt(calculateIndex - 1);
         // 当前分钟均价，单位：分。
-        int currentAveragePrice = orderBook.avgPrice[calculateIndex];
+        int currentAveragePrice = orderBook.getAveragePriceAt(calculateIndex);
         // 三分钟前的分钟最新价，单位：分。
-        int price3 = orderBook.price[calculateIndex - 3];
+        int price3 = orderBook.getMinutePriceAt(calculateIndex - 3);
         // 两分钟前的分钟最新价，单位：分。
-        int price2 = orderBook.price[calculateIndex - 2];
+        int price2 = orderBook.getMinutePriceAt(calculateIndex - 2);
         // 上一分钟的分钟最新价，单位：分。
-        int previousPrice = orderBook.price[calculateIndex - 1];
+        int previousPrice = orderBook.getMinutePriceAt(calculateIndex - 1);
 
         // 开盘涨幅减当前涨幅，表示从开盘位置回落了多少个百分点；正数表示回落。
         double openDropPercentage = openIncrease - increase;
@@ -139,8 +139,8 @@ final class AveragePriceSellEvaluator {
         // 当前分钟之前的最高采样位置，作为开盘回落后的二次冲高高点。
         int secondPeakIndex = -1;
         for (int i = patternStartIndex + 1; i < calculateIndex; i++) {
-            if (orderBook.price[i] > 0
-                    && (secondPeakIndex < 0 || orderBook.price[i] > orderBook.price[secondPeakIndex])) {
+            if (orderBook.getMinutePriceAt(i) > 0
+                    && (secondPeakIndex < 0 || orderBook.getMinutePriceAt(i) > orderBook.getMinutePriceAt(secondPeakIndex))) {
                 secondPeakIndex = i;
             }
         }
@@ -148,8 +148,8 @@ final class AveragePriceSellEvaluator {
             // 开盘价与第二高点之间的最低采样位置，作为首次回落低点。
             int pullbackLowIndex = -1;
             for (int i = patternStartIndex; i < secondPeakIndex; i++) {
-                if (orderBook.price[i] > 0
-                        && (pullbackLowIndex < 0 || orderBook.price[i] < orderBook.price[pullbackLowIndex])) {
+                if (orderBook.getMinutePriceAt(i) > 0
+                        && (pullbackLowIndex < 0 || orderBook.getMinutePriceAt(i) < orderBook.getMinutePriceAt(pullbackLowIndex))) {
                     pullbackLowIndex = i;
                 }
             }
@@ -157,9 +157,9 @@ final class AveragePriceSellEvaluator {
                 // 第一高点固定使用集合竞价形成的开盘价，不能使用 09:30 分钟结束价。
                 int firstPeakPrice = orderBook.getOpenPrice();
                 // 首次回落最低价，单位：分。
-                int pullbackLowPrice = orderBook.price[pullbackLowIndex];
+                int pullbackLowPrice = orderBook.getMinutePriceAt(pullbackLowIndex);
                 // 二次冲高价格，单位：分。
-                int secondPeakPrice = orderBook.price[secondPeakIndex];
+                int secondPeakPrice = orderBook.getMinutePriceAt(secondPeakIndex);
                 // 第一高点相对昨收价的涨幅，单位：%。
                 double firstPeakIncrease = (firstPeakPrice - closePrice) * 100.0 / closePrice;
                 // 二次高点相对昨收价的涨幅，单位：%。
@@ -249,7 +249,7 @@ final class AveragePriceSellEvaluator {
         return 40;
     }
 
-    private static boolean match(OrderBook orderBook, RuleRecord ruleRecord, int ruleCode,
+    private static boolean match(TradeMarketState orderBook, TradeRuleRecord ruleRecord, int ruleCode,
                                  int price, String remark) {
         ruleRecord.fill(RuleConstant.TRADING_MODE_SELL, ruleCode, orderBook.getSymbol(),
                 orderBook.getTime(), price, orderBook.getIncrease(), remark);
@@ -257,3 +257,4 @@ final class AveragePriceSellEvaluator {
         return true;
     }
 }
+

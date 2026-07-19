@@ -14,6 +14,7 @@ import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.strategy.TradeMode;
 import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.util.SymbolUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -92,7 +93,7 @@ public class BackTestTradeService {
      */
     public synchronized BacktestReplayResult replay(LocalDate tradeDate, String stockCode,
                                                      BacktestReplayMode mode, Integer allowedAfterTime) {
-        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime,
+        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime, null,
                 (date, symbol, consumer) -> tickDataSource.replay(date, symbol, consumer));
     }
 
@@ -105,11 +106,20 @@ public class BackTestTradeService {
     public synchronized BacktestReplayResult replay(
             LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
             Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks) {
+        return replay(tradeDate, stockCode, mode, allowedAfterTime, dailyTicks, null);
+    }
+
+    /**
+     * 使用任务或持仓保存的交易模式执行回放，避免首板和小市值首板共用交易参数。
+     */
+    public synchronized BacktestReplayResult replay(
+            LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
+            Integer allowedAfterTime, BacktestDailyTickBatch dailyTicks, Integer tradeMode) {
         if (!tradeDate.equals(dailyTicks.tradeDate())) {
             throw new IllegalArgumentException("回放日期与批量 Tick 日期不一致: replay="
                     + tradeDate + ", batch=" + dailyTicks.tradeDate());
         }
-        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime,
+        return replayInternal(tradeDate, stockCode, mode, allowedAfterTime, tradeMode,
                 (date, symbol, consumer) -> dailyTicks.replay(symbol, consumer));
     }
 
@@ -123,11 +133,11 @@ public class BackTestTradeService {
 
     private BacktestReplayResult replayInternal(
             LocalDate tradeDate, String stockCode, BacktestReplayMode mode,
-            Integer allowedAfterTime, TickReplaySource replaySource) {
+            Integer allowedAfterTime, Integer tradeMode, TickReplaySource replaySource) {
         validateStockCode(stockCode);
         validateReplayMode(mode, allowedAfterTime);
         int symbolId = SymbolUtil.fastSymbolToInt(stockCode);
-        OrderBook orderBook = buildOrderBook(tradeDate, stockCode, mode);
+        OrderBook orderBook = buildOrderBook(tradeDate, stockCode, mode, tradeMode);
 
         orderBookEngine.reset();
         executionGateway.clear();
@@ -257,6 +267,11 @@ public class BackTestTradeService {
     }
 
     OrderBook buildOrderBook(LocalDate tradeDate, String stockCode, BacktestReplayMode mode) {
+        return buildOrderBook(tradeDate, stockCode, mode, null);
+    }
+
+    private OrderBook buildOrderBook(LocalDate tradeDate, String stockCode,
+                                     BacktestReplayMode mode, Integer requestedTradeMode) {
         List<StockDailyEntity> dailyRows = stockDailyService.list(
                 Wrappers.<StockDailyEntity>lambdaQuery()
                         .eq(StockDailyEntity::getStockCode, stockCode)
@@ -297,12 +312,26 @@ public class BackTestTradeService {
         orderBook.setLbcs(Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays())));
         orderBook.setYesterdayTurnover(valueOrZero(previousDaily.getTurnoverRate()));
         orderBook.setInitialMarketValue(calculateInitialMarketValue(previousDaily, orderBook.getLbcs()));
+        // 调用交易模式解析方法：全量回测优先使用任务/持仓模式，单票调试按连板数和市值推断。
+        orderBook.setTradeMode(resolveTradeMode(requestedTradeMode, orderBook));
         orderBook.setMaxHs(maxVolume * 100.0 / circulation);
         orderBook.setTransactionStatus(initialTransactionStatus(mode));
         if (mode == BacktestReplayMode.SELL) {
             initializeSellHistory(orderBook, history, tradeDate, stockCode);
         }
         return orderBook;
+    }
+
+    private int resolveTradeMode(Integer requestedTradeMode, OrderBook orderBook) {
+        if (requestedTradeMode != null) {
+            return TradeMode.fromCode(requestedTradeMode).code();
+        }
+        if (orderBook.getLbcs() >= 2) {
+            return TradeMode.RELAY_LIMIT_UP.code();
+        }
+        return orderBook.getInitialMarketValue() < 119_999
+                ? TradeMode.SMALL_CAP_FIRST_BOARD.code()
+                : TradeMode.FIRST_BOARD.code();
     }
 
     private int initialTransactionStatus(BacktestReplayMode mode) {

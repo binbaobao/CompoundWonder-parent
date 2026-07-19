@@ -9,7 +9,9 @@ import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
-import com.compoundwonder.trader.selection.TradeMode;
+import com.compoundwonder.strategy.TradeMode;
+import com.compoundwonder.strategy.smallcapfirstboard.selection.SmallCapFirstBoardSelectionCandidate;
+import com.compoundwonder.strategy.smallcapfirstboard.selection.SmallCapFirstBoardSelectionPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -36,9 +38,8 @@ public class SmallCapFirstBoardSelectionService
         extends ServiceImpl<StockWatchingTaskMapper, StockWatchingTask> {
 
     /** 小市值首板启动流通市值严格上限，单位：万元。 */
-    public static final double MAX_START_MARKET_CAP_EXCLUSIVE = 119_999D;
-    /** 首板前 200 根有效 K 线最大换手率允许等于 30%。 */
-    private static final double MAX_HISTORICAL_TURNOVER_RATE = 30D;
+    public static final double MAX_START_MARKET_CAP_EXCLUSIVE =
+            SmallCapFirstBoardSelectionPolicy.MAX_START_MARKET_CAP_EXCLUSIVE;
     /** 小市值首板最终最多保留 2 只。 */
     static final int TASK_LIMIT = 2;
 
@@ -115,55 +116,26 @@ public class SmallCapFirstBoardSelectionService
             List<SmallCapFirstBoardSelectionAssist> assistList) {
         List<StockWatchingTask> result = new ArrayList<>();
         for (SmallCapFirstBoardSelectionAssist assist : assistList) {
-            Double startMarketCap = assist.getStartMarketCap();
-            if (startMarketCap == null || !ownsStartMarketCap(startMarketCap)) {
-                logFiltered(assist, "模式市值归属", "actual=" + startMarketCap
-                        + "万元, required<119999万元; 普通首板与小市值首板互不回退");
+            // 调用小市值首板核心选股方法。
+            SmallCapFirstBoardSelectionPolicy.Decision decision =
+                    SmallCapFirstBoardSelectionPolicy.evaluate(toSelectionCandidate(assist));
+            if (!decision.passed()) {
+                logFiltered(assist, decision.layer(), decision.detail());
                 continue;
             }
-            double maxTurnoverRate = Objects.requireNonNullElse(assist.getMaxTurnoverRate(), 0D);
-            if (maxTurnoverRate > MAX_HISTORICAL_TURNOVER_RATE) {
-                logFiltered(assist, "200根K线历史最大换手率",
-                        "actual=" + maxTurnoverRate + "%, required<=30%");
-                continue;
-            }
-            int highestBoard = Objects.requireNonNullElse(
-                    assist.getHighestConsecutiveLimitUpDays(), 0);
-            if (highestBoard >= 3) {
-                logFiltered(assist, "200根K线历史最高板",
-                        "actual=" + highestBoard + ", required<3");
-                continue;
-            }
-            int priorTwentyAbnormal = Objects.requireNonNullElse(
-                    assist.getPriorTwentyDayAbnormalKlineStateCount(), 0);
-            if (priorTwentyAbnormal >= 4) {
-                logFiltered(assist, "前20日非正常K线次数",
-                        "actual=" + priorTwentyAbnormal + ", required<4");
-                continue;
-            }
-            int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
-            if (abnormalCount > 25) {
-                logFiltered(assist, "18个月非正常状态次数",
-                        "actual=" + abnormalCount + ", required<=25");
-                continue;
-            }
-            double amplitude = Objects.requireNonNullElse(assist.getThreeDayAmplitude(), 0D);
-            if (amplitude >= 20) {
-                logFiltered(assist, "3日振幅", "actual=" + amplitude + ", required<20");
-                continue;
-            }
-            double tenDayChangeRate = Objects.requireNonNullElse(assist.getTenDayChangeRate(), 0D);
-            if (tenDayChangeRate <= -2 || tenDayChangeRate >= 25) {
-                logFiltered(assist, "10日涨跌幅", "actual=" + tenDayChangeRate
-                        + ", required=(-2,25)");
-                continue;
-            }
-            // 调用小市值首板市值评分方法。
-            int score = scoreStartMarketCap(startMarketCap);
             // 调用小市值首板任务构建方法。
-            result.add(buildWatchingTask(assist, score));
+            result.add(buildWatchingTask(assist, decision.score()));
         }
         return result;
+    }
+
+    private SmallCapFirstBoardSelectionCandidate toSelectionCandidate(
+            SmallCapFirstBoardSelectionAssist assist) {
+        return new SmallCapFirstBoardSelectionCandidate(
+                assist.getStartMarketCap(), assist.getMaxTurnoverRate(),
+                assist.getHighestConsecutiveLimitUpDays(), assist.getAbnormalKlineStateCount(),
+                assist.getPriorTwentyDayAbnormalKlineStateCount(), assist.getThreeDayAmplitude(),
+                assist.getTenDayChangeRate());
     }
 
     private List<SmallCapFirstBoardSelectionAssist> buildSelectionAssistList(
@@ -266,18 +238,6 @@ public class SmallCapFirstBoardSelectionService
         Double current = dailyList.get(dailyList.size() - 1).getAdjustClosePrice();
         if (base == null || current == null || base == 0) return 0D;
         return (current - base) * 100 / base;
-    }
-
-    private int scoreStartMarketCap(double value) {
-        if (value > 200_000) return 0;
-        if (value <= 81_000) return 30;
-        if (value <= 95_000) return interpolate(value, 81_000, 95_000, 30, 20);
-        if (value <= 150_000) return interpolate(value, 95_000, 150_000, 20, 10);
-        return interpolate(value, 150_000, 200_000, 10, 0);
-    }
-
-    private int interpolate(double value, double min, double max, int minScore, int maxScore) {
-        return (int) Math.round(minScore + (value - min) * (maxScore - minScore) / (max - min));
     }
 
     private StockWatchingTask buildWatchingTask(SmallCapFirstBoardSelectionAssist assist, int score) {

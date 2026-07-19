@@ -95,6 +95,7 @@
 //        for (StockWatchingTaskEntity taskEntity : stockWatchingTaskEntities) {
 //            log.info("打板任务：{}", taskEntity.toString());
 //            OrderBook orderBook = new OrderBook(taskEntity.getCode(), taskEntity.getCirculationVolume(), taskEntity.getPrice(), taskEntity.getMaxVolume());
+//            orderBook.setTradeMode(taskEntity.getTradeMode());
 //            orderBook.setLbcs(taskEntity.getLbc());
 //            // 启动流通市值 流通股本 * 昨天 收盘价格 /1.1 ^ 连板次数 = 启动时的流通市值
 //            long floatMarketCap = Math.round(taskEntity.getCirculationVolume() * taskEntity.getPrice() / Math.pow(1.1, taskEntity.getLbc()) * 100.0) / 1000000;

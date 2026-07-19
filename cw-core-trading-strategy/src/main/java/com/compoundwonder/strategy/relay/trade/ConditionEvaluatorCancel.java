@@ -1,7 +1,7 @@
-package com.compoundwonder.core.processor.evaluator;
+package com.compoundwonder.strategy.relay.trade;
 
 
-import com.compoundwonder.core.engine.OrderBook;
+import com.compoundwonder.strategy.TradeMarketState;
 
 /**
  * 买入挂单撤单条件评估器。
@@ -17,7 +17,7 @@ public class ConditionEvaluatorCancel {
      * @param orderBook 当前股票盘口快照
      * @return 命中撤单条件时返回 {@code true}
      */
-    public static boolean evaluate(OrderBook orderBook) {
+    public static boolean evaluate(TradeMarketState orderBook) {
 
         // 本轮连板启动时的流通市值，单位：万元。
         long mv = orderBook.getInitialMarketValue();
@@ -60,3 +60,4 @@ public class ConditionEvaluatorCancel {
     }
 
 }
+

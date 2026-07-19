@@ -10,7 +10,10 @@ import com.compoundwonder.hxdata.service.StockCurrentStatusService;
 import com.compoundwonder.hxdata.service.StockConvertibleBondHistoryService;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
-import com.compoundwonder.trader.selection.TradeMode;
+import com.compoundwonder.strategy.TradeMode;
+import com.compoundwonder.strategy.relay.selection.RelaySelectionCandidate;
+import com.compoundwonder.strategy.relay.selection.RelaySelectionPolicy;
+import com.compoundwonder.strategy.relay.selection.WeakFiveBoardFallbackPolicy;
 import com.compoundwonder.trader.entity.StockEmotionCycleDaily;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
@@ -248,94 +251,34 @@ public class RelaySelectionService extends ServiceImpl<StockWatchingTaskMapper, 
                                                               String selectionMode) {
         List<StockWatchingTask> eligibleTasks = new ArrayList<>();
         for (RelaySelectionAssist dto : assistList) {
-            log.info("{}------:{}:{}", selectionMode, calculateSelectionScore(dto), dto);
-
-            int priorTwentyDayAbnormalCount = Objects.requireNonNullElse(
-                    dto.getPriorTwentyDayAbnormalKlineStateCount(), 0);
-            if (!isRecentAbnormalKlineCountAllowed(priorTwentyDayAbnormalCount)) {
-                logSelectionFiltered(selectionMode, dto, "前20日非正常K线次数",
-                        "actual=" + priorTwentyDayAbnormalCount + ", required<4");
-                continue;
-            }
-
-            if (dto.isTwoAcceleratedShrinkVolumeLimitUps()) {
-                logSelectionFiltered(selectionMode, dto, "加速缩量板",
-                        "本轮至少2根加速缩量板：首板判断一字板或振幅<3%，后续板增加换手率<15%");
-                continue;
-            }
-
-            // 调用连板九十日历史换手过滤方法。
-            RelayChipFilter.Decision ninetyDayTurnoverDecision =
-                    RelayChipFilter.evaluateRelayNinetyDayTurnoverLimit(dto);
-            if (!ninetyDayTurnoverDecision.passed()) {
-                logSelectionFiltered(selectionMode, dto,
-                        "连板筹码过滤-" + ninetyDayTurnoverDecision.layer(),
-                        ninetyDayTurnoverDecision.detail());
-                continue;
-            }
-
-            double maxTurnoverRate = Objects.requireNonNullElse(dto.getMaxTurnoverRate(), 0D);
-            int nonStMonthCount = Objects.requireNonNullElse(dto.getNonStMonthCount(), 0);
-            int listingMonthCount = Objects.requireNonNullElse(dto.getListingMonthCount(), 0);
-            if (maxTurnoverRate <= 25 && nonStMonthCount < 18 && nonStMonthCount < listingMonthCount) {
-                logSelectionFiltered(selectionMode, dto, "历史换手与非ST月份", "maxTurnoverRate=" + maxTurnoverRate
-                        + ", nonStMonthCount=" + nonStMonthCount + ", listingMonthCount=" + listingMonthCount);
-                continue;
-            }
-            int consecutiveLimitUpDays = Objects.requireNonNullElse(dto.getConsecutiveLimitUpDays(), 2);
-
-            // 调用连板近期形态过滤方法。
-            RelayRecentPatternFilter.Decision recentPatternDecision = RelayRecentPatternFilter.evaluate(dto);
-            if (!recentPatternDecision.passed()) {
-                logSelectionFiltered(selectionMode, dto,
-                        consecutiveLimitUpDays + "连板近期形态-" + recentPatternDecision.layer(),
-                        recentPatternDecision.detail());
-                continue;
-            }
-
-            if (allowIcePoint && isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)) {
-                // 调用冰点三四板宽松通道过滤方法。
-                IcePointThreeFourBoardFilter.Decision icePointDecision = IcePointThreeFourBoardFilter.evaluate(dto);
-                if (!icePointDecision.passed()) {
-                    logSelectionFiltered("冰点3/4板", dto,
-                            "冰点3/4板-" + icePointDecision.layer(), icePointDecision.detail());
-                    continue;
-                }
-
-                // 调用连板评分方法。
-                int icePointScore = calculateSelectionScore(dto);
-                // 调用连板任务构建方法。
-                eligibleTasks.add(buildWatchingTask(dto, icePointScore));
-                log.info("冰点3/4板入选 tradeDate={} stockCode={} stockName={} score={} layer={} detail={}",
-                        dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), icePointScore,
-                        icePointDecision.layer(), icePointDecision.detail());
-                continue;
-            }
-
-            double startPrice = Objects.requireNonNullElse(dto.getStartPrice(), 0D);
-            Double startMarketCap = dto.getStartMarketCap();
-            if (startPrice <= 3 && startMarketCap < 250_000) {
-                logSelectionFiltered(selectionMode, dto, "启动价格", "actual=" + startPrice + ", required>3");
-                continue;
-            }
-
-            // 调用连板评分方法。
-            int score = calculateSelectionScore(dto);
-            if (score < 15) {
-                logSelectionFiltered(selectionMode, dto, "选股评分", "actual=" + score + ", required>=15");
-                continue;
-            }
-            // 调用连板筹码过滤方法。
-            RelayChipFilter.Decision chipDecision = RelayChipFilter.evaluate(dto);
-            if (!chipDecision.passed()) {
-                logSelectionFiltered(selectionMode, dto,
-                        "筹码过滤-" + chipDecision.layer(), chipDecision.detail());
+            RelaySelectionCandidate candidate = toSelectionCandidate(dto);
+            log.info("{}------:{}:{}", selectionMode,
+                    RelaySelectionPolicy.calculateSelectionScore(candidate), dto);
+            // 调用连板核心选股方法。
+            RelaySelectionPolicy.Decision decision =
+                    RelaySelectionPolicy.evaluate(candidate, todayMaxLbc, allowIcePoint);
+            if (!decision.passed()) {
+                logSelectionFiltered(selectionMode, dto, decision.layer(), decision.detail());
                 continue;
             }
             // 调用连板任务构建方法。
-            eligibleTasks.add(buildWatchingTask(dto, score));
+            eligibleTasks.add(buildWatchingTask(dto, decision.score()));
         }
         return eligibleTasks;
+    }
+
+    private RelaySelectionCandidate toSelectionCandidate(RelaySelectionAssist dto) {
+        return new RelaySelectionCandidate(
+                dto.getConsecutiveLimitUpDays(), dto.isTwoAcceleratedShrinkVolumeLimitUps(),
+                dto.getProvince(), dto.getCurrentPrice(), dto.getStartMarketCap(),
+                dto.getStartPrice(), dto.getCurrentTurnoverRate(), dto.getCurrentTurnover(),
+                dto.getCurrentAmplitude(), dto.getNonStMonthCount(), dto.getListingMonthCount(),
+                dto.getMaxTurnoverRate(), dto.getHighestConsecutiveLimitUpDays(),
+                dto.getPriorNinetyDayHighestConsecutiveLimitUpDays(),
+                dto.getPriorNinetyDayMaxTurnoverRate(), dto.getHistoricalMaxVolume(),
+                dto.getMaxVolumeDayTurnoverRate(), dto.getMaxVolumeDayTurnover(),
+                dto.getAbnormalKlineStateCount(), dto.getPriorTwentyDayAbnormalKlineStateCount(),
+                dto.getFiveDayAmplitude(), dto.getTenDayChangeRate());
     }
 
     /**
@@ -556,107 +499,6 @@ public class RelaySelectionService extends ServiceImpl<StockWatchingTaskMapper, 
     }
 
     /**
-     * 按启动市值、历史最大换手、启动价格、地域板块、选股当日换手率计算基础分，
-     * 以 27 亿启动流通市值为基准动态计算非正常状态免扣次数，最终分数不低于 0 分。
-     */
-    private Integer calculateSelectionScore(RelaySelectionAssist assist) {
-        int score = scoreStartMarketCap(assist.getStartMarketCap())
-                + scoreMaxTurnover(assist.getMaxTurnoverRate())
-                + scoreStartPrice(assist.getStartPrice())
-                + scoreProvince(assist.getProvince())
-                + scoreCurrentTurnover(assist.getCurrentTurnoverRate())
-                + scoreConsecutiveLimitUpDays(assist.getConsecutiveLimitUpDays());
-        int abnormalCount = Objects.requireNonNullElse(assist.getAbnormalKlineStateCount(), 0);
-        int noDeductionCount = calculateAbnormalNoDeductionCount(assist.getStartMarketCap());
-        return Math.max(0, score - Math.max(0, abnormalCount - noDeductionCount));
-    }
-
-    /**
-     * 根据启动流通市值计算非正常状态免扣次数：27 亿减去启动市值四舍五入后的亿数。
-     * 启动市值达到或超过 27 亿时免扣次数为 0，异常次数全部参与扣分。
-     */
-    private int calculateAbnormalNoDeductionCount(Double startMarketCap) {
-        if (startMarketCap == null) {
-            return 0;
-        }
-        int startMarketCapInYi = (int) Math.round(startMarketCap / 10000D);
-        return Math.max(0, 27 - startMarketCapInYi);
-    }
-
-    /**
-     * 启动市值评分：单位为万元，8.1 亿以内 30 分，超过 20 亿 0 分，中间区间线性扣分。
-     */
-    private int scoreStartMarketCap(Double marketCap) {
-        if (marketCap == null || marketCap > 200000) return 0;
-        if (marketCap <= 81000) return 30;
-        if (marketCap <= 95000) return interpolate(marketCap, 81000, 95000, 30, 20);
-        if (marketCap <= 150000) return interpolate(marketCap, 95000, 150000, 20, 10);
-        return interpolate(marketCap, 150000, 200000, 10, 0);
-    }
-
-    /**
-     * 历史最大换手评分：15% 以内 25 分，超过 55% 0 分，中间区间按区间端点线性扣分。
-     */
-    private int scoreMaxTurnover(Double turnoverRate) {
-        if (turnoverRate == null || turnoverRate > 55) return 0;
-        if (turnoverRate <= 15) return 25;
-        if (turnoverRate <= 25) return interpolate(turnoverRate, 15, 25, 25, 20);
-        if (turnoverRate <= 37.5) return interpolate(turnoverRate, 25, 37.5, 20, 15);
-        return interpolate(turnoverRate, 37.5, 55, 15, 0);
-    }
-
-    /**
-     * 启动价格评分：低于 3.3 元或超过 19.5 元得 0 分；3.3 至 4 元得 10 分；
-     * 4 至 10 元得 15 分；10 至 19.5 元按现有分段线性扣分。
-     */
-    private int scoreStartPrice(Double price) {
-        if (price == null || price < 3.3 || price > 19.5) return 0;
-        if (price <= 4) return 10;
-        if (price <= 10) return 15;
-        if (price <= 12.5) return interpolate(price, 10, 12.5, 15, 10);
-        if (price <= 15.5) return interpolate(price, 12.5, 15.5, 10, 7);
-        return interpolate(price, 15.5, 19.5, 7, 0);
-    }
-
-    /**
-     * 地域板块评分：江浙粤沪深 10 分，中部活跃省份 7 分，指定弱偏好省份 3 分，其余 0 分。
-     */
-    private int scoreProvince(String province) {
-        if (province == null || province.length() < 2) return 0;
-        String provincePrefix = province.substring(0, 2);
-        if (List.of("江苏", "浙江", "广东", "上海", "深圳").contains(provincePrefix)) return 10;
-        if (List.of("山东", "湖南", "湖北", "安徽").contains(provincePrefix)) return 7;
-        if (List.of("吉林", "辽宁", "黑龙江", "四川").contains(provincePrefix)) return 3;
-        return 0;
-    }
-
-    /**
-     * 选股当日换手率评分：17% 以内 10 分；较高换手按 7 至 2 分递减，超过 55% 视为爆量 0 分。
-     */
-    private int scoreCurrentTurnover(Double turnoverRate) {
-        if (turnoverRate == null || turnoverRate > 55) return 0;
-        if (turnoverRate <= 17) return 10;
-        if (turnoverRate <= 30) return 7;
-        return interpolate(turnoverRate, 30, 55, 7, 2);
-    }
-
-    /**
-     * 连板评分：2 板加 5 分，3 板加 15 分，其他板数不加分。
-     */
-    private int scoreConsecutiveLimitUpDays(Integer consecutiveLimitUpDays) {
-        if (consecutiveLimitUpDays == 2) return 5;
-        if (consecutiveLimitUpDays == 3) return 15;
-        return 0;
-    }
-
-    /**
-     * 对一个连续指标按给定边界做线性插值，并将结果四舍五入为整数分。
-     */
-    private int interpolate(double value, double min, double max, int minScore, int maxScore) {
-        return (int) Math.round(minScore + (value - min) * (maxScore - minScore) / (max - min));
-    }
-
-    /**
      * 推荐日收盘后生成的任务，在下一交易日盯盘。
      */
     private LocalDate findNextTradeDate(LocalDate recommendDate) {
@@ -698,7 +540,8 @@ public class RelaySelectionService extends ServiceImpl<StockWatchingTaskMapper, 
         List<StockDailyEntity> earliestStoredDailyList =
                 listEarliestStoredDaily(stockDaily.getStockCode(), chipHistoryEndDate);
         // 调用连板历史筹码指标计算方法。
-        RelayChipFilter.HistoricalMetrics chipMetrics = RelayChipFilter.calculateHistoricalMetrics(
+        RelayHistoricalMetricsCalculator.HistoricalMetrics chipMetrics =
+                RelayHistoricalMetricsCalculator.calculateHistoricalMetrics(
                 chipHistoryDailyList, earliestStoredDailyList, chipHistoryEndDate);
 
         RelaySelectionAssist assist = new RelaySelectionAssist();

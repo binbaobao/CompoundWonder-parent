@@ -1,7 +1,7 @@
-package com.compoundwonder.core.processor.evaluator;
+package com.compoundwonder.strategy.smallcapfirstboard.trade;
 
-import com.compoundwonder.core.engine.OrderBook;
-import com.compoundwonder.core.engine.RuleRecord;
+import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.strategy.TradeRuleRecord;
 
 /**
  * 卖出条件统一入口。
@@ -20,7 +20,7 @@ public final class ConditionEvaluatorSell {
      * @param ruleRecord 本轮待填充的规则记录
      * @return 命中任意卖出规则时返回 {@code true}
      */
-    public static boolean evaluate(OrderBook orderBook, RuleRecord ruleRecord) {
+    public static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         return LimitUpSellEvaluator.evaluate(orderBook, ruleRecord);
     }
 
@@ -32,8 +32,9 @@ public final class ConditionEvaluatorSell {
      * @param ruleRecord 本轮待填充的规则记录
      * @return 命中任意卖出规则时返回 {@code true}
      */
-    public static boolean averagePriceSellStrategy(int calculateIndex, OrderBook orderBook,
-                                                   RuleRecord ruleRecord) {
+    public static boolean averagePriceSellStrategy(int calculateIndex, TradeMarketState orderBook,
+                                                   TradeRuleRecord ruleRecord) {
         return AveragePriceSellEvaluator.evaluate(calculateIndex, orderBook, ruleRecord);
     }
 }
+
