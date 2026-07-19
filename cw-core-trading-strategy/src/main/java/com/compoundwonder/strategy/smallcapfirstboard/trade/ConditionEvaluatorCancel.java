@@ -1,7 +1,7 @@
 package com.compoundwonder.strategy.smallcapfirstboard.trade;
 
 
-import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeMarketState;
 
 /**
  * 买入挂单撤单条件评估器。

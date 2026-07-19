@@ -22,6 +22,36 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-mysql-data</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-core-order-book</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-core-trading-strategy</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-hx-real-trade</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.compoundwonder</groupId>
+            <artifactId>cw-hx-market-stream</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
     </dependencies>
 
 

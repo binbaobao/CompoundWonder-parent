@@ -1,7 +1,7 @@
 package com.compoundwonder.core.engine;
 
 import com.compoundwonder.constant.MarketEnum;
-import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeMarketState;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import lombok.AccessLevel;
 import lombok.Getter;

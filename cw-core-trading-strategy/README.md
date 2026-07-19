@@ -4,10 +4,13 @@
 
 ## 模块边界
 
-- `cw-mysql-data`：查询日 K、交易日历、ST、可转债等数据，构建候选指标；调用本模块的选股策略后落库。
-- `cw-core-order-book`：维护订单簿和分钟行情；把自身作为只读 `TradeMarketState` 交给本模块判断规则。
-- `cw-core-trading-strategy`：只做规则判断，不查询数据库，不修改订单簿，不直接调用券商。
-- 回测与实盘：提供不同的交易动作出口，但共用同一订单簿与同一套模式规则。
+- `cw-common`：按来源模块划分接口与中立数据对象，不能依赖任何实现模块。
+- `cw-mysql-data`：实现 common 中的原始选股数据接口；选股完成后只负责转换实体和落库。
+- `cw-core-order-book`：维护 Handler 私有订单簿，通过 common 接口调用交易规则，不依赖策略实现。
+- `cw-core-trading-strategy`：完整拥有三种模式的选股、买入、卖出和撤单规则；只依赖 common。
+- `cw-app-live`、`cw-app-backtest`：组装根，负责把数据、策略、订单簿和交易出口实现组合起来。
+
+除 app 组装根外，功能模块之间禁止直接依赖；跨模块调用必须经过 `cw-common` 接口。
 
 ## 三种模式
 
@@ -35,5 +38,6 @@ strategy
 `OrderBook.tradeMode` 保存任务或持仓的稳定模式编号。Handler 调用 `TradeStrategyDispatcher`，分发器只用
 `switch` 选择预创建的策略实例；热路径不使用 Map、反射、Spring Bean 查询或临时快照对象。
 
-规则记录通过 `TradeRuleRecord` 写入订单簿预分配缓冲区，策略只读取 `TradeMarketState`，因此不会破坏
+规则记录通过 common 的 `TradeRuleRecord` 写入订单簿预分配缓冲区，策略只读取 common 的
+`TradeMarketState`，因此不会破坏
 Handler 私有订单簿的线程模型。

@@ -1,6 +1,6 @@
 package com.compoundwonder.trader.selection;
 
-import com.compoundwonder.strategy.TradeMode;
+import com.compoundwonder.common.strategy.trade.TradeMode;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

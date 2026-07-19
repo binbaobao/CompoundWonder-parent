@@ -1,7 +1,10 @@
 package com.compoundwonder.core.engine;
 
 import com.compoundwonder.core.service.CacheService;
-import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.YieldingWaitStrategy;
@@ -16,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DisruptorOrderBookEngineTest {
+
+    private static final TradeDecisionService DECISIONS = new TestTradeDecisionService();
 
     private DisruptorOrderBookEngine engine;
 
@@ -32,7 +37,7 @@ class DisruptorOrderBookEngineTest {
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
         OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
 
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -58,7 +63,7 @@ class DisruptorOrderBookEngineTest {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -91,7 +96,7 @@ class DisruptorOrderBookEngineTest {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -130,7 +135,7 @@ class DisruptorOrderBookEngineTest {
     @Test
     void rejectsNonMainBoardSymbol() {
         CacheService repository = new CacheService();
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
 
@@ -145,7 +150,7 @@ class DisruptorOrderBookEngineTest {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
         OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -176,7 +181,7 @@ class DisruptorOrderBookEngineTest {
         OrderBook szOrderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
         shOrderBook.setLastPrice(1000);
         szOrderBook.setLastPrice(1000);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(shSymbolId, shOrderBook);
@@ -204,7 +209,7 @@ class DisruptorOrderBookEngineTest {
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook("000001", 1_000_000L, 10.00, 500_000L);
         orderBook.setLastPrice(1000);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -225,7 +230,7 @@ class DisruptorOrderBookEngineTest {
         OrderBook orderBook = new OrderBook("600000", 1_000_000L, 10.00, 500_000L);
         orderBook.setInitialMarketValue(120_000);
         RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+        engine = new DisruptorOrderBookEngine(repository, gateway, DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -256,7 +261,7 @@ class DisruptorOrderBookEngineTest {
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
         OrderBook orderBook = new OrderBook(
                 "600000", 100_000_000_000L, 10.00, 100_000_000_000L);
-        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), 1024,
+        engine = new DisruptorOrderBookEngine(repository, new RecordingOrderExecutionGateway(), DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -275,7 +280,7 @@ class DisruptorOrderBookEngineTest {
         orderBook.setTransactionStatus(-1);
         RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
         gateway.failSell = true;
-        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+        engine = new DisruptorOrderBookEngine(repository, gateway, DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -303,7 +308,7 @@ class DisruptorOrderBookEngineTest {
         OrderBook orderBook = new OrderBook(symbol, 1_000_000L, 10.00, 500_000L);
         orderBook.setTransactionStatus(-1);
         RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+        engine = new DisruptorOrderBookEngine(repository, gateway, DECISIONS, 1024,
                 "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
@@ -378,6 +383,85 @@ class DisruptorOrderBookEngineTest {
 
         @Override
         public void enableFirstLimitUpTradingMode(String symbol) {
+        }
+    }
+
+    /** 订单簿单元测试只验证事件和执行边界，不依赖具体策略模块。 */
+    private static final class TestTradeDecisionService implements TradeDecisionService {
+
+        @Override
+        public boolean evaluateBuy(TradeMarketState market, TradeRuleRecord record) {
+            return false;
+        }
+
+        @Override
+        public boolean evaluateSell(TradeMarketState market, TradeRuleRecord record) {
+            return true;
+        }
+
+        @Override
+        public boolean evaluateAveragePriceSell(int calculateIndex, TradeMarketState market,
+                                                TradeRuleRecord record) {
+            return false;
+        }
+
+        @Override
+        public boolean evaluateCancel(TradeMarketState market) {
+            return false;
+        }
+
+        @Override
+        public boolean shouldEnableFirstBoardTradingMode(TradeMarketState market) {
+            return false;
+        }
+
+        @Override
+        public boolean isContinuousBuyTimeAllowed(TradeMarketState market, int time) {
+            return true;
+        }
+
+        @Override
+        public int evaluateShanghaiAuctionBuy(TradeMarketState market, int time, int price,
+                                              int limitUpPrice, long totalBuyVolume,
+                                              long totalSellVolume, long requiredBuyVolume,
+                                              long limitUpBuyAmount) {
+            return 0;
+        }
+
+        @Override
+        public int evaluateShanghaiAuctionCancel(TradeMarketState market, int price,
+                                                 int limitUpPrice, long totalBuyVolume,
+                                                 long totalSellVolume, long requiredBuyVolume) {
+            return 0;
+        }
+
+        @Override
+        public int evaluateShenzhenAuctionBuy(TradeMarketState market, byte dataType,
+                                             int price, int limitUpPrice, int orderQuantity,
+                                             long limitUpBuyVolume, long totalSellVolume,
+                                             long requiredBuyVolume, long limitUpBuyAmount,
+                                             long circulation) {
+            return 0;
+        }
+
+        @Override
+        public int evaluateShenzhenAuctionCancel(TradeMarketState market,
+                                                long limitUpBuyVolume, long totalSellVolume,
+                                                long requiredBuyVolume) {
+            return 0;
+        }
+
+        @Override
+        public int evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
+                                                        int price, int limitUpPrice) {
+            return 0;
+        }
+
+        @Override
+        public boolean evaluateClosingAuctionSell(TradeMarketState market, int price,
+                                                  int limitUpPrice, long totalBuyVolume,
+                                                  long totalSellVolume) {
+            return true;
         }
     }
 }

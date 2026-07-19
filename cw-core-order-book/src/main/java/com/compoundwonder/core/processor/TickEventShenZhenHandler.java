@@ -11,8 +11,8 @@ import com.compoundwonder.core.engine.TickNode;
 import com.compoundwonder.core.engine.TickNodePool;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.TickData;
-import com.compoundwonder.core.service.OrderExecutionGateway;
-import com.compoundwonder.strategy.TradeStrategyDispatcher;
+import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.util.CompactTimeUtil;
 import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +35,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     private final OrderExecutionGateway executionGateway;
 
     /** 按订单簿 tradeMode 以 switch 分发到三套独立交易规则。 */
-    private final TradeStrategyDispatcher tradeStrategyDispatcher = new TradeStrategyDispatcher();
+    private final TradeDecisionService tradeDecisionService;
 
     private final TickNodePool tickNodePool = new TickNodePool(100000);
 
@@ -43,8 +43,10 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
 
     private final OrderBook[] orderBooks = new OrderBook[ORDER_BOOK_CAPACITY];
 
-    public TickEventShenZhenHandler(OrderExecutionGateway executionGateway) {
+    public TickEventShenZhenHandler(OrderExecutionGateway executionGateway,
+                                    TradeDecisionService tradeDecisionService) {
         this.executionGateway = executionGateway;
+        this.tradeDecisionService = tradeDecisionService;
     }
 
     public void registerOrderBook(int symbolId, OrderBook orderBook) {
@@ -121,7 +123,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                 if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
                     // 调用当前模式深圳快照集合竞价撤单规则。
-                    int auctionCancelRule = tradeStrategyDispatcher.evaluateShenzhenSnapshotAuctionCancel(
+                    int auctionCancelRule = tradeDecisionService.evaluateShenzhenSnapshotAuctionCancel(
                             orderBook, order.price, orderBook.getLimitUpPrice());
                     if (auctionCancelRule != 0) {
                         executionGateway.cancel(orderBook.getSymbol());
@@ -139,7 +141,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 if (transStatus == -1 && ConstantUtil.TIME_1459 <= order.time && ConstantUtil.TIME_1500 > order.time) {
                     // 如果竞价价格比涨停价格低 或者竞价买小于竞价卖
                     // 调用当前模式尾盘集合竞价卖出规则。
-                    if (tradeStrategyDispatcher.evaluateClosingAuctionSell(
+                    if (tradeDecisionService.evaluateClosingAuctionSell(
                             orderBook, order.price, orderBook.getLimitUpPrice(),
                             order.buyerOrderId, order.sellerOrderId)) {
                         executionGateway.sell(orderBook.getSymbol(), orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
@@ -179,7 +181,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 }
                 orderBook.price[calculateIndex] = order.price;
                 // 执行均价卖出策略
-                if (transStatus == -1 && calculateIndex >= 5 && tradeStrategyDispatcher.evaluateAveragePriceSell(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
+                if (transStatus == -1 && calculateIndex >= 5 && tradeDecisionService.evaluateAveragePriceSell(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
                     executionGateway.quickSell(orderBook.getSymbol(), order.price, orderBook.getLimitDownPrice());
                     orderBook.setTransactionStatus(-2);
                     transStatus = 0;
@@ -209,7 +211,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             // 涨停总买手，大于 全部总卖手，全部总卖全部以涨停价格成交，总卖小于 2500w ，如果遇到 委托买单 大于 200w，则跟单 orderBook.getInitialMarketValue() < 120_000 || orderBook.getLbcs() > 1 || transStatus == 2) && transStatus != 0
             // 调用当前模式深圳集合竞价买入规则；规则 6 的大单买入优先于规则 7 的总买量买入。
             int auctionBuyRule = transStatus == 1
-                    ? tradeStrategyDispatcher.evaluateShenzhenAuctionBuy(
+                    ? tradeDecisionService.evaluateShenzhenAuctionBuy(
                     orderBook, order.dataType, order.price, limitUpPrice, order.quantity,
                     limitUpBuyVolume, totalSellVolume, buyVolume, limitUpBuyAmount, circulation)
                     : 0;
@@ -237,7 +239,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 // 总卖大于涨停买，涨停买小于 流通的 4.5% 或者涨停卖大于 3500 w，或者 涨停买减去全部卖小于 2.5%
                 //// 封单如果大于流通市值的 40% 可能是三班组，也撤单  TODO ,只要是节点票或者1进2 就不怕三班组
                 // 调用当前模式深圳集合竞价撤单规则。
-                int auctionCancelRule = tradeStrategyDispatcher.evaluateShenzhenAuctionCancel(
+                int auctionCancelRule = tradeDecisionService.evaluateShenzhenAuctionCancel(
                         orderBook, limitUpBuyVolume, totalSellVolume, buyVolume);
                 if (auctionCancelRule != 0) {
                     executionGateway.cancel(orderBook.getSymbol());
@@ -255,20 +257,20 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         if (transStatus != 0 && order.time >= ConstantUtil.TIME_931 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
             // 调用当前模式的盘中交易模式切换规则。
             if (transStatus == 1
-                    && tradeStrategyDispatcher.shouldEnableFirstBoardTradingMode(orderBook)) {
+                    && tradeDecisionService.shouldEnableFirstBoardTradingMode(orderBook)) {
                 executionGateway.enableFirstLimitUpTradingMode(orderBook.getSymbol());
             }
             // 调用当前模式连续竞价买入时段与买入规则。
             if (transStatus == 1
-                    && tradeStrategyDispatcher.isContinuousBuyTimeAllowed(orderBook, order.time)
-                    && tradeStrategyDispatcher.evaluateBuy(orderBook, ruleRecordBuffer.nextRecord())) {
+                    && tradeDecisionService.isContinuousBuyTimeAllowed(orderBook, order.time)
+                    && tradeDecisionService.evaluateBuy(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                 orderBook.setTransactionStatus(2);
                 log.info("打板,股票代码 {} 触发单号 OrderId :{}，数据类型:({}) 封单变化：{},封单金额:{},换手:{}%", order.symbolId, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getLimitUpBuyAmount(), orderBook.getTurnoverRate());
                 ruleRecordBuffer.commit();
             }
             // 卖出监控中
-            if (transStatus == -1 && tradeStrategyDispatcher.evaluateSell(orderBook, ruleRecordBuffer.nextRecord())) {
+            if (transStatus == -1 && tradeDecisionService.evaluateSell(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.quickSell(orderBook.getSymbol(), orderBook.getLastPrice(), orderBook.getLimitDownPrice());
                 orderBook.setTransactionStatus(-2);
                 log.info("卖出,股票代码 {} 触发单号 OrderId :{}，数据类型:({}) 封单变化：{},封单金额:{},换手:{}%", order.symbolId, order.orderId, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getLimitUpBuyAmount(), orderBook.getTurnoverRate());

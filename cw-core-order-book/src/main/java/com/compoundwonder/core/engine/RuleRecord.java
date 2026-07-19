@@ -2,7 +2,7 @@ package com.compoundwonder.core.engine;
 
 
 import com.compoundwonder.dto.RuleRecordDTO;
-import com.compoundwonder.strategy.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
 
 public final class RuleRecord implements TradeRuleRecord {
 

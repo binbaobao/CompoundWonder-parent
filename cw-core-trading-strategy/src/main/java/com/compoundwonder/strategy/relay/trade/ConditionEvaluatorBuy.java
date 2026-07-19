@@ -3,8 +3,8 @@ package com.compoundwonder.strategy.relay.trade;
 import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
-import com.compoundwonder.strategy.TradeMarketState;
-import com.compoundwonder.strategy.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.util.CompactTimeUtil;
 import lombok.extern.slf4j.Slf4j;
 

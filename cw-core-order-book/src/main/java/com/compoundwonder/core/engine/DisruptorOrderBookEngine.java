@@ -3,7 +3,8 @@ package com.compoundwonder.core.engine;
 import com.compoundwonder.core.processor.TickEventShangHaiHandler;
 import com.compoundwonder.core.processor.TickEventShenZhenHandler;
 import com.compoundwonder.core.service.OrderBookRepository;
-import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.RingBuffer;
@@ -80,6 +81,7 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      *
      * @param repository 回测编排和结果查询使用的订单簿仓库
      * @param executionGateway 策略触发后的交易动作出口，回测与实盘提供不同实现
+     * @param tradeDecisionService 交易规则公共接口，由 app 组装根注入策略实现
      * @param ringBufferSize RingBuffer 容量，必须是 2 的幂
      * @param threadNamePrefix 消费线程名称前缀，便于日志和性能诊断
      * @param producerType 生产者模式；回测通常为 SINGLE，实盘可按行情线程模型配置
@@ -89,6 +91,7 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public DisruptorOrderBookEngine(OrderBookRepository repository,
                                     OrderExecutionGateway executionGateway,
+                                    TradeDecisionService tradeDecisionService,
                                     int ringBufferSize,
                                     String threadNamePrefix,
                                     ProducerType producerType,
@@ -99,8 +102,8 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
         this.repository = repository;
         this.disruptors = new Disruptor[2];
         this.handlers = new EventHandlerIdentity[]{
-                new TickEventShangHaiHandler(executionGateway),
-                new TickEventShenZhenHandler(executionGateway)
+                new TickEventShangHaiHandler(executionGateway, tradeDecisionService),
+                new TickEventShenZhenHandler(executionGateway, tradeDecisionService)
         };
         disruptors[SHANGHAI_HANDLER] = createDisruptor(
                 ringBufferSize, threadNamePrefix + "sh-", producerType, waitStrategyFactory.get());

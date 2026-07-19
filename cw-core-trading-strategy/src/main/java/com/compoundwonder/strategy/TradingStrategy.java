@@ -1,5 +1,8 @@
 package com.compoundwonder.strategy;
 
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
+
 /** 一种交易模式完整的买入、卖出和撤单规则入口。 */
 public interface TradingStrategy {
 

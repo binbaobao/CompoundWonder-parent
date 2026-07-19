@@ -1,7 +1,7 @@
 package com.compoundwonder.strategy.firstboard.trade;
 
-import com.compoundwonder.strategy.TradeMarketState;
-import com.compoundwonder.strategy.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.strategy.TradingStrategy;
 
 /**

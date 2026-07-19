@@ -1,7 +1,7 @@
 package com.compoundwonder.strategy.firstboard.trade;
 
-import com.compoundwonder.strategy.TradeMarketState;
-import com.compoundwonder.strategy.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
 
 /**
  * 卖出条件统一入口。

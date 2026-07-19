@@ -14,7 +14,7 @@ import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
-import com.compoundwonder.strategy.TradeMode;
+import com.compoundwonder.common.strategy.trade.TradeMode;
 import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.util.SymbolUtil;
 import lombok.extern.slf4j.Slf4j;

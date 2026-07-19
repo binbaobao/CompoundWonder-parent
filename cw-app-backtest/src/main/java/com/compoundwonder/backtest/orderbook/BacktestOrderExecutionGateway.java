@@ -1,6 +1,6 @@
 package com.compoundwonder.backtest.orderbook;
 
-import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.OrderExecutionGateway;
 import com.compoundwonder.util.SymbolUtil;
 import org.springframework.stereotype.Component;
 

@@ -2,7 +2,8 @@ package com.compoundwonder.backtest.config;
 
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.service.OrderBookRepository;
-import com.compoundwonder.core.service.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.ProducerType;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,10 +20,12 @@ public class BacktestOrderBookConfig {
     public DisruptorOrderBookEngine disruptorOrderBookEngine(
             OrderBookRepository orderBookRepository,
             OrderExecutionGateway orderExecutionGateway,
+            TradeDecisionService tradeDecisionService,
             @Value("${backtest.order-book.ring-buffer-size:1048576}") int ringBufferSize) {
         return new DisruptorOrderBookEngine(
                 orderBookRepository,
                 orderExecutionGateway,
+                tradeDecisionService,
                 ringBufferSize,
                 "backtest-order-book-",
                 ProducerType.SINGLE,

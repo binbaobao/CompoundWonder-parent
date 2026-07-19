@@ -1,7 +1,7 @@
 package com.compoundwonder.strategy.relay.trade;
 
 import com.compoundwonder.constant.ConstantUtil;
-import com.compoundwonder.strategy.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeMarketState;
 
 /** 连板接力模式独立的交易时段与模式切换规则。 */
 final class TradingControlEvaluator {

@@ -68,7 +68,7 @@ class BackTestTradeServiceTest {
             return 1;
         };
         BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, new com.compoundwonder.strategy.TradeStrategyDispatcher(), 1024,
                 "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         BackTestTradeService service = new BackTestTradeService(
@@ -219,7 +219,7 @@ class BackTestTradeServiceTest {
             return 3;
         };
         BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, new com.compoundwonder.strategy.TradeStrategyDispatcher(), 1024,
                 "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         BackTestTradeService service = new BackTestTradeService(
@@ -271,7 +271,7 @@ class BackTestTradeServiceTest {
             }
         };
         BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, new com.compoundwonder.strategy.TradeStrategyDispatcher(), 1024,
                 "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         BackTestTradeService service = new BackTestTradeService(
@@ -297,7 +297,7 @@ class BackTestTradeServiceTest {
             return 1;
         };
         BacktestOrderExecutionGateway gateway = new BacktestOrderExecutionGateway();
-        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, 1024,
+        engine = new DisruptorOrderBookEngine(new CacheService(), gateway, new com.compoundwonder.strategy.TradeStrategyDispatcher(), 1024,
                 "test-backtest-", ProducerType.SINGLE, YieldingWaitStrategy::new);
         engine.start();
         BackTestTradeService service = new BackTestTradeService(
