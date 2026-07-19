@@ -8,7 +8,8 @@ import java.util.Set;
 public interface OrderBookService {
     /**
      * 获取当日所有盯盘股票，盯盘初始化或者断开重连
-     * @return
+     *
+     * @return 当前已经初始化订单簿的六位股票代码集合
      */
     Set<String> getOrderBookCodes();
 

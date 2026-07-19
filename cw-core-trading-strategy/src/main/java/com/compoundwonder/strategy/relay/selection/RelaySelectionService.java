@@ -128,7 +128,10 @@ public class RelaySelectionService {
         int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
         int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
 
-        log.info("连板选股  今日最高板:{},昨日最高板:{} 前日最高板:{} 今日选股区间:{}-{}",todayMaxLbc,yesterdayHighestLimitUp,dayBeforeYesterdayHighestLimitUp,minLimitUpDays,maxLimitUpDays);
+        log.info("连板选股 {} 最高板:{},昨日最高板:{} 前日最高板:{} 今日选股区间:{}-{}", tradeDate, todayMaxLbc, yesterdayHighestLimitUp, dayBeforeYesterdayHighestLimitUp, minLimitUpDays, maxLimitUpDays);
+        if (minLimitUpDays == 0 || maxLimitUpDays == 0) {
+            return List.of();
+        }
 
         List<StockDailyData> selectedStockDailyList = new ArrayList<>();
         for (StockDailyData stockDaily : stockDailyEntities) {
@@ -163,7 +166,7 @@ public class RelaySelectionService {
          * 唯一弱 5 板是常规选股完全没有内存候选后的兜底，不能在常规流程之前抢跑。
          * 老项目先把任务插库再查询数量；现在策略模块只返回内存候选，
          * 因此直接使用 eligibleTasks.isEmpty() 判断，避免历史旧记录影响当天重跑结果。
-        */
+         */
         if (eligibleTasks.isEmpty() && todayMaxLbc == 5) {
             // 调用当日非 ST 五板查询方法。
             List<StockDailyData> fiveBoardDailyList = listNonStFiveBoardDaily(tradeDate);
@@ -215,9 +218,9 @@ public class RelaySelectionService {
      * 与正常严格通道保持一致。</p>
      */
     private List<SelectionTaskData> selectEligibleRelayTasks(List<RelaySelectionAssist> assistList,
-                                                              int todayMaxLbc,
-                                                              boolean allowIcePoint,
-                                                              String selectionMode) {
+                                                             int todayMaxLbc,
+                                                             boolean allowIcePoint,
+                                                             String selectionMode) {
         List<SelectionTaskData> eligibleTasks = new ArrayList<>();
         for (RelaySelectionAssist dto : assistList) {
             RelaySelectionCandidate candidate = toSelectionCandidate(dto);
@@ -335,7 +338,7 @@ public class RelaySelectionService {
      * 市场当日最高板为 3 板或 4 板时，所有 2、3 连板候选启用冰点宽松通道。
      */
     static boolean isIcePointThreeFourBoardCandidate(int todayHighestLimitUp,
-                                                      Integer consecutiveLimitUpDays) {
+                                                     Integer consecutiveLimitUpDays) {
         boolean icePointMarket = todayHighestLimitUp == 3 || todayHighestLimitUp == 4;
         boolean relayCandidate = Integer.valueOf(2).equals(consecutiveLimitUpDays)
                 || Integer.valueOf(3).equals(consecutiveLimitUpDays);
@@ -392,8 +395,8 @@ public class RelaySelectionService {
      * 使用循环排除有可转债的股票，并记录过滤原因。
      */
     private List<StockDailyData> filterConvertibleBondStocks(String selectionMode,
-                                                               List<StockDailyData> stockDailyList,
-                                                               Set<String> convertibleBondStockCodes) {
+                                                             List<StockDailyData> stockDailyList,
+                                                             Set<String> convertibleBondStockCodes) {
         List<StockDailyData> selectedStockDailyList = new ArrayList<>();
         for (StockDailyData stockDaily : stockDailyList) {
             if (convertibleBondStockCodes.contains(stockDaily.getStockCode())) {
@@ -491,7 +494,7 @@ public class RelaySelectionService {
         // 调用连板历史筹码指标计算方法。
         RelayHistoricalMetricsCalculator.HistoricalMetrics chipMetrics =
                 RelayHistoricalMetricsCalculator.calculateHistoricalMetrics(
-                chipHistoryDailyList, earliestStoredDailyList, chipHistoryEndDate);
+                        chipHistoryDailyList, earliestStoredDailyList, chipHistoryEndDate);
 
         RelaySelectionAssist assist = new RelaySelectionAssist();
         assist.setStockCode(stockDaily.getStockCode());
