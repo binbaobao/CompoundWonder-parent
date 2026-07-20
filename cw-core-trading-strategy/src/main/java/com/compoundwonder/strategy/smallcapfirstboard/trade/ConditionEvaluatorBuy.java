@@ -145,10 +145,19 @@ public final class ConditionEvaluatorBuy {
         if (orderBook.getLowPriceIncrease() < -1.5) {
             return false;
         }
+        if (orderBook.getStatus() > 20) {
+            return false;
+        }
+        // 10点钟不打回封
+        if (time <= ConstantUtil.TIME_1000 && orderBook.getStatus() > 0) {
+            return false;
+        }
+
         if (orderBook.getAmplitude() < 4.5 && time < ConstantUtil.TIME_935) {
             return false;
         }
-        if (orderBook.getOpenIncrease() > 4.5  && time < ConstantUtil.TIME_935) {
+        // 开的高不能封板太快,也不大
+        if (orderBook.getOpenIncrease() > 3.5  && time < ConstantUtil.TIME_935) {
             return false;
         }
 

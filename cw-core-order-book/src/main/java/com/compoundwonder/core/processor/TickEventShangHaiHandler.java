@@ -196,6 +196,11 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                         log.info("l1 换手率达成买入");
                     }
                 }
+                // 可交易状态下，10点还没有涨停的首板就是弱了，直接关闭打板任务
+                if (transStatus == 1 && time >= ConstantUtil.TIME_1000 && orderBook.getStatus() % 2 == 0 && orderBook.getLbcs() == 1) {
+                    orderBook.setTransactionStatus(0);
+                    transStatus = 0;
+                }
             }
         }
 

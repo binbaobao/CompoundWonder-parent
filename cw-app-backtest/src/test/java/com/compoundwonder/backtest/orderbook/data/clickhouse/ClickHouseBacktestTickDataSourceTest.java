@@ -147,6 +147,24 @@ class ClickHouseBacktestTickDataSourceTest {
     }
 
     @Test
+    void singleReplayDropsEveryTickWhenShenzhenCancellationCannotIdentifyOrder() {
+        ClickHouseLevel2QueryService queryService = new StubQueryService(
+                List.of(
+                        orderAt(91_900_000, "1", "1", 101, 14.06F, 10_000),
+                        orderAt(91_939_010, "0", "0", 0, 0F, 9_000)),
+                List.of(transAt(93_100_000, "1", 14.06F, 100, 101, 201)),
+                List.of(market(91_948_000L, 14.05F, 14.05F, 0, 0,
+                        new long[]{100}, new long[]{100})));
+
+        List<TickData> ticks = new ArrayList<>();
+        long count = new ClickHouseBacktestTickDataSource(queryService)
+                .replay(DATE, "002883", ticks::add);
+
+        assertEquals(0, count);
+        assertEquals(List.of(), ticks);
+    }
+
+    @Test
     void loadsAllDailySymbolsOnceAndReusesTheirTicksAcrossMultipleReplays() {
         StubQueryService queryService = new StubQueryService(List.of(
                 batchOrder("002632", 145_559_350, "1", "1", 10.59F, 400, 59_697_075),
@@ -173,6 +191,28 @@ class ClickHouseBacktestTickDataSourceTest {
         assertEquals(1, shenzhenReplay.get(0).dataType);
         assertEquals(2, shenzhenReplay.get(1).dataType);
         assertEquals(59_697_075, shenzhenReplay.get(1).buyerOrderId);
+    }
+
+    @Test
+    void dailyBatchDropsOnlyTheShenzhenSymbolWithUnidentifiableCancellation() {
+        StubQueryService queryService = new StubQueryService(List.of(
+                batchOrder("002883", 91_900_000, "1", "1", 14.06F, 10_000, 101),
+                batchOrder("002883", 91_939_010, "0", "0", 0F, 9_000, 0),
+                batchMarket("002883", 91_948_000, 14.05F, 14.05F,
+                        0, 0, 100, 0, 100, 0),
+                batchOrder("000001", 91_900_000, "1", "1", 10F, 100, 201),
+                batchMarket("000001", 91_948_000, 10F, 10F,
+                        0, 0, 100, 0, 100, 0)));
+        ClickHouseBacktestTickDataSource source =
+                new ClickHouseBacktestTickDataSource(queryService);
+
+        var batch = source.loadDay(DATE, List.of("002883", "000001"));
+        List<TickData> invalidSymbolTicks = new ArrayList<>();
+        List<TickData> validSymbolTicks = new ArrayList<>();
+
+        assertEquals(0, batch.replay("002883", invalidSymbolTicks::add));
+        assertEquals(List.of(), invalidSymbolTicks);
+        assertEquals(2, batch.replay("000001", validSymbolTicks::add));
     }
 
     private static ClickHouseOrderRow order(String tickType, String side, float price,

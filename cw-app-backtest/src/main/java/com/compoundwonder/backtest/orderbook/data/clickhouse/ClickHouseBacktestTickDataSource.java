@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,12 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
 
         ClickHouseQueryResult<ClickHouseOrderRow> orderResult =
                 queryService.queryOrders(stockCode, tradeDate);
+        if (containsUnidentifiableShenzhenCancellation(stockCode, orderResult.rows())) {
+            log.warn("丢弃无法重建订单簿的深圳回测数据 date={}, stockCode={}, "
+                            + "reason=撤单缺少有效订单号或方向, orderRows={}",
+                    tradeDate, stockCode, orderResult.rowCount());
+            return 0;
+        }
         ClickHouseQueryResult<ClickHouseTransRow> transResult =
                 queryService.queryTransactions(stockCode, tradeDate);
         ClickHouseQueryResult<ClickHouseMarketRow> marketResult =
@@ -78,18 +85,33 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         for (String stockCode : requestedCodes) {
             mutableTicks.put(stockCode, new java.util.ArrayList<>());
         }
+        Set<String> invalidSymbols = new HashSet<>();
         ClickHouseDailyQueryResult queryResult = queryService.streamDailyTicks(
                 tradeDate, requestedCodes, row -> {
+                    List<TickData> symbolTicks = mutableTicks.get(row.securityId());
+                    if (symbolTicks == null) {
+                        throw new IllegalStateException("ClickHouse 返回了未请求的股票: "
+                                + row.securityId());
+                    }
+                    if (isUnidentifiableShenzhenCancellation(row)) {
+                        symbolTicks.clear();
+                        invalidSymbols.add(row.securityId());
+                        return;
+                    }
+                    if (invalidSymbols.contains(row.securityId())) {
+                        return;
+                    }
                     TickData tick = toBatchTick(row);
                     if (tick != null) {
-                        List<TickData> symbolTicks = mutableTicks.get(row.securityId());
-                        if (symbolTicks == null) {
-                            throw new IllegalStateException("ClickHouse 返回了未请求的股票: "
-                                    + row.securityId());
-                        }
                         symbolTicks.add(tick);
                     }
                 });
+
+        if (!invalidSymbols.isEmpty()) {
+            log.warn("丢弃无法重建订单簿的深圳回测数据 date={}, symbols={}, "
+                            + "reason=撤单缺少有效订单号或方向",
+                    tradeDate, invalidSymbols);
+        }
 
         Map<String, List<TickData>> immutableTicks = new LinkedHashMap<>(mutableTicks.size());
         long outputTicks = 0;
@@ -284,6 +306,42 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
             default -> throw new IllegalArgumentException(
                     "无法识别的 ClickHouse Level2 事件来源: " + row.eventSource());
         };
+    }
+
+    /**
+     * 判断单股票查询是否包含无法关联到原委托的深圳撤单。
+     *
+     * <p>这类旧数据没有足够字段恢复订单簿，不能把其余新增委托继续推入共享核心引擎，
+     * 否则会把已经撤销的委托长期保留在盘口中并产生虚假买入信号。</p>
+     */
+    private static boolean containsUnidentifiableShenzhenCancellation(
+            String stockCode, List<ClickHouseOrderRow> orders) {
+        if (stockCode.startsWith("60")) {
+            return false;
+        }
+        for (ClickHouseOrderRow row : orders) {
+            if (isUnidentifiableShenzhenCancellation(
+                    row.tickType(), row.side(), row.no())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 批量查询版本的数据质量判断，在转换 TickData 之前执行。 */
+    private static boolean isUnidentifiableShenzhenCancellation(
+            ClickHouseLevel2BatchRow row) {
+        return row.eventSource() == ClickHouseLevel2BatchRow.EVENT_ORDER
+                && !row.securityId().startsWith("60")
+                && isUnidentifiableShenzhenCancellation(
+                        row.tickType(), row.side(), row.orderNo());
+    }
+
+    /** 深圳撤单必须同时具备有效订单号和买卖方向，缺少任一字段都无法精确撤单。 */
+    private static boolean isUnidentifiableShenzhenCancellation(
+            String tickType, String side, long orderNo) {
+        return "0".equals(tickType)
+                && (orderNo <= 0 || parseSide(side) == 0);
     }
 
     /** 内存批次中的 TickData 只读复用；Disruptor publish 会复制字段，不会修改对象。 */

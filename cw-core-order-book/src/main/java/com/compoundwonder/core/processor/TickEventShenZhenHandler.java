@@ -187,6 +187,11 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                     ruleRecordBuffer.commit();
                 }
             }
+            // 可交易状态下，10点还没有涨停的首板就是弱了，直接关闭打板任务
+            if (transStatus == 1 && time >= ConstantUtil.TIME_1000 && orderBook.getStatus() % 2 == 0 && orderBook.getLbcs() == 1) {
+                orderBook.setTransactionStatus(0);
+                transStatus = 0;
+            }
         }
 
         // 深交所 09:25 集中撮合前使用逐笔事件观察集合竞价。
