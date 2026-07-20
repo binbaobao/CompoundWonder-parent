@@ -73,14 +73,16 @@ public class SmallCapFirstBoardSelectionService {
         return tasks;
     }
 
-    /** 查询选股日涨幅小于 11%、流通市值小于 30 亿元的非 ST 首板基础池。 */
+    /** 查询选股日涨幅小于 11%、流通市值小于 MAX_START_MARKET_CAP_EXCLUSIVE * 1.1 亿元的非 ST 首板基础池。 */
     private List<StockDailyData> listBaseCandidates(LocalDate tradeDate) {
         return selectionDataService.listDailyByTradeDate(tradeDate).stream()
                 .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                .filter(daily -> lessThan(daily.getFloatMarketCap(), 300_000D))
+                .filter(daily -> lessThan(daily.getFloatMarketCap(), MAX_START_MARKET_CAP_EXCLUSIVE * 1.11))
                 .filter(daily -> lessThan(daily.getClosePrice(), 40D))
                 .filter(daily -> lessThan(daily.getChangeRate(), 11D))
                 .filter(daily -> Integer.valueOf(1).equals(daily.getConsecutiveLimitUpDays()))
+                .filter(daily -> Integer.valueOf(1).equals(daily.getKlineState()))// 首板必须是实体板
+                .filter(daily -> daily.getAmplitude() > 7)// 首板必须是实体板
                 .toList();
     }
 
@@ -262,6 +264,11 @@ public class SmallCapFirstBoardSelectionService {
     }
 
     /** 建立股票代码到选股日收盘价的索引，供同分候选排序。 */
+    /**
+     * 小市值首板排序使用 先 200日最高板 正序。了，连板越少越好，最大换手越小越好
+     * @param assistList
+     * @return
+     */
     private Map<String, Double> indexCurrentPrices(
             List<SmallCapFirstBoardSelectionAssist> assistList) {
         return assistList.stream().filter(assist -> assist.getStockCode() != null)

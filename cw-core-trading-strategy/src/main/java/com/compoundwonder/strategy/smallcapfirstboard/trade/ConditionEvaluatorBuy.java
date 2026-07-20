@@ -76,15 +76,15 @@ public final class ConditionEvaluatorBuy {
     /**
      * 无需历史量能补充条件即可买入的最低当前换手率，单位：%。
      */
-    private static final double MIN_NORMAL_TURNOVER_RATE = 12.5;
+    private static final double MIN_NORMAL_TURNOVER_RATE = 15.5;
     /**
      * 所有买入规则允许的最大当前换手率，单位：%。
      */
-    private static final double MAX_TURNOVER_RATE = 35.0;
+    private static final double MAX_TURNOVER_RATE = 40.0;
     /**
      * 低换手买入门槛为“历史最大换手率 ÷ 3.3”。
      */
-    private static final double MAX_TURNOVER_DIVISOR = 3.3;
+    private static final double MAX_TURNOVER_DIVISOR = 2.3;
     /**
      * 允许低换手买入的当日累计成交额补充条件，单位：元。
      */
@@ -120,9 +120,15 @@ public final class ConditionEvaluatorBuy {
         // 涨停买单数量 EMA 的环比变化率，单位：%；负数表示封单减弱。
         double sealChangePercent = orderBook.getChangePercent();
         int lbcs = orderBook.getLbcs();
+        // 如果涨停金额大于 8000w，说明行情数据可能出问题了，还有就是量化集中封涨停，排也排不到，排到就是坑
         if (limitUpBuyAmount > MAX_LIMIT_UP_BUY_AMOUNT_WAN) {
             return false;
         }
+        if (lastPrice != limitUpPrice) {
+            return false;
+        }
+
+        //判断当前换手是否达到历史最大换手或固定换手门槛。
         if (!isTurnoverEligible(orderBook, turnoverRate)) {
             return false;
         }
@@ -130,45 +136,33 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
         // 开盘比较高，但是最低比-3还低，就是比较弱，就不打板
-        if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < -4.5 && time < ConstantUtil.TIME_1000) {
-            return false;
-        }
-        //开盘涨幅比最低价高 4 个点，并且最低点小于 -4.5
-        if (lbcs > 1 && orderBook.getOpenIncrease() - orderBook.getLowPriceIncrease() > 4 && orderBook.getLowPriceIncrease() < -4.5) {
+        if (orderBook.getOpenIncrease() > 0 && orderBook.getLowPriceIncrease() < 0 && orderBook.getOpenIncrease() - orderBook.getLowPriceIncrease() > 3) {
             return false;
         }
         // 如果是首板不允许最低点小于-1.5
         // 首板只是补充交易模式，不能接加速，只做换手充分，经历过程分歧的，不然特别容易炸板
-        if (lbcs == 1) {
-            // 首板如果跌入深水也容易第二天走弱
-            if (orderBook.getLowPriceIncrease() < -1.5) {
-                return false;
-            }
-            if (orderBook.getAmplitude() < 4.5 && time < ConstantUtil.TIME_1000) {
-                return false;
-            }
-            if (orderBook.getOpenIncrease() > 4.5 && time < ConstantUtil.TIME_1000) {
-                return false;
-            }
+        // 首板如果跌入深水也容易第二天走弱
+        if (orderBook.getLowPriceIncrease() < -1.5) {
+            return false;
+        }
+        if (orderBook.getAmplitude() < 4.5 && time < ConstantUtil.TIME_935) {
+            return false;
+        }
+        if (orderBook.getOpenIncrease() > 4.5  && time < ConstantUtil.TIME_935) {
+            return false;
         }
 
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
-        if (orderBook.getLargestBuyOrderPrice() != 0
-                && orderBook.getLargestBuyOrderPrice() == limitUpPrice
-                && sealChangePercent >= 0) {
+        // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
+        if (orderBook.getLargestBuyOrderPrice() == limitUpPrice && sealChangePercent >= 0) {
             // 由启动市值、涨停价和最大买单股数组合匹配出的规则编号；0 表示未命中。
-            int largeOrderRule = matchLargeOrderRule(
-                    marketValue, limitUpPrice, orderBook.getLargestBuyOrderQuantity());
+            int largeOrderRule = matchLargeOrderRule(marketValue, limitUpPrice, orderBook.getLargestBuyOrderQuantity());
             if (largeOrderRule != 0) {
                 fillLargeOrderRecord(orderBook, ruleRecord, largeOrderRule);
                 return true;
             }
         }
 
-        if (!isNormalLimitUpOrderEligible(
-                marketValue, limitUpBuyAmount, lastPrice, limitUpPrice, time)) {
-            return false;
-        }
 
         // 最近一次封板时间转换后的当日毫秒值。
         int lastLimitUpMillis = CompactTimeUtil.compactToMillis(orderBook.getLastLimitUptime());
@@ -191,26 +185,10 @@ public final class ConditionEvaluatorBuy {
         if (turnoverRate > MAX_TURNOVER_RATE) {
             return false;
         }
-        if (turnoverRate >= MIN_NORMAL_TURNOVER_RATE && orderBook.getStatus() <= 1) {
+        if (turnoverRate >= MIN_NORMAL_TURNOVER_RATE  && turnoverRate >= orderBook.getMaxHs() / MAX_TURNOVER_DIVISOR) {
             return true;
         }
-        if (orderBook.getStatus() >= 1 && turnoverRate >= MIN_NORMAL_TURNOVER_RATE * 1.5) {
-            return true;
-        }
-
-        // 首板、较大日内波动、较深炸板或高成交额任一成立，才允许降低换手门槛。
-        boolean supportsLowerTurnoverEntry = (orderBook.getLbcs() == 1 && orderBook.getOpenIncrease() < 3 && orderBook.getStatus() == 0)
-                || orderBook.getAmplitude() > 7
-                || orderBook.getLimitUpBreakDepth() > 3
-                || orderBook.getTurnover() > HIGH_TRADING_AMOUNT_YUAN;
-        if (!supportsLowerTurnoverEntry) {
-            return false;
-        }
-
-        // 历史最大成交量占当前流通股本的比例，换算为历史最大换手率，单位：%。
-        double historicalMaxTurnover = orderBook.getMaxVolume() * 100.0
-                / orderBook.getCirculation();
-        return turnoverRate >= historicalMaxTurnover / MAX_TURNOVER_DIVISOR;
+        return false;
     }
 
     /**
@@ -247,35 +225,6 @@ public final class ConditionEvaluatorBuy {
             return RULE_MEDIUM_HIGH_PRICE_ORDER;
         }
         return 0;
-    }
-
-    /**
-     * 判断普通排板所需的市值分档封单金额。
-     */
-    private static boolean isNormalLimitUpOrderEligible(long marketValue,
-                                                        long limitUpBuyAmount,
-                                                        int lastPrice,
-                                                        int limitUpPrice,
-                                                        int time) {
-        if (marketValue < 109_000) {
-            return lastPrice == limitUpPrice;
-        }
-        if (marketValue < 140_000) {
-            return limitUpBuyAmount > 500;
-        }
-
-        // 10:30 后普通排板允许使用更低的封单金额门槛。
-        boolean afterTenThirty = time >= ConstantUtil.TIME_1030;
-        if (marketValue < 155_000) {
-            return limitUpBuyAmount > (afterTenThirty ? 500 : 1_000);
-        }
-        if (marketValue < 170_000) {
-            return limitUpBuyAmount > (afterTenThirty ? 800 : 2_000);
-        }
-        if (marketValue < 185_000) {
-            return limitUpBuyAmount > (afterTenThirty ? 1_000 : 3_000);
-        }
-        return limitUpBuyAmount > (afterTenThirty ? 2_000 : 4_500);
     }
 
     /**

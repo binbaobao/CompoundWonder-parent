@@ -222,6 +222,7 @@ public class OrderBook implements TradeMarketState {
     private long totalBuyVolume = 0;
 
     private long totalSellVolume = 0;
+    // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
     @ToString.Exclude
     public final TickNode buyMaxOrder;
 //    public TickNode sellMaxOrder;
@@ -412,13 +413,15 @@ public class OrderBook implements TradeMarketState {
         return avgPrice[index];
     }
 
-    /** 当前仍在订单簿中的最大买委托价格，单位：分。 */
+    /** 当前仍在订单簿中的最大买委托价格，单位：分。codex 注释错误 TODO */
+    // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
     @Override
     public int getLargestBuyOrderPrice() {
         return buyMaxOrder.getPrice();
     }
 
-    /** 当前仍在订单簿中的最大买委托剩余数量，单位：股。 */
+    /** 当前仍在订单簿中的最大买委托剩余数量，单位：股。codex 注释错误 TODO */
+    // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
     @Override
     public int getLargestBuyOrderQuantity() {
         return buyMaxOrder.getQuantity();

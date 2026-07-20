@@ -32,28 +32,28 @@ public final class SmallCapFirstBoardSelectionPolicy {
             return Decision.rejected("模式市值归属", "actual=" + startMarketCap
                     + "万元, required<119999万元; 普通首板与小市值首板互不回退");
         }
-        double maxTurnoverRate = Objects.requireNonNullElse(candidate.maxTurnoverRate(), 0D);
-        if (maxTurnoverRate > 30D) {
-            return Decision.rejected("200根K线历史最大换手率",
-                    "actual=" + maxTurnoverRate + "%, required<=30%");
-        }
-        int highestBoard = Objects.requireNonNullElse(
-                candidate.highestConsecutiveLimitUpDays(), 0);
-        if (highestBoard >= 3) {
-            return Decision.rejected("200根K线历史最高板",
-                    "actual=" + highestBoard + ", required<3");
-        }
-        int priorTwentyAbnormal = Objects.requireNonNullElse(
-                candidate.priorTwentyDayAbnormalKlineStateCount(), 0);
-        if (priorTwentyAbnormal >= 4) {
-            return Decision.rejected("前20日非正常K线次数",
-                    "actual=" + priorTwentyAbnormal + ", required<4");
-        }
-        int abnormalCount = Objects.requireNonNullElse(candidate.abnormalKlineStateCount(), 0);
-        if (abnormalCount > 25) {
-            return Decision.rejected("18个月非正常状态次数",
-                    "actual=" + abnormalCount + ", required<=25");
-        }
+//        double maxTurnoverRate = Objects.requireNonNullElse(candidate.maxTurnoverRate(), 0D);
+//        if (maxTurnoverRate > 55D) { // 中农联合 54
+//            return Decision.rejected("200根K线历史最大换手率",
+//                    "actual=" + maxTurnoverRate + "%, required<=55%");
+//        }
+//        int highestBoard = Objects.requireNonNullElse(
+//                candidate.highestConsecutiveLimitUpDays(), 0);
+//        if (highestBoard >= 3) {
+//            return Decision.rejected("200根K线历史最高板",
+//                    "actual=" + highestBoard + ", required<3");
+//        }
+//        int priorTwentyAbnormal = Objects.requireNonNullElse(
+//                candidate.priorTwentyDayAbnormalKlineStateCount(), 0);
+//        if (priorTwentyAbnormal >= 4) {
+//            return Decision.rejected("前20日非正常K线次数",
+//                    "actual=" + priorTwentyAbnormal + ", required<4");
+//        }
+//        int abnormalCount = Objects.requireNonNullElse(candidate.abnormalKlineStateCount(), 0);
+//        if (abnormalCount > 25) {
+//            return Decision.rejected("18个月非正常状态次数",
+//                    "actual=" + abnormalCount + ", required<=25");
+//        }
         double amplitude = Objects.requireNonNullElse(candidate.threeDayAmplitude(), 0D);
         if (amplitude >= 20D) {
             return Decision.rejected("3日振幅", "actual=" + amplitude + ", required<20");
