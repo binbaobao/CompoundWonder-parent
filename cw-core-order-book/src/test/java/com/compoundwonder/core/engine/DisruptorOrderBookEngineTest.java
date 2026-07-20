@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -274,6 +275,49 @@ class DisruptorOrderBookEngineTest {
     }
 
     @Test
+    void shanghaiAuctionKeepsPreviousSnapshotAndDoesNotCancelNewBuyOnSameEvent() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600001");
+        OrderBook orderBook = new OrderBook(
+                "600001", 100_000_000L, 10.00, 20_000_000L);
+        orderBook.setInitialMarketValue(199_999);
+        orderBook.setTransactionStatus(1);
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        AuctionRecordingTradeDecisionService decisions =
+                new AuctionRecordingTradeDecisionService();
+        engine = new DisruptorOrderBookEngine(repository, gateway, decisions, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        TickData first = snapshot(symbolId, 91_600_000, orderBook.getLimitUpPrice());
+        first.buyerOrderId = 2_000_000;
+        first.sellerOrderId = 2_000_000;
+        TickData second = snapshot(symbolId, 91_603_000, orderBook.getLimitUpPrice());
+        second.buyerOrderId = 3_600_000;
+        second.sellerOrderId = 2_000_000;
+        engine.publish(first);
+        engine.publish(second);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(List.of(-1L, 2_000_000L), decisions.previousBuyVolumes);
+        assertEquals(1, gateway.buyCount);
+        assertEquals(0, gateway.cancelCount);
+        assertEquals(2, orderBook.getTransactionStatus());
+        assertEquals(3_600_000L, orderBook.getPreviousShanghaiAuctionBuyVolume());
+
+        TickData third = snapshot(symbolId, 91_606_000, orderBook.getLimitUpPrice());
+        third.buyerOrderId = 3_500_000;
+        third.sellerOrderId = 2_000_000;
+        engine.publish(third);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(1, gateway.cancelCount);
+        assertEquals(1, orderBook.getTransactionStatus());
+        assertEquals(3_500_000L, orderBook.getPreviousShanghaiAuctionBuyVolume());
+    }
+
+    @Test
     void handlerContinuesAfterUnexpectedEventException() {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
@@ -357,12 +401,15 @@ class DisruptorOrderBookEngineTest {
 
     private static final class RecordingOrderExecutionGateway implements OrderExecutionGateway {
 
+        private int buyCount;
+        private int cancelCount;
         private int sellCount;
         private int quickSellCount;
         private boolean failSell;
 
         @Override
         public void buy(String date, int symbol, int price, int time) {
+            buyCount++;
         }
 
         @Override
@@ -380,6 +427,7 @@ class DisruptorOrderBookEngineTest {
 
         @Override
         public void cancel(String symbol) {
+            cancelCount++;
         }
 
         @Override
@@ -388,7 +436,7 @@ class DisruptorOrderBookEngineTest {
     }
 
     /** 订单簿单元测试只验证事件和执行边界，不依赖具体策略模块。 */
-    private static final class TestTradeDecisionService implements TradeDecisionService {
+    private static class TestTradeDecisionService implements TradeDecisionService {
 
         @Override
         public boolean evaluateBuy(TradeMarketState market, TradeRuleRecord record) {
@@ -424,6 +472,7 @@ class DisruptorOrderBookEngineTest {
         @Override
         public boolean evaluateShanghaiAuctionBuy(TradeMarketState market,
                                                   AuctionMarketEvent event,
+                                                  long previousBuyVolume,
                                                   int recordTime,
                                                   TradeRuleRecord record) {
             return false;
@@ -478,6 +527,37 @@ class DisruptorOrderBookEngineTest {
                                                           AuctionMarketEvent event,
                                                           int recordTime,
                                                           TradeRuleRecord record) {
+            return true;
+        }
+    }
+
+    private static final class AuctionRecordingTradeDecisionService
+            extends TestTradeDecisionService {
+
+        private final List<Long> previousBuyVolumes = new ArrayList<>();
+
+        @Override
+        public boolean evaluateShanghaiAuctionBuy(TradeMarketState market,
+                                                  AuctionMarketEvent event,
+                                                  long previousBuyVolume,
+                                                  int recordTime,
+                                                  TradeRuleRecord record) {
+            previousBuyVolumes.add(previousBuyVolume);
+            if (event.getBuyerOrderId() != 3_600_000) {
+                return false;
+            }
+            record.fill(1, 3, market.getSymbol(), recordTime,
+                    event.getPrice(), 10D, "上海竞价快照增长测试");
+            return true;
+        }
+
+        @Override
+        public boolean evaluateShanghaiAuctionCancel(TradeMarketState market,
+                                                     AuctionMarketEvent event,
+                                                     int recordTime,
+                                                     TradeRuleRecord record) {
+            record.fill(3, 2, market.getSymbol(), recordTime,
+                    event.getPrice(), 10D, "同一快照不应立即撤单");
             return true;
         }
     }

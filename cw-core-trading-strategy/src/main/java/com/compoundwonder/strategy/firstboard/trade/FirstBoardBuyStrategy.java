@@ -39,9 +39,11 @@ public final class FirstBoardBuyStrategy implements BuyStrategy {
 
     @Override
     public boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                              int recordTime, TradeRuleRecord record) {
+                                              long previousBuyVolume, int recordTime,
+                                              TradeRuleRecord record) {
         // 调用当前模式上海集合竞价买入规则。
-        return ShanghaiAuctionBuyEvaluator.evaluateBuy(market, event, recordTime, record);
+        return ShanghaiAuctionBuyEvaluator.evaluateBuy(
+                market, event, previousBuyVolume, recordTime, record);
     }
 
     @Override
@@ -79,4 +81,3 @@ public final class FirstBoardBuyStrategy implements BuyStrategy {
                 market, event, recordTime, record);
     }
 }
-

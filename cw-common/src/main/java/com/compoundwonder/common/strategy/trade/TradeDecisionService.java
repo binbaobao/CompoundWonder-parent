@@ -66,12 +66,14 @@ public interface TradeDecisionService {
      *
      * @param market Handler 私有订单簿提供的只读市场状态
      * @param event 上海三秒集合竞价快照
+     * @param previousBuyVolume 该股票上一张上海集合竞价快照的买量，单位为股；首张快照为 -1
      * @param recordTime Handler 当前市场时间，格式为 {@code HHmmssSSS}
      * @param record 调用方预分配的规则记录
      * @return 命中买入规则并完成记录填充时返回 {@code true}
      */
     boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                       int recordTime, TradeRuleRecord record);
+                                       long previousBuyVolume, int recordTime,
+                                       TradeRuleRecord record);
 
     /**
      * 判断上海集合竞价买单撤单规则。

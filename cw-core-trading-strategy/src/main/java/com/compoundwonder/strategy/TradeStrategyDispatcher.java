@@ -62,9 +62,11 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
 
     @Override
     public boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                              int recordTime, TradeRuleRecord record) {
+                                              long previousBuyVolume, int recordTime,
+                                              TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode())
-                .evaluateShanghaiAuctionBuy(market, event, recordTime, record);
+                .evaluateShanghaiAuctionBuy(
+                        market, event, previousBuyVolume, recordTime, record);
     }
 
     @Override

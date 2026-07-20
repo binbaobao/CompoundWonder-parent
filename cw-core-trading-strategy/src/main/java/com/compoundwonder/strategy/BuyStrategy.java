@@ -32,7 +32,8 @@ public interface BuyStrategy {
      * @return 命中规则并完成记录填充时返回 {@code true}
      */
     boolean evaluateShanghaiAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                       int recordTime, TradeRuleRecord record);
+                                       long previousBuyVolume, int recordTime,
+                                       TradeRuleRecord record);
 
     /** 上海早盘集合竞价撤单；命中规则并完成记录填充时返回 {@code true}。 */
     boolean evaluateShanghaiAuctionCancel(TradeMarketState market, AuctionMarketEvent event,

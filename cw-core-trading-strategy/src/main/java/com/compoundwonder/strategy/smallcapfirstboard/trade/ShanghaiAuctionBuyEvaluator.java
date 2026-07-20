@@ -17,63 +17,71 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 final class ShanghaiAuctionBuyEvaluator {
 
+    /** 启动流通市值必须严格小于 20 亿元；字段单位为万元。 */
+    private static final int MAX_START_MARKET_VALUE_EXCLUSIVE = 200_000;
+    private static final int RULE_ABSOLUTE_STRENGTH = 2;
+    private static final int RULE_SNAPSHOT_GROWTH = 3;
+
     private ShanghaiAuctionBuyEvaluator() {
     }
 
     /**
      * 上海集合竞价买入规则。
      *
-     * <p>原注释：集合竞价下单只适合小市值股票。当前由选股模式先限定候选范围，
-     * 本场景继续沿用原 Handler 的竞价封单判断。</p>
+     * <p>启动市值小于 20 亿元时，不区分交易模式和板高。规则 2 判断当前封单绝对
+     * 强度；规则 3 判断相邻快照封单突然增长。两条规则同时命中时优先记录规则 2。</p>
      *
-     * @return 命中原规则 2 并完成规则记录填充时返回 {@code true}
+     * @return 命中规则 2 或规则 3 并完成规则记录填充时返回 {@code true}
      */
     static boolean evaluateBuy(TradeMarketState market, AuctionMarketEvent event,
-                               int recordTime, TradeRuleRecord record) {
+                               long previousBuyVolume, int recordTime,
+                               TradeRuleRecord record) {
         int eventTime = event.getTime();
         int price = event.getPrice();
         int limitUpPrice = market.getLimitUpPrice();
-        long totalBuyVolume = event.getBuyerOrderId();
-        long totalSellVolume = event.getSellerOrderId();
-        // 总涨停买 金额 单位 W
-        long limitUpBuyAmount = totalBuyVolume / 100L * limitUpPrice / 10_000L;
-        long requiredBuyVolume = calculateRequiredBuyVolume(market, totalSellVolume);
+        long currentBuyVolume = event.getBuyerOrderId();
+        long matchedSellVolume = event.getSellerOrderId();
 
-        if (eventTime > ConstantUtil.TIME_925 || price != limitUpPrice
-                || totalBuyVolume <= requiredBuyVolume / 3) {
-            return false;
-        }
-        boolean sellPressureEligible = totalSellVolume * 100.0 / totalBuyVolume <= 40
-                || limitUpBuyAmount > 15_000;
-        if (!sellPressureEligible || totalBuyVolume <= requiredBuyVolume) {
+        if (eventTime > ConstantUtil.TIME_925
+                || market.getInitialMarketValue() >= MAX_START_MARKET_VALUE_EXCLUSIVE
+                || price != limitUpPrice) {
             return false;
         }
 
+        long requiredBuyVolume = calculateRequiredBuyVolume(market);
+        boolean absoluteStrength = hasAbsoluteStrength(
+                currentBuyVolume, matchedSellVolume, requiredBuyVolume);
+        boolean snapshotGrowth = hasSnapshotGrowth(
+                currentBuyVolume, previousBuyVolume, market.getCirculation());
+        if (!absoluteStrength && !snapshotGrowth) {
+            return false;
+        }
+
+        int ruleCode = absoluteStrength ? RULE_ABSOLUTE_STRENGTH : RULE_SNAPSHOT_GROWTH;
+        long limitUpBuyAmount = currentBuyVolume / 100L * limitUpPrice / 10_000L;
         double increase = increase(price, market.getClosePrice());
-        String remark = StrUtil.format(
-                "买入 - 上午早盘竞价 {}，涨停总买占最大成交 {} % 股票代码 {},涨停总买量 {} 手,占流通股:{} %，涨停总买:{} W,",
-                eventTime, totalBuyVolume * 100.0 / market.getMaxVolume(), market.getSymbol(),
-                totalBuyVolume, totalBuyVolume * 100.0 / market.getCirculation(), limitUpBuyAmount);
+        String remark = absoluteStrength
+                ? absoluteStrengthRemark(market, eventTime, currentBuyVolume,
+                matchedSellVolume, requiredBuyVolume, limitUpBuyAmount)
+                : snapshotGrowthRemark(market, eventTime, previousBuyVolume,
+                currentBuyVolume, limitUpBuyAmount);
         log.info(remark);
-        record.fill(RuleConstant.TRADING_MODE_BUY, 2, market.getSymbol(),
+        record.fill(RuleConstant.TRADING_MODE_BUY, ruleCode, market.getSymbol(),
                 recordTime, limitUpPrice, increase, remark);
         return true;
     }
 
     /**
-     * 上海集合竞价撤单规则。竞价价离开涨停价为规则 1，封单不足为规则 2。
-     *
-     * <p>原注释：如果是下单状态，在 9:19:56:500 之后判断是否撤单，
-     * 总涨停买如果小于 4.5% 则撤单。当前观察时段仍由 Handler 的时间常量控制；
-     * 实际撤单阈值以本方法保留的最低买量和卖压判断为准。</p>
+     * 上海集合竞价撤单规则。竞价价离开涨停价为规则 1；价格仍在涨停价，但规则 2
+     * 的封单绝对强度不能继续达成为规则 2。通过快照增长规则买入后也使用同一标准续单。
      */
     static boolean evaluateCancel(TradeMarketState market, AuctionMarketEvent event,
                                   int recordTime, TradeRuleRecord record) {
         int price = event.getPrice();
         int limitUpPrice = market.getLimitUpPrice();
-        long totalBuyVolume = event.getBuyerOrderId();
-        long totalSellVolume = event.getSellerOrderId();
-        long requiredBuyVolume = calculateRequiredBuyVolume(market, totalSellVolume);
+        long currentBuyVolume = event.getBuyerOrderId();
+        long matchedSellVolume = event.getSellerOrderId();
+        long requiredBuyVolume = calculateRequiredBuyVolume(market);
 
         int ruleCode;
         String remark;
@@ -82,14 +90,13 @@ final class ShanghaiAuctionBuyEvaluator {
             remark = StrUtil.format(
                     "撤单 - 早盘竞价 {}，股票代码:{} 竞价 {} 不等于涨停价 {} 直接撤单",
                     event.getTime(), market.getSymbol(), price, limitUpPrice);
-        } else if (totalBuyVolume <= requiredBuyVolume
-                || totalSellVolume * 100.0 / totalBuyVolume > 40) {
+        } else if (!hasAbsoluteStrength(
+                currentBuyVolume, matchedSellVolume, requiredBuyVolume)) {
             ruleCode = 2;
             remark = StrUtil.format(
-                    "撤单 - 早盘竞价 {}，股票代码:{} 竞价 {} 买单占最大换手 {} % ,占流通股:{} %",
-                    event.getTime(), market.getSymbol(), price,
-                    totalBuyVolume * 100.0 / market.getMaxVolume(),
-                    totalBuyVolume * 100.0 / market.getCirculation());
+                    "撤单 - 上海早盘竞价 {}，股票代码:{} 封单绝对强度不足，涨停买量:{}，最低要求:{}，已撮合卖量:{}，要求卖量严格小于买量40%",
+                    event.getTime(), market.getSymbol(), currentBuyVolume,
+                    requiredBuyVolume, matchedSellVolume);
         } else {
             return false;
         }
@@ -101,13 +108,49 @@ final class ShanghaiAuctionBuyEvaluator {
     }
 
     /**
-     * 流通值的 5% 或者是最大换手的 20%，谁小用谁，20/5=4，15/5=3，12/5=2.4。
-     * 较大启动市值沿用原逻辑，在流通值 5% 的基础上加当前竞价卖量。
+     * 涨停买量最低要求取“流通股本 5%”与“历史最大成交量 20%”中的较小值。
      */
-    private static long calculateRequiredBuyVolume(TradeMarketState market, long totalSellVolume) {
-        return market.getInitialMarketValue() < 120_000
-                ? Math.min(market.getCirculation() / 20, market.getMaxVolume() / 5)
-                : market.getCirculation() / 20 + totalSellVolume;
+    private static long calculateRequiredBuyVolume(TradeMarketState market) {
+        return Math.min(market.getCirculation() / 20, market.getMaxVolume() / 5);
+    }
+
+    /** 买量必须严格超过最低要求，已撮合卖量必须严格小于买量的 40%。 */
+    private static boolean hasAbsoluteStrength(long currentBuyVolume,
+                                               long matchedSellVolume,
+                                               long requiredBuyVolume) {
+        return currentBuyVolume > requiredBuyVolume
+                && matchedSellVolume * 100L < currentBuyVolume * 40L;
+    }
+
+    /** -1 表示首张快照；从 0 增长也属于有效比较，增幅需严格超过流通股本 1.5%，且总买量超过 3%。 */
+    private static boolean hasSnapshotGrowth(long currentBuyVolume,
+                                             long previousBuyVolume,
+                                             long circulation) {
+        return previousBuyVolume >= 0
+                && currentBuyVolume > previousBuyVolume
+                && (currentBuyVolume - previousBuyVolume) * 1_000L > circulation * 15L
+                && currentBuyVolume * 100L > circulation * 3L;
+    }
+
+    private static String absoluteStrengthRemark(TradeMarketState market, int eventTime,
+                                                 long currentBuyVolume, long matchedSellVolume,
+                                                 long requiredBuyVolume, long limitUpBuyAmount) {
+        return StrUtil.format(
+                "买入 - 上海早盘竞价封单绝对强度，时间:{}，股票代码:{}，涨停买量:{}，最低要求:{}，已撮合卖量:{}，卖量占买量:{}%，涨停买金额:{}W",
+                eventTime, market.getSymbol(), currentBuyVolume, requiredBuyVolume,
+                matchedSellVolume, matchedSellVolume * 100.0 / currentBuyVolume,
+                limitUpBuyAmount);
+    }
+
+    private static String snapshotGrowthRemark(TradeMarketState market, int eventTime,
+                                               long previousBuyVolume, long currentBuyVolume,
+                                               long limitUpBuyAmount) {
+        long growthVolume = currentBuyVolume - previousBuyVolume;
+        return StrUtil.format(
+                "买入 - 上海早盘竞价封单增长，时间:{}，股票代码:{}，上次买量:{}，本次买量:{}，增加:{}，增量占流通股:{}%，本次买量占流通股:{}%，涨停买金额:{}W",
+                eventTime, market.getSymbol(), previousBuyVolume, currentBuyVolume,
+                growthVolume, growthVolume * 100.0 / market.getCirculation(),
+                currentBuyVolume * 100.0 / market.getCirculation(), limitUpBuyAmount);
     }
 
     private static double increase(int price, int closePrice) {

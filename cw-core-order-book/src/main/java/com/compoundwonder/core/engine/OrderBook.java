@@ -159,6 +159,14 @@ public class OrderBook implements TradeMarketState {
      */
     @Setter
     private int initialMarketValue;
+
+    /**
+     * 上一张上海集合竞价三秒快照中的涨停买量，单位为股。
+     *
+     * <p>该状态属于单只 Handler 私有订单簿，用于比较相邻快照的封单增长，
+     * 每个交易日重建或清空订单簿时恢复为未记录状态。</p>
+     */
+    private long previousShanghaiAuctionBuyVolume = -1;
     /**
      * 前两日换手率
      * 判断是否连续缩量
@@ -344,6 +352,19 @@ public class OrderBook implements TradeMarketState {
         Arrays.fill(priceLevels, null);
         totalBuyVolume = 0;
         totalSellVolume = 0;
+        previousShanghaiAuctionBuyVolume = -1;
+    }
+
+    /**
+     * 记录本次上海集合竞价快照买量，并返回记录前的上一张快照买量。
+     *
+     * @param currentBuyVolume 本次快照涨停买量，单位为股
+     * @return 上一张快照涨停买量；本交易日首张快照返回 -1，买量 0 是有效快照值
+     */
+    public long recordShanghaiAuctionBuyVolume(long currentBuyVolume) {
+        long previousBuyVolume = previousShanghaiAuctionBuyVolume;
+        previousShanghaiAuctionBuyVolume = currentBuyVolume;
+        return previousBuyVolume;
     }
 
     /**
