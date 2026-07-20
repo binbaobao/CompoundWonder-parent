@@ -75,11 +75,11 @@ public class FirstBoardSelectionService {
         return tasks;
     }
 
-    /** 查询选股日涨幅小于 11%、流通市值小于 30 亿元的非 ST 首板基础池。 */
+    /** 查询选股日涨幅小于 11%、流通市值小于 20 亿元的非 ST 首板基础池。 */
     private List<StockDailyData> listBaseCandidates(LocalDate tradeDate) {
         return selectionDataService.listDailyByTradeDate(tradeDate).stream()
                 .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                .filter(daily -> lessThan(daily.getFloatMarketCap(), 300_000D))
+                .filter(daily -> lessThan(daily.getFloatMarketCap(), 200_000D))
                 .filter(daily -> lessThan(daily.getClosePrice(), 40D))
                 .filter(daily -> lessThan(daily.getChangeRate(), 11D))
                 .filter(daily -> Integer.valueOf(1).equals(daily.getConsecutiveLimitUpDays()))
