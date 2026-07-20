@@ -28,12 +28,14 @@
 
 ## 卖出场景
 
-卖出不读取历史买入 `tradeMode`。`SellStrategyDispatcher` 先按订单簿 `lbcs` 判断“2进3”至“8进9”或更高板，再由每个板高类按启动流通市值分档：
+卖出不读取历史买入 `tradeMode`。`SellStrategyDispatcher` 按订单簿 `lbcs` 判断“2进3”至“8进9”或更高板，并按启动流通市值直接选择一个独立策略：
 
 - 小市值：`initialMarketValue < 119999` 万元。
 - 普通市值：`initialMarketValue >= 119999` 万元。
-- 每个板高类都显式保留四个修改入口：小市值盘口、普通市值盘口、小市值分钟均价、普通市值分钟均价。
-- 当前四个入口先调用 `LegacySellRules`，保持拆分前的阈值、规则优先级、规则编号和日志内容不变。后续按回测结果逐个替换，不修改总分发器。
+- 8 个板高阶段乘以 2 个市值档，共 16 个独立策略文件。
+- 每个文件同时拥有本场景自己的盘口规则和分钟均价规则，不再调用统一的 legacy 实现；首次拆分完整保留原阈值、规则顺序、规则编号和日志内容。
+- 场景专属规则未命中后，再执行 `common/CommonSellStrategy` 中的全局规则；周末、节假日规则只在该公共末级维护。
+- 后续按回测结果调整某个“板高 × 市值”组合时，只修改对应文件，不需要修改其他场景或总分发器。
 
 上海、深圳收盘集合竞价分别由 `ShanghaiClosingAuctionSellEvaluator`、`ShenzhenClosingAuctionSellEvaluator` 填充原有卖出记录，公共判断由 `ClosingAuctionSellEvaluator` 复用。买入日炸板后次日按开盘价卖出的回测特例由 `BreakBoardNextOpenSellPolicy` 判断，执行时间仍为集合竞价结束的 09:25，不进入 09:31 盘中卖出规则。
 
