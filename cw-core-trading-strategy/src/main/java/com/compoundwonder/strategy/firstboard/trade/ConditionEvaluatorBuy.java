@@ -226,8 +226,9 @@ public final class ConditionEvaluatorBuy {
 
     /**
      * 按价格区间匹配大单规则。低价股看股数，中高价股看股数或金额。
+     * 包内深圳集合竞价大单规则直接复用本方法，保证早盘竞价与盘中打板阈值一致。
      */
-    private static int matchLargeOrderRule(long marketValue, int orderPrice, int orderQuantity) {
+    static int matchLargeOrderRule(long marketValue, int orderPrice, int orderQuantity) {
         if (orderPrice <= TEN_YUAN_PRICE_CENTS) {
             return orderQuantity >= LARGE_LOW_PRICE_QUANTITY_SHARES
                     ? RULE_LARGE_LOW_PRICE_ORDER
@@ -314,4 +315,3 @@ public final class ConditionEvaluatorBuy {
                 orderBook.getTime(), orderBook.getLastPrice(), orderBook.getIncrease(), remark);
     }
 }
-

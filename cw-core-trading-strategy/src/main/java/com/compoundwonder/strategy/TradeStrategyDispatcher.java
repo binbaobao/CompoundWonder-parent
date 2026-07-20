@@ -81,11 +81,13 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
     public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
                                               AuctionMarketEvent event,
                                               int recordTime,
+                                              boolean acceptedLimitUpBuyOrder,
                                               long limitUpBuyVolume,
                                               long totalSellVolume,
                                               TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionBuy(
-                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+                market, event, recordTime, acceptedLimitUpBuyOrder,
+                limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override
@@ -96,16 +98,21 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
                                                  long totalSellVolume,
                                                  TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionCancel(
-                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+                market, event, recordTime, limitUpBuyVolume,
+                totalSellVolume, record);
     }
 
     @Override
     public boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
                                                          AuctionMarketEvent event,
                                                          int recordTime,
+                                                         long limitUpBuyVolume,
+                                                         long totalSellVolume,
                                                          TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode())
-                .evaluateShenzhenSnapshotAuctionCancel(market, event, recordTime, record);
+                .evaluateShenzhenSnapshotAuctionCancel(
+                        market, event, recordTime, limitUpBuyVolume,
+                        totalSellVolume, record);
     }
 
     @Override

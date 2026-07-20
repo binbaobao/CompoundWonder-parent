@@ -55,29 +55,39 @@ public final class RelayBuyStrategy implements BuyStrategy {
 
     @Override
     public boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                              int recordTime, long limitUpBuyVolume,
+                                              int recordTime,
+                                              boolean acceptedLimitUpBuyOrder,
+                                              long limitUpBuyVolume,
                                               long totalSellVolume, TradeRuleRecord record) {
         // 调用当前模式深圳集合竞价买入规则。
         return ShenzhenAuctionBuyEvaluator.evaluateBuy(
-                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+                market, event, recordTime, acceptedLimitUpBuyOrder,
+                limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override
-    public boolean evaluateShenzhenAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
-                                                 int recordTime, long limitUpBuyVolume,
-                                                 long totalSellVolume, TradeRuleRecord record) {
-        // 调用当前模式深圳逐笔集合竞价撤单规则。
-        return ShenzhenAuctionBuyEvaluator.evaluateCancel(
-                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
+    public boolean evaluateShenzhenAuctionCancel(TradeMarketState market,
+                                                 AuctionMarketEvent event,
+                                                 int recordTime,
+                                                 long limitUpBuyVolume,
+                                                 long totalSellVolume,
+                                                 TradeRuleRecord record) {
+        // 调用当前模式深圳逐笔订单簿集合竞价撤单规则。
+        return ShenzhenAuctionBuyEvaluator.evaluateOrderBookCancel(
+                market, event, recordTime, limitUpBuyVolume,
+                totalSellVolume, record);
     }
 
     @Override
     public boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
                                                          AuctionMarketEvent event,
                                                          int recordTime,
+                                                         long limitUpBuyVolume,
+                                                         long totalSellVolume,
                                                          TradeRuleRecord record) {
         // 调用当前模式深圳快照集合竞价撤单规则。
         return ShenzhenAuctionBuyEvaluator.evaluateSnapshotCancel(
-                market, event, recordTime, record);
+                market, event, recordTime, limitUpBuyVolume,
+                totalSellVolume, record);
     }
 }

@@ -69,12 +69,19 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         this.updateTime(order.dataType, order.time);
         // 0 任务暂时不执行 或 任务已经执行(已经买入或者已经卖出)， 1 待买入，2 买入待撤单  -1待卖出 -2 卖出待撤单
         int transStatus = orderBook.getTransactionStatus();
+        // 撤单只能处理事件到达前已经存在的挂单，防止本次大单刚触发买入后又被
+        // 同一个逐笔事件立即撤销；从下一条逐笔或下一张快照开始正常观察强度。
+        boolean pendingAuctionBuyBeforeEvent = transStatus == 2;
+        // 只有成功入簿、买方向且归一后的有效价格等于涨停价，才允许本事件触发单笔大单规则。
+        // addOrder 已用 putIfAbsent 处理重复订单号，因此这里不再增加重复订单业务判断。
+        boolean acceptedLimitUpBuyOrder = false;
         orderBook.buyMaxOrder.clear();
         if (order.dataType == 1) {
             //逐笔委托数据
             boolean added = addOrder(order, orderBook);
             if (added && order.direction == 1) {
                 orderBook.buyMaxOrder.copyFrom(order);
+                acceptedLimitUpBuyOrder = order.price == orderBook.getLimitUpPrice();
             }
             orderBook.updateLimitUpStatus(); //实时更新涨停状态
         } else if (order.dataType == 2) {
@@ -118,10 +125,15 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 }
                 orderBook.setLastPrice(order.price);
                 if (transStatus == 2 && order.time < ConstantUtil.TIME_920 && order.time > ConstantUtil.TIME_91530) {
+                    // 深圳快照只决定是否撤单；封单量必须读取逐笔数据重建后的完整订单簿，
+                    // 不能使用快照中有限档位的买卖量替代全量盘口。
+                    long limitUpBuyVolume = orderBook.getBuyQuantity(orderBook.getLimitUpPrice());
+                    long totalSellVolume = orderBook.getTotalSellVolume();
                     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
                     // 调用当前模式深圳快照集合竞价撤单规则。
                     if (tradeDecisionService.evaluateShenzhenSnapshotAuctionCancel(
-                            orderBook, order, time, ruleRecord)) {
+                            orderBook, order, time, limitUpBuyVolume,
+                            totalSellVolume, ruleRecord)) {
                         executionGateway.cancel(orderBook.getSymbol());
                         orderBook.setTransactionStatus(1);
                         transStatus = 1;
@@ -177,19 +189,24 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             }
         }
 
-        // 深交所在 09:25 之前，并且处于准备买入或买入待撤单状态时，观察集合竞价。
+        // 深交所 09:25 集中撮合前使用逐笔事件观察集合竞价。
+        // 逐笔事件同时负责买入与撤单：绝对强度读取更新后的全量订单簿；单笔大单
+        // 还必须是本次成功入簿的买方向涨停价新增委托。快照是 Level2 行情延迟时
+        // 的补充撤单触发源，不能替代逐笔撤单。
         if ((order.dataType == 1 || order.dataType == 2)
-                && order.time <= ConstantUtil.TIME_925 && transStatus > 0) {
+                && order.time < ConstantUtil.TIME_925 && transStatus > 0) {
             int limitUpPrice = orderBook.getLimitUpPrice();
-            // 涨停总买手数
+            // 涨停价买队列剩余总量，单位为股。
             long limitUpBuyVolume = orderBook.getBuyQuantity(limitUpPrice);
+            // 所有价格档位仍留在订单簿中的卖单剩余总量，单位为股。
             long totalSellVolume = orderBook.getTotalSellVolume();
 
             // 调用当前模式深圳集合竞价买入规则。
             if (transStatus == 1) {
                 RuleRecord buyRuleRecord = ruleRecordBuffer.nextRecord();
                 if (tradeDecisionService.evaluateShenzhenAuctionBuy(
-                        orderBook, order, time, limitUpBuyVolume,
+                        orderBook, order, time, acceptedLimitUpBuyOrder,
+                        limitUpBuyVolume,
                         totalSellVolume, buyRuleRecord)) {
                     executionGateway.buy(orderBook.getDate(), order.symbolId,
                             orderBook.getLimitUpPrice(), orderBook.getTime());
@@ -199,12 +216,13 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 }
             }
 
-            // 深圳竞价撤单观察窗口由 Handler 控制；具体撤单条件和原业务注释已迁入场景类。
-            if (transStatus == 2
-                    && order.time >= ConstantUtil.TIME_91952
+            // 逐笔事件完成订单簿更新后立即复核封单强度。只在 09:20 前可撤单时段
+            // 执行，并且只处理事件到达前已经挂出的买单，避免同一事件买入后立即撤单。
+            if (pendingAuctionBuyBeforeEvent
+                    && order.time > ConstantUtil.TIME_91530
                     && order.time < ConstantUtil.TIME_920) {
-                // 调用当前模式深圳集合竞价撤单规则。
                 RuleRecord cancelRuleRecord = ruleRecordBuffer.nextRecord();
+                // 调用当前模式深圳逐笔订单簿集合竞价撤单规则。
                 if (tradeDecisionService.evaluateShenzhenAuctionCancel(
                         orderBook, order, time, limitUpBuyVolume,
                         totalSellVolume, cancelRuleRecord)) {

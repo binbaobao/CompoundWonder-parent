@@ -4,126 +4,190 @@ import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 普通首板模式的深圳早盘集合竞价场景。
+ * 普通首板模式的深圳早盘集合竞价买入与撤单规则。
  *
- * <p>使用逐笔委托识别隔夜买入，并同时处理逐笔与快照撤单。场景类负责
- * 原 Handler 中的派生参数计算、规则判断、备注和规则记录。</p>
+ * <p>深圳集合竞价使用逐笔委托、成交和撤单重建完整订单簿，买入有两条彼此独立的
+ * 路径：盘口封单绝对强度，或者本次成功入簿的涨停价买方向大单。逐笔事件更新订单簿
+ * 后同时承担买入与绝对强度撤单判断；当前数据源约九秒一张的快照不触发买入，但也
+ * 能触发价格和绝对强度撤单，作为 Level2 行情延迟时的兜底。</p>
+ *
+ * <p>两条买入路径都要求启动流通市值严格小于 20 亿元。封单绝对强度的买入与
+ * 撤单必须调用同一个判断方法，避免条件漂移后在同一盘口反复买入、撤单。</p>
  */
 @Slf4j
 final class ShenzhenAuctionBuyEvaluator {
+
+    /** 启动流通市值单位为万元，200000 表示 20 亿元；边界采用严格小于。 */
+    private static final int MAX_START_MARKET_VALUE_EXCLUSIVE = 200_000;
+    /** 深圳集合竞价单笔大单买入沿用原规则编号 6。 */
+    private static final int RULE_LARGE_ORDER = 6;
+    /** 深圳集合竞价封单绝对强度买入沿用原规则编号 7。 */
+    private static final int RULE_ABSOLUTE_STRENGTH = 7;
+    /** 快照竞价价格离开涨停价时使用撤单规则编号 1。 */
+    private static final int RULE_PRICE_CANCEL = 1;
+    /** 快照价格仍为涨停价、但绝对强度不足时使用撤单规则编号 2。 */
+    private static final int RULE_STRENGTH_CANCEL = 2;
 
     private ShenzhenAuctionBuyEvaluator() {
     }
 
     /**
-     * 涨停总买手大于全部总卖手时，全部总卖以涨停价格成交；总卖小于 2500 万，
-     * 如果遇到大额委托买单则跟单。原规则 6 的大单买优先于规则 7 的总买量买入。
+     * 判断深圳集合竞价买入。
      *
-     * <p>原注释中的候选边界一并保留：集合竞价下单只适合小市值股票。
-     * 当前由选股模式负责候选范围，本方法负责逐笔竞价信号。</p>
+     * <p>绝对强度是订单簿状态规则，任一有效逐笔事件更新订单簿后都可命中；大单是
+     * 单笔事件规则，只有 Handler 已确认本次委托成功入簿、方向为买且有效价格等于
+     * 涨停价时，{@code acceptedLimitUpBuyOrder} 才能为 {@code true}。重复委托已经由
+     * 订单簿插入结果自然排除，这里不再重复查询订单号。</p>
+     *
+     * @param limitUpBuyVolume 当前涨停价买队列剩余总量，单位为股
+     * @param totalSellVolume 当前所有价格档位卖队列剩余总量，单位为股
+     * @return 命中大单或封单绝对强度，并完成规则记录填充时返回 {@code true}
      */
     static boolean evaluateBuy(TradeMarketState market, AuctionMarketEvent event,
-                               int recordTime, long limitUpBuyVolume,
-                               long totalSellVolume, TradeRuleRecord record) {
-        long circulation = market.getCirculation();
-        int limitUpPrice = market.getLimitUpPrice();
-        // 总涨停买 金额 单位 W
-        long limitUpBuyAmount = limitUpBuyVolume / 100L * limitUpPrice / 10_000L;
-        long requiredBuyVolume = calculateRequiredBuyVolume(market, event);
-
-        if (totalSellVolume * 100.0 / limitUpBuyVolume > 40) {
+                               int recordTime, boolean acceptedLimitUpBuyOrder,
+                               long limitUpBuyVolume, long totalSellVolume,
+                               TradeRuleRecord record) {
+        if (event.getTime() >= ConstantUtil.TIME_925
+                || market.getInitialMarketValue() >= MAX_START_MARKET_VALUE_EXCLUSIVE) {
             return false;
         }
-        boolean largeOrder = event.getDataType() == 1 && limitUpBuyAmount > 1_500
-                && event.getPrice() == limitUpPrice
-                && (event.getQuantity() > 900_000
-                || event.getQuantity() / 100L * limitUpPrice / 10_000L > 600)
-                && limitUpBuyVolume * 100.0 / circulation > 2;
+
+        int limitUpPrice = market.getLimitUpPrice();
+        long requiredBuyVolume = calculateRequiredBuyVolume(market);
+        boolean absoluteStrength = hasAbsoluteStrength(
+                limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
+        int continuousLargeOrderRule = acceptedLimitUpBuyOrder
+                ? ConditionEvaluatorBuy.matchLargeOrderRule(
+                        market.getInitialMarketValue(), limitUpPrice, event.getQuantity())
+                : 0;
+
+        if (continuousLargeOrderRule == 0 && !absoluteStrength) {
+            return false;
+        }
 
         int ruleCode;
         String remark;
-        if (largeOrder) {
-            ruleCode = 6;
+        if (continuousLargeOrderRule != 0) {
+            ruleCode = RULE_LARGE_ORDER;
+            long orderAmountWan = event.getQuantity() / 100L * limitUpPrice / 10_000L;
             remark = StrUtil.format(
-                    "买入 - 深圳早盘竞价，大单买 股票代码 {} 时间 :{} 触发单号 OrderId :{} ,买单数:{}，买单金额 {} W",
-                    market.getSymbol(), event.getTime(), event.getOrderId(), event.getQuantity(),
-                    event.getPrice() / 100L * event.getQuantity() / 10_000L);
-        } else if (limitUpBuyVolume > requiredBuyVolume) {
-            ruleCode = 7;
-            remark = StrUtil.format(
-                    "买入 - 深圳早盘竞价  股票代码 {} 时间 :{} 触发单号 OrderId :{},总买超过占最大换手 {} % ,占流通股:{} % ,涨停总买:{}",
+                    "买入 - 深圳早盘竞价涨停大单，股票代码:{}，时间:{}，订单号:{}，委托量:{}，委托金额:{}W，复用连续竞价大单档位规则:{}",
                     market.getSymbol(), event.getTime(), event.getOrderId(),
-                    limitUpBuyVolume * 100.0 / market.getMaxVolume(),
-                    event.getBuyerOrderId() * 100.0 / circulation, limitUpBuyVolume);
+                    event.getQuantity(), orderAmountWan, continuousLargeOrderRule);
         } else {
-            return false;
+            ruleCode = RULE_ABSOLUTE_STRENGTH;
+            long estimatedMatchedVolume = totalSellVolume;
+            long estimatedRemainingBuyVolume = limitUpBuyVolume - estimatedMatchedVolume;
+            long limitUpBuyAmountWan = limitUpBuyVolume / 100L * limitUpPrice / 10_000L;
+            remark = StrUtil.format(
+                    "买入 - 深圳早盘竞价封单绝对强度，股票代码:{}，时间:{}，涨停买量:{}，最低要求:{}，全价位卖量:{}，预计撮合卖量:{}，预计剩余封单:{}，卖量占买量:{}%，涨停买金额:{}W",
+                    market.getSymbol(), event.getTime(), limitUpBuyVolume,
+                    requiredBuyVolume, totalSellVolume, estimatedMatchedVolume,
+                    estimatedRemainingBuyVolume,
+                    totalSellVolume * 100.0 / limitUpBuyVolume,
+                    limitUpBuyAmountWan);
         }
 
         log.info(remark);
         record.fill(RuleConstant.TRADING_MODE_BUY, ruleCode, market.getSymbol(),
-                recordTime, event.getPrice(), increase(event.getPrice(), market.getClosePrice()), remark);
+                recordTime, limitUpPrice,
+                increase(limitUpPrice, market.getClosePrice()), remark);
         return true;
     }
 
     /**
-     * 如果是下单状态，在 9:19:58:500 之后判断是否撤单。总卖大于涨停买、
-     * 涨停买小于流通的 4.5%、涨停卖过大或净买量不足时沿用原规则 2 撤单。
+     * 逐笔委托、成交或撤单更新订单簿后判断是否撤销已经挂出的竞价买单。
      *
-     * <p>原注释还记录了“封单如果大于流通市值的 40% 可能是三班组，也撤单”的
-     * 待办设想；原代码没有启用该条件，本次迁移同样不新增该业务判断。
-     * 实际观察时段由 Handler 的 {@code TIME_91952} 至 {@code TIME_920} 控制。</p>
+     * <p>逐笔事件可以比约九秒快照更早暴露封单转弱，因此两者都是撤单触发源。
+     * 逐笔事件没有可靠的竞价快照价格，只判断与绝对强度买入完全相同的盘口公式。</p>
      */
-    static boolean evaluateCancel(TradeMarketState market, AuctionMarketEvent event,
-                                  int recordTime, long limitUpBuyVolume,
-                                  long totalSellVolume, TradeRuleRecord record) {
-        long requiredBuyVolume = calculateRequiredBuyVolume(market, event);
-        if (limitUpBuyVolume > requiredBuyVolume
-                && totalSellVolume * 100.0 / limitUpBuyVolume <= 40) {
-            return false;
-        }
-
-        String remark = StrUtil.format(
-                "撤单 - 深圳早盘竞价 早盘撤单,股票代码 {} 时间 :{} 总涨停买占最大换手 {} % ,占流通股:{} %   触发单号 OrderId :{}，数据类型:({}) 封单变化：{},涨停总买:{}",
-                market.getSymbol(), event.getTime(),
-                limitUpBuyVolume * 100.0 / market.getMaxVolume(),
-                limitUpBuyVolume * 100.0 / market.getCirculation(), event.getOrderId(),
-                event.getDataType() == 1 ? "委托" : "成交", market.getChangePercent(),
-                limitUpBuyVolume);
-        log.info(remark);
-        record.fill(RuleConstant.TRADING_MODE_CANCEL, 2, market.getSymbol(),
-                recordTime, event.getPrice(), increase(event.getPrice(), market.getClosePrice()), remark);
-        return true;
-    }
-
-    /** 深圳三秒快照竞价价离开涨停价时，沿用原价格撤单规则 1。 */
-    static boolean evaluateSnapshotCancel(TradeMarketState market, AuctionMarketEvent event,
-                                          int recordTime, TradeRuleRecord record) {
-        if (event.getPrice() == market.getLimitUpPrice()) {
-            return false;
-        }
-        String remark = StrUtil.format(
-                "早盘竞价 {}，股票代码:{} 竞价 {} 不等于涨停价{}直接撤单",
-                event.getTime(), market.getSymbol(), event.getPrice(), market.getLimitUpPrice());
-        log.info(remark);
-        record.fill(RuleConstant.TRADING_MODE_CANCEL, 1, market.getSymbol(),
-                recordTime, event.getPrice(), increase(event.getPrice(), market.getClosePrice()), remark);
-        return true;
+    static boolean evaluateOrderBookCancel(TradeMarketState market,
+                                           AuctionMarketEvent event,
+                                           int recordTime,
+                                           long limitUpBuyVolume,
+                                           long totalSellVolume,
+                                           TradeRuleRecord record) {
+        return evaluateAbsoluteStrengthCancel(
+                market, event, recordTime, limitUpBuyVolume,
+                totalSellVolume, "逐笔订单簿", record);
     }
 
     /**
-     * 流通值的 5% 或者是最大换手的 20%，谁小用谁，20/5=4，15/5=3，12/5=2.4。
-     * 较大启动市值严格沿用原 Handler，在流通值 5% 的基础上加当前事件的
-     * {@code sellerOrderId}；逐笔事件中该字段不等同于订单簿累计卖量，迁移时不能替换。
+     * 使用深圳集合竞价快照判断是否撤单。
+     *
+     * <p>快照只提供撤单触发时点和竞价价格；涨停买量及全价位卖量来自逐笔数据重建
+     * 的订单簿。价格离开涨停价优先记规则 1；价格仍为涨停价但与买入完全相同的
+     * 封单绝对强度不再成立时记规则 2。</p>
      */
-    private static long calculateRequiredBuyVolume(TradeMarketState market,
-                                                   AuctionMarketEvent event) {
-        return market.getInitialMarketValue() < 120_000
-                ? Math.min(market.getCirculation() / 20, market.getMaxVolume() / 5)
-                : market.getCirculation() / 20 + event.getSellerOrderId();
+    static boolean evaluateSnapshotCancel(TradeMarketState market,
+                                          AuctionMarketEvent event,
+                                          int recordTime,
+                                          long limitUpBuyVolume,
+                                          long totalSellVolume,
+                                          TradeRuleRecord record) {
+        int limitUpPrice = market.getLimitUpPrice();
+        if (event.getPrice() != limitUpPrice) {
+            String remark = StrUtil.format(
+                    "撤单 - 深圳早盘竞价价格离开涨停，股票代码:{}，时间:{}，竞价价格:{}，涨停价:{}",
+                    market.getSymbol(), event.getTime(), event.getPrice(), limitUpPrice);
+            log.info(remark);
+            record.fill(RuleConstant.TRADING_MODE_CANCEL, RULE_PRICE_CANCEL,
+                    market.getSymbol(), recordTime, event.getPrice(),
+                    increase(event.getPrice(), market.getClosePrice()), remark);
+            return true;
+        }
+
+        return evaluateAbsoluteStrengthCancel(
+                market, event, recordTime, limitUpBuyVolume,
+                totalSellVolume, "快照", record);
+    }
+
+    /**
+     * 两种撤单触发源共用的绝对强度撤单实现，避免快照与逐笔路径复制不同边界。
+     */
+    private static boolean evaluateAbsoluteStrengthCancel(
+            TradeMarketState market, AuctionMarketEvent event, int recordTime,
+            long limitUpBuyVolume, long totalSellVolume, String triggerSource,
+            TradeRuleRecord record) {
+        long requiredBuyVolume = calculateRequiredBuyVolume(market);
+        if (hasAbsoluteStrength(
+                limitUpBuyVolume, totalSellVolume, requiredBuyVolume)) {
+            return false;
+        }
+
+        String remark = StrUtil.format(
+                "撤单 - 深圳早盘竞价封单绝对强度不足，触发源:{}，股票代码:{}，时间:{}，涨停买量:{}，最低要求:{}，全价位卖量:{}，要求涨停买量大于全部卖量且卖量严格小于买量40%",
+                triggerSource, market.getSymbol(), event.getTime(),
+                limitUpBuyVolume, requiredBuyVolume, totalSellVolume);
+        log.info(remark);
+        record.fill(RuleConstant.TRADING_MODE_CANCEL, RULE_STRENGTH_CANCEL,
+                market.getSymbol(), recordTime, event.getPrice(),
+                increase(event.getPrice(), market.getClosePrice()), remark);
+        return true;
+    }
+
+    /** 涨停买量最低要求取流通股本 5% 与近 200 根 K 线最大成交量 20% 中的较小值。 */
+    private static long calculateRequiredBuyVolume(TradeMarketState market) {
+        return Math.min(market.getCirculation() / 20, market.getMaxVolume() / 5);
+    }
+
+    /**
+     * 买入和撤单共用的封单绝对强度公式，所有边界均为严格比较。
+     *
+     * <p>涨停买量大于全部卖量时，集合竞价预计撮合量等于全部卖量；这里比较的是
+     * 撮合前涨停买量，预计剩余封单只用于日志，不再次参与最低强度判断。</p>
+     */
+    private static boolean hasAbsoluteStrength(long limitUpBuyVolume,
+                                               long totalSellVolume,
+                                               long requiredBuyVolume) {
+        return limitUpBuyVolume > totalSellVolume
+                && limitUpBuyVolume > requiredBuyVolume
+                && totalSellVolume * 100L < limitUpBuyVolume * 40L;
     }
 
     private static double increase(int price, int closePrice) {

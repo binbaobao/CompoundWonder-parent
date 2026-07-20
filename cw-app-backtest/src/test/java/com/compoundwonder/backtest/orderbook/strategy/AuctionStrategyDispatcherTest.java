@@ -3,6 +3,7 @@ package com.compoundwonder.backtest.orderbook.strategy;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.TickData;
+import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.strategy.TradeStrategyDispatcher;
 import org.junit.jupiter.api.Test;
@@ -58,33 +59,25 @@ class AuctionStrategyDispatcherTest {
                     limitUpPrice, 900_001, 12_345, 15_000_000, 500);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     largeOrderBook, shenzhenLargeOrderEvent, 91_900_000,
-                    15_000_000, 500, shenzhenLargeOrderBuy));
+                    true, 15_000_000, 500, shenzhenLargeOrderBuy));
             assertEquals(6, shenzhenLargeOrderBuy.ruleCode);
-            assertTrue(shenzhenLargeOrderBuy.remark.contains("大单买"));
+            assertTrue(shenzhenLargeOrderBuy.remark.contains("涨停大单"));
 
             RuleRecord shenzhenVolumeBuy = new RuleRecord();
             TickData shenzhenVolumeEvent = event((byte) 2, 91_900_000,
                     limitUpPrice, 1, 12_346, 5_001, 500);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     orderBook, shenzhenVolumeEvent, 91_900_000,
-                    5_001, 500, shenzhenVolumeBuy));
+                    false, 5_001, 500, shenzhenVolumeBuy));
             assertEquals(7, shenzhenVolumeBuy.ruleCode);
-            assertTrue(shenzhenVolumeBuy.remark.contains("总买超过"));
-
-            RuleRecord shenzhenOrderCancel = new RuleRecord();
-            TickData shenzhenOrderCancelEvent = event((byte) 1, 91_952_000,
-                    limitUpPrice, 1, 12_347, 4_000, 500);
-            assertTrue(dispatcher.evaluateShenzhenAuctionCancel(
-                    orderBook, shenzhenOrderCancelEvent, 91_952_000,
-                    4_000, 500, shenzhenOrderCancel));
-            assertEquals(2, shenzhenOrderCancel.ruleCode);
+            assertTrue(shenzhenVolumeBuy.remark.contains("封单绝对强度"));
 
             RuleRecord shenzhenSnapshotCancel = new RuleRecord();
             TickData shenzhenSnapshotCancelEvent = event((byte) 4, 91_956_500,
                     limitUpPrice - 1, 0, 0, 0, 0);
             assertTrue(dispatcher.evaluateShenzhenSnapshotAuctionCancel(
                     orderBook, shenzhenSnapshotCancelEvent, 91_956_500,
-                    shenzhenSnapshotCancel));
+                    10_000, 1_000, shenzhenSnapshotCancel));
             assertEquals(1, shenzhenSnapshotCancel.ruleCode);
 
             RuleRecord shanghaiClosingSell = new RuleRecord();
@@ -215,19 +208,131 @@ class AuctionStrategyDispatcherTest {
     }
 
     @Test
-    void preservesShenzhenLargeMarketValueSellerOrderIdThreshold() {
+    void shenzhenAuctionUsesShanghaiAbsoluteStrengthFormulaBelowTwoBillion() {
         for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
-            OrderBook orderBook = new OrderBook("000001", 100_000L, 10.00, 50_000L);
+            OrderBook orderBook = new OrderBook(
+                    "000001", 100_000_000L, 10.00, 20_000_000L);
             orderBook.setTradeMode(tradeMode);
-            orderBook.setInitialMarketValue(120_000);
+            orderBook.setInitialMarketValue(199_999);
+            int limitUpPrice = orderBook.getLimitUpPrice();
 
-            TickData transaction = event((byte) 2, 91_900_000,
-                    orderBook.getLimitUpPrice(), 1, 12_348, 1, 20_000);
+            // 最低要求取 min(流通股本 5%=500万股, 最大成交量 20%=400万股)。
+            RuleRecord absoluteStrength = new RuleRecord();
+            assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 2, 91_900_000, limitUpPrice,
+                            0, 12_348, 0, 0),
+                    91_900_000, false, 4_000_001, 1_599_999,
+                    absoluteStrength));
+            assertEquals(7, absoluteStrength.ruleCode);
 
-            // 原 Handler 的大市值分支使用当前事件 sellerOrderId，而不是累计卖量 0。
+            // 买量等于最低要求，或者全部卖量等于买量 40%，均不满足严格边界。
             assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
-                    orderBook, transaction, 91_900_000,
-                    10_000, 0, new RuleRecord()));
+                    orderBook,
+                    event((byte) 2, 91_900_000, limitUpPrice,
+                            0, 12_349, 0, 0),
+                    91_900_000, false, 4_000_000, 1_000_000,
+                    new RuleRecord()));
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 2, 91_900_000, limitUpPrice,
+                            0, 12_350, 0, 0),
+                    91_900_000, false, 5_000_000, 2_000_000,
+                    new RuleRecord()));
+
+            // 启动流通市值达到 20 亿元时，两种深圳集合竞价买入都不执行。
+            orderBook.setInitialMarketValue(200_000);
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 2, 91_900_000, limitUpPrice,
+                            0, 12_351, 0, 0),
+                    91_900_000, false, 8_000_000, 100_000,
+                    new RuleRecord()));
+
+            // 低价股大单分档本身不限制市值，仍必须被深圳竞价统一的 20 亿元硬门槛挡住。
+            OrderBook lowPriceOrderBook = new OrderBook(
+                    "000001", 100_000_000L, 8.00, 20_000_000L);
+            lowPriceOrderBook.setTradeMode(tradeMode);
+            lowPriceOrderBook.setInitialMarketValue(200_000);
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                    lowPriceOrderBook,
+                    event((byte) 1, 91_900_000,
+                            lowPriceOrderBook.getLimitUpPrice(),
+                            888_800, 12_352, 0, 0),
+                    91_900_000, true, 888_800, 888_799,
+                    new RuleRecord()));
+        }
+    }
+
+    @Test
+    void shenzhenLargeOrderIsIndependentFromAbsoluteStrengthButStillRequiresLimitUpPrice() {
+        for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
+            OrderBook orderBook = new OrderBook(
+                    "000001", 100_000_000L, 10.00, 20_000_000L);
+            orderBook.setTradeMode(tradeMode);
+            orderBook.setInitialMarketValue(149_999);
+            int limitUpPrice = orderBook.getLimitUpPrice();
+
+            // 卖量接近涨停买量，绝对强度不成立；有效涨停价大单仍是独立买入条件。
+            RuleRecord largeOrder = new RuleRecord();
+            assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 1, 91_900_000, limitUpPrice,
+                            900_001, 12_352, 0, 0),
+                    91_900_000, true, 900_001, 900_000,
+                    largeOrder));
+            assertEquals(6, largeOrder.ruleCode);
+
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 1, 91_900_000, limitUpPrice - 1,
+                            900_001, 12_353, 0, 0),
+                    91_900_000, false, 900_001, 900_000,
+                    new RuleRecord()));
+
+            // 09:25 批量到达的是集合竞价结果，不能再产生竞价买入信号。
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                    orderBook,
+                    event((byte) 1, ConstantUtil.TIME_925, limitUpPrice,
+                            900_001, 12_354, 0, 0),
+                    ConstantUtil.TIME_925, true, 900_001, 100,
+                    new RuleRecord()));
+        }
+    }
+
+    @Test
+    void shenzhenOrderBookAndSnapshotCancelUseExactlyTheSameAbsoluteStrengthFormulaAsBuy() {
+        for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
+            OrderBook orderBook = new OrderBook(
+                    "000001", 100_000_000L, 10.00, 20_000_000L);
+            orderBook.setTradeMode(tradeMode);
+            orderBook.setInitialMarketValue(199_999);
+            int limitUpPrice = orderBook.getLimitUpPrice();
+            TickData snapshot = event((byte) 4, 91_956_500,
+                    limitUpPrice, 0, 0, 0, 0);
+            TickData orderBookEvent = event((byte) 2, 91_956_500,
+                    limitUpPrice, 0, 0, 0, 0);
+
+            RuleRecord weakStrength = new RuleRecord();
+            assertTrue(dispatcher.evaluateShenzhenSnapshotAuctionCancel(
+                    orderBook, snapshot, 91_956_500,
+                    4_000_000, 1_000_000, weakStrength));
+            assertEquals(2, weakStrength.ruleCode);
+
+            RuleRecord orderBookWeakStrength = new RuleRecord();
+            assertTrue(dispatcher.evaluateShenzhenAuctionCancel(
+                    orderBook, orderBookEvent, 91_956_500,
+                    4_000_000, 1_000_000, orderBookWeakStrength));
+            assertEquals(2, orderBookWeakStrength.ruleCode);
+            assertTrue(orderBookWeakStrength.remark.contains("逐笔订单簿"));
+
+            // 与买入完全相同的严格强度边界成立时，两种触发源都不能产生撤单。
+            assertFalse(dispatcher.evaluateShenzhenSnapshotAuctionCancel(
+                    orderBook, snapshot, 91_956_500,
+                    4_000_001, 1_599_999, new RuleRecord()));
+            assertFalse(dispatcher.evaluateShenzhenAuctionCancel(
+                    orderBook, orderBookEvent, 91_956_500,
+                    4_000_001, 1_599_999, new RuleRecord()));
         }
     }
 

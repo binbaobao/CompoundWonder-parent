@@ -40,20 +40,27 @@ public interface BuyStrategy {
                                           int recordTime, TradeRuleRecord record);
 
     /**
-     * 深圳逐笔委托驱动的早盘集合竞价买入。价格单位为分，数量和流通股本单位为股，
-     * 金额单位为万元；命中规则并完成记录填充时返回 {@code true}。
+     * 深圳逐笔事件驱动的早盘集合竞价买入。{@code acceptedLimitUpBuyOrder} 只标识
+     * 本次事件能否触发单笔大单规则；订单簿绝对强度始终使用更新后的盘口计算。
      */
     boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                      int recordTime, long limitUpBuyVolume,
+                                      int recordTime, boolean acceptedLimitUpBuyOrder,
+                                      long limitUpBuyVolume,
                                       long totalSellVolume, TradeRuleRecord record);
 
-    /** 深圳逐笔委托驱动的早盘集合竞价撤单；命中时返回 {@code true}。 */
-    boolean evaluateShenzhenAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
-                                         int recordTime, long limitUpBuyVolume,
-                                         long totalSellVolume, TradeRuleRecord record);
+    /** 深圳逐笔订单簿事件驱动撤单，只判断与买入共用的封单绝对强度。 */
+    boolean evaluateShenzhenAuctionCancel(TradeMarketState market,
+                                          AuctionMarketEvent event,
+                                          int recordTime,
+                                          long limitUpBuyVolume,
+                                          long totalSellVolume,
+                                          TradeRuleRecord record);
 
-    /** 深圳快照撮合价驱动的补充撤单判断；命中时返回 {@code true}。 */
+    /** 深圳约九秒快照驱动撤单；盘口数量仍来自逐笔数据重建的订单簿。 */
     boolean evaluateShenzhenSnapshotAuctionCancel(TradeMarketState market,
                                                   AuctionMarketEvent event,
-                                                  int recordTime, TradeRuleRecord record);
+                                                  int recordTime,
+                                                  long limitUpBuyVolume,
+                                                  long totalSellVolume,
+                                                  TradeRuleRecord record);
 }
