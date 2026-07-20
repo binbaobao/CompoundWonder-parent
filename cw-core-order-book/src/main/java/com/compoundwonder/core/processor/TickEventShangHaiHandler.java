@@ -140,56 +140,6 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 // 调用上海集合竞价事件处理方法。
                 transStatus = auctionEventProcessor.process(
                         orderBook, order, time, transStatus, ruleRecordBuffer);
-
-                /*
-                 * 原上海集合竞价内联代码暂时保留，确认新逻辑无误后再删除。
-                 *
-                 * if (order.time > ConstantUtil.TIME_920) {
-                 *     orderBook.updateLowestPrice(order.price);
-                 * }
-                 * if (transStatus == 1) {
-                 *     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                 *     // 调用当前模式上海集合竞价买入规则。
-                 *     if (tradeDecisionService.evaluateShanghaiAuctionBuy(
-                 *             orderBook, order, time, ruleRecord)) {
-                 *         executionGateway.buy(orderBook.getDate(), order.symbolId,
-                 *                 orderBook.getLimitUpPrice(), order.time);
-                 *         orderBook.setTransactionStatus(2);
-                 *         ruleRecordBuffer.commit();
-                 *         transStatus = 2;
-                 *     }
-                 * }
-                 *
-                 * if (transStatus == -1
-                 *         && ConstantUtil.TIME_1459 <= order.time
-                 *         && ConstantUtil.TIME_1500 > order.time) {
-                 *     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                 *     // 调用上海尾盘集合竞价卖出规则。
-                 *     if (tradeDecisionService.evaluateShanghaiClosingAuctionSell(
-                 *             orderBook, order, time, ruleRecord)) {
-                 *         executionGateway.sell(orderBook.getSymbol(),
-                 *                 orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
-                 *         orderBook.setTransactionStatus(-2);
-                 *         ruleRecordBuffer.commit();
-                 *         transStatus = -2;
-                 *     }
-                 * }
-                 *
-                 * // 上海竞价撤单观察窗口由 Handler 控制；具体撤单条件和原业务注释已迁入场景类。
-                 * if (transStatus == 2
-                 *         && order.time < ConstantUtil.TIME_920
-                 *         && order.time > ConstantUtil.TIME_91530) {
-                 *     RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
-                 *     // 调用当前模式上海集合竞价撤单规则；价格不匹配规则优先于封单减弱规则。
-                 *     if (tradeDecisionService.evaluateShanghaiAuctionCancel(
-                 *             orderBook, order, time, ruleRecord)) {
-                 *         executionGateway.cancel(orderBook.getSymbol());
-                 *         orderBook.setTransactionStatus(1);
-                 *         ruleRecordBuffer.commit();
-                 *         transStatus = 1;
-                 *     }
-                 * }
-                 */
             } else if (order.time < ConstantUtil.TIME_1457) {
                 // 连续竞价期间用3秒的tick 数据 成交额 /成交总量 = 均价
                 long turnover;
@@ -272,11 +222,6 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 log.info("卖出股票代码 {} 触发单号 OrderId :{}，time :{} ,数据类型:({}) 封单变化：{},换手:{}", order.symbolId, order.orderId, order.time, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getTurnoverRate());
                 ruleRecordBuffer.commit();
             }
-            // 买入未成交的状态下，随时准备撤单
-//            if (transStatus == 2 && tradeDecisionService.evaluateCancel(orderBook)) {
-//                transactionExecutorService.cancel(orderBook.getDate(), orderBook.getSymbol(), orderBook.getTime());
-//                orderBook.setTransactionStatus(3);
-//            }
         }
         order.time3 = System.nanoTime();
     }
