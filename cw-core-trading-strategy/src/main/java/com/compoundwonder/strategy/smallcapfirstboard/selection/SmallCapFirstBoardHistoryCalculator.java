@@ -24,7 +24,7 @@ final class SmallCapFirstBoardHistoryCalculator {
      * <p>排除上市最早 10 根 K 线后，只保留不晚于 {@code historyEndDate} 的最近
      * 200 根日 K。数据不足时返回空指标，由策略的数据完整性和默认值口径继续处理。</p>
      *
-     * @param rawHistory 启动日前最多 200 根日 K
+     * @param rawHistory 启动日前最多 100 根日 K
      * @param earliestStoredDailyList 数据库中最早的 11 根日 K
      * @param historyEndDate 本次首板启动日前一交易日
      * @return 历史最大换手率和最高连板数
@@ -50,7 +50,7 @@ final class SmallCapFirstBoardHistoryCalculator {
                 .filter(daily -> !daily.getTradeDate().isBefore(firstEligibleDate))
                 .filter(daily -> !daily.getTradeDate().isAfter(historyEndDate))
                 .sorted(Comparator.comparing(StockDailyData::getTradeDate).reversed())
-                .limit(200)
+                .limit(100)
                 .toList();
         Double maxTurnoverRate = eligibleHistory.stream()
                 .map(StockDailyData::getTurnoverRate)

@@ -135,6 +135,72 @@ class OrderBookPriceLevelTest {
         assertEquals(0L, orderBook.getLimitUpBuyAmount());
     }
 
+    @Test
+    void confirmsWeakeningOnlyAfterFiveConsecutiveNegativeEmaChanges() {
+        OrderBook orderBook = limitUpOrderBook(1_500_000);
+
+        for (int i = 0; i < 4; i++) {
+            orderBook.applyTrade(1, 100_000);
+            orderBook.updateLimitUpStatus();
+            assertEquals(0, orderBook.getEmaSealTrend());
+        }
+
+        orderBook.applyTrade(1, 100_000);
+        orderBook.updateLimitUpStatus();
+
+        assertEquals(-1, orderBook.getEmaSealTrend());
+
+        orderBook.addOrder(node(2, orderBook.getLimitUpPrice(), 500_000, (byte) 1));
+        orderBook.updateLimitUpStatus();
+
+        assertEquals(0, orderBook.getEmaSealTrend());
+    }
+
+    @Test
+    void confirmsStrengtheningOnlyAfterFiveConsecutivePositiveEmaChanges() {
+        OrderBook orderBook = limitUpOrderBook(1_000_000);
+
+        for (int i = 0; i < 4; i++) {
+            orderBook.addOrder(node(i + 2, orderBook.getLimitUpPrice(), 100_000, (byte) 1));
+            orderBook.updateLimitUpStatus();
+            assertEquals(0, orderBook.getEmaSealTrend());
+        }
+
+        orderBook.addOrder(node(6, orderBook.getLimitUpPrice(), 100_000, (byte) 1));
+        orderBook.updateLimitUpStatus();
+
+        assertEquals(1, orderBook.getEmaSealTrend());
+    }
+
+    @Test
+    void returnsNeutralForMixedEmaChangesAndResetsAfterBreakBoard() {
+        OrderBook orderBook = limitUpOrderBook(1_500_000);
+
+        for (int i = 0; i < 4; i++) {
+            orderBook.applyTrade(1, 100_000);
+            orderBook.updateLimitUpStatus();
+        }
+        orderBook.addOrder(node(2, orderBook.getLimitUpPrice(), 500_000, (byte) 1));
+        orderBook.updateLimitUpStatus();
+        assertEquals(0, orderBook.getEmaSealTrend());
+
+        orderBook.applyTrade(1, 100_000);
+        orderBook.updateLimitUpStatus();
+        orderBook.updatePrice(0, 0, orderBook.getLimitUpPrice() - 1, 93_100_000);
+        orderBook.updateLimitUpStatus();
+
+        assertEquals(0, orderBook.getEmaSealTrend());
+    }
+
+    private OrderBook limitUpOrderBook(int initialQuantity) {
+        OrderBook orderBook = new OrderBook("000001", 10_000_000L, 10.00, 5_000_000L);
+        orderBook.addOrder(node(1, orderBook.getLimitUpPrice(), initialQuantity, (byte) 1));
+        orderBook.updatePrice(0, 0, orderBook.getLimitUpPrice(), 93_000_000);
+        orderBook.updateLimitUpStatus();
+        orderBook.updateLimitUpStatus();
+        return orderBook;
+    }
+
     private TickNode node(int orderId, int price, int quantity, byte direction) {
         TickNode node = new TickNode();
         node.setOrderId(orderId);

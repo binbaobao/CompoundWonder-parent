@@ -535,6 +535,24 @@ public class OrderBook implements TradeMarketState {
     private static final int EMA_UPDATE_INTERVAL = 20;
 
     /**
+     * 判断封单趋势使用的最近 EMA 变化次数
+     */
+    @ToString.Exclude
+    private static final int EMA_TREND_WINDOW_SIZE = 5;
+
+    /**
+     * 单次 EMA 变化小于该值，视为封单减弱
+     */
+    @ToString.Exclude
+    private static final double EMA_WEAKENING_THRESHOLD = -1.0;
+
+    /**
+     * 单次 EMA 变化大于该值，视为封单增强
+     */
+    @ToString.Exclude
+    private static final double EMA_STRENGTHENING_THRESHOLD = 1.0;
+
+    /**
      * EMA更新计数器
      */
     @ToString.Exclude
@@ -551,6 +569,34 @@ public class OrderBook implements TradeMarketState {
      */
     @ToString.Exclude
     private double changePercent = 0.0;
+
+    /**
+     * 最近 5 次 EMA 形成的封单趋势：-1 持续减弱、0 方向未确认、1 持续增强
+     */
+    @ToString.Exclude
+    private int emaSealTrend = 0;
+
+    /**
+     * 最近 5 次实际 EMA 变化率的环形窗口。
+     *
+     * <p>只在 EMA 真正重新计算时推进，避免同一个 {@link #changePercent}
+     * 被多条逐笔行情重复写入并形成虚假的连续趋势。</p>
+    */
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private final double[] emaChangePercentWindow = new double[EMA_TREND_WINDOW_SIZE];
+
+    /** 下一次 EMA 变化率写入环形窗口的位置 */
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private int emaChangePercentIndex = 0;
+
+    /** 当前环形窗口中的有效 EMA 变化率数量 */
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private int emaChangePercentCount = 0;
+
+
 
     /**
      * 封单变化100万立即更新一次EMA
@@ -583,7 +629,9 @@ public class OrderBook implements TradeMarketState {
                 this.status++;
                 this.lastLimitUptime = time;
                 this.lastEmaVolume = 0;
+                this.changePercent = 0;
                 this.emaCounter = 0;
+                resetEmaSealTrend();
             }
         } else if (this.status % 2 == 1) {
             this.limitUpBuyAmount = currentLimitUpBuyAmount;
@@ -596,6 +644,7 @@ public class OrderBook implements TradeMarketState {
                 this.changePercent = 0;
                 this.lastSealAmount = 0;
                 this.emaCounter = 0;
+                resetEmaSealTrend();
             } else {
                 long currentSealAmount = this.limitUpBuyAmount;
 
@@ -621,6 +670,7 @@ public class OrderBook implements TradeMarketState {
 
                     if (lastEmaVolume > 0) {
                         changePercent = Math.round((currentEma - lastEmaVolume) / lastEmaVolume * 10000.0) / 100.0;
+                        recordEmaChangePercent(changePercent);
                     }
 
                     lastEmaVolume = currentEma;
@@ -630,5 +680,53 @@ public class OrderBook implements TradeMarketState {
                 }
             }
         }
+    }
+
+    /**
+     * 将一次新计算出的 EMA 变化率写入环形窗口，并更新三态封单趋势。
+     *
+     * <p>窗口未满 5 次或窗口内存在方向不一致的数据时返回中性状态 0；
+     * 只有 5 次全部严格小于 -1 才确认减弱，全部严格大于 1 才确认增强。</p>
+     */
+    private void recordEmaChangePercent(double currentChangePercent) {
+        emaChangePercentWindow[emaChangePercentIndex] = currentChangePercent;
+        emaChangePercentIndex++;
+        if (emaChangePercentIndex == EMA_TREND_WINDOW_SIZE) {
+            emaChangePercentIndex = 0;
+        }
+        if (emaChangePercentCount < EMA_TREND_WINDOW_SIZE) {
+            emaChangePercentCount++;
+        }
+        if (emaChangePercentCount < EMA_TREND_WINDOW_SIZE) {
+            emaSealTrend = 0;
+            return;
+        }
+
+        boolean continuouslyWeakening = true;
+        boolean continuouslyStrengthening = true;
+        for (double historicalChangePercent : emaChangePercentWindow) {
+            if (historicalChangePercent >= EMA_WEAKENING_THRESHOLD) {
+                continuouslyWeakening = false;
+            }
+            if (historicalChangePercent <= EMA_STRENGTHENING_THRESHOLD) {
+                continuouslyStrengthening = false;
+            }
+        }
+
+        if (continuouslyWeakening) {
+            emaSealTrend = -1;
+        } else if (continuouslyStrengthening) {
+            emaSealTrend = 1;
+        } else {
+            emaSealTrend = 0;
+        }
+    }
+
+    /** 清空上一轮封板的 EMA 变化窗口，防止炸板前后的趋势相互污染。 */
+    private void resetEmaSealTrend() {
+        Arrays.fill(emaChangePercentWindow, 0.0);
+        emaChangePercentIndex = 0;
+        emaChangePercentCount = 0;
+        emaSealTrend = 0;
     }
 }

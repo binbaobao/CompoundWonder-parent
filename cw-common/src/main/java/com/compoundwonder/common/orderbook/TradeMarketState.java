@@ -111,6 +111,11 @@ public interface TradeMarketState {
     /** @return 本次封单量 EMA 相对上次的变化率，单位为百分比 */
     double getChangePercent();
 
+    /**
+     * @return 最近 5 次 EMA 变化形成的封单趋势：-1 持续减弱、0 方向未确认、1 持续增强
+     */
+    int getEmaSealTrend();
+
     /** @return 最近一次涨停状态更新时记录的封单金额，单位为万元 */
     long getLastSealAmount();
 

@@ -76,7 +76,7 @@ public final class ConditionEvaluatorBuy {
     /**
      * 无需历史量能补充条件即可买入的最低当前换手率，单位：%。
      */
-    private static final double MIN_NORMAL_TURNOVER_RATE = 15.5;
+    private static final double MIN_NORMAL_TURNOVER_RATE = 14.5;
     /**
      * 所有买入规则允许的最大当前换手率，单位：%。
      */
@@ -84,7 +84,7 @@ public final class ConditionEvaluatorBuy {
     /**
      * 低换手买入门槛为“历史最大换手率 ÷ 3.3”。
      */
-    private static final double MAX_TURNOVER_DIVISOR = 2.3;
+    private static final double MAX_TURNOVER_DIVISOR = 3;
     /**
      * 允许低换手买入的当日累计成交额补充条件，单位：元。
      */
@@ -142,16 +142,16 @@ public final class ConditionEvaluatorBuy {
         // 如果是首板不允许最低点小于-1.5
         // 首板只是补充交易模式，不能接加速，只做换手充分，经历过程分歧的，不然特别容易炸板
         // 首板如果跌入深水也容易第二天走弱
-        if (orderBook.getLowPriceIncrease() < -1.5) {
+        if (orderBook.getLowPriceIncrease() < -1.5 && orderBook.getOpenPrice() > orderBook.getLowPrice() ) {
             return false;
         }
         if (orderBook.getStatus() > 20) {
             return false;
         }
         // 10点钟不打回封
-        if (time <= ConstantUtil.TIME_1000 && orderBook.getStatus() > 0) {
-            return false;
-        }
+//        if (time <= ConstantUtil.TIME_1000 && orderBook.getStatus() > 3) {
+//            return false;
+//        }
 
         if (orderBook.getAmplitude() < 4.5 && time < ConstantUtil.TIME_935) {
             return false;

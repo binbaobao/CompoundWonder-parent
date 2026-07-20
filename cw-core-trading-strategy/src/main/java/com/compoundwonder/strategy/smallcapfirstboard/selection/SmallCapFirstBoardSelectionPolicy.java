@@ -37,12 +37,12 @@ public final class SmallCapFirstBoardSelectionPolicy {
 //            return Decision.rejected("200根K线历史最大换手率",
 //                    "actual=" + maxTurnoverRate + "%, required<=55%");
 //        }
-//        int highestBoard = Objects.requireNonNullElse(
-//                candidate.highestConsecutiveLimitUpDays(), 0);
-//        if (highestBoard >= 3) {
-//            return Decision.rejected("200根K线历史最高板",
-//                    "actual=" + highestBoard + ", required<3");
-//        }
+        int highestBoard = Objects.requireNonNullElse(
+                candidate.highestConsecutiveLimitUpDays(), 0);
+        if (highestBoard >= 3) {
+            return Decision.rejected("200根K线历史最高板",
+                    "actual=" + highestBoard + ", required<3");
+        }
 //        int priorTwentyAbnormal = Objects.requireNonNullElse(
 //                candidate.priorTwentyDayAbnormalKlineStateCount(), 0);
 //        if (priorTwentyAbnormal >= 4) {
