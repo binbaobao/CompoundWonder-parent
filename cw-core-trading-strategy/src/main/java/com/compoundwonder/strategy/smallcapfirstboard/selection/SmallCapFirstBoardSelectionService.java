@@ -127,7 +127,7 @@ public class SmallCapFirstBoardSelectionService {
     private SmallCapFirstBoardSelectionCandidate toSelectionCandidate(
             SmallCapFirstBoardSelectionAssist assist) {
         return new SmallCapFirstBoardSelectionCandidate(
-                assist.getStartMarketCap(), assist.getMaxTurnoverRate(),
+                assist.getStartMarketCap(), assist.getCurrentPrice(), assist.getMaxTurnoverRate(),
                 assist.getHighestConsecutiveLimitUpDays(), assist.getAbnormalKlineStateCount(),
                 assist.getPriorTwentyDayAbnormalKlineStateCount(), assist.getThreeDayAmplitude(),
                 assist.getTenDayChangeRate());

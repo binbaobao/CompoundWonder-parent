@@ -16,7 +16,7 @@ class SelectionPolicyBoundaryTest {
     @Test
     void firstBoardAndSmallCapUseStrictMarketCapOwnership() {
         FirstBoardSelectionCandidate firstBoard = firstBoardCandidate(119_999D);
-        SmallCapFirstBoardSelectionCandidate smallCap = smallCapCandidate(119_999D);
+        SmallCapFirstBoardSelectionCandidate smallCap = smallCapCandidate(119_999D, 4.5D);
 
         assertTrue(FirstBoardSelectionPolicy.evaluate(firstBoard).passed());
         assertFalse(SmallCapFirstBoardSelectionPolicy.evaluate(smallCap).passed());
@@ -25,11 +25,19 @@ class SelectionPolicyBoundaryTest {
     @Test
     void smallCapKeepsThirtyPercentHistoricalTurnoverBoundary() {
         assertTrue(SmallCapFirstBoardSelectionPolicy.evaluate(
-                smallCapCandidate(100_000D)).passed());
+                smallCapCandidate(100_000D, 4.5D)).passed());
         SmallCapFirstBoardSelectionCandidate overLimit =
                 new SmallCapFirstBoardSelectionCandidate(
-                        100_000D, 30.01D, 2, 0, 0, 10D, 10D);
+                        100_000D, 4.5D, 30.01D, 2, 0, 0, 10D, 10D);
         assertFalse(SmallCapFirstBoardSelectionPolicy.evaluate(overLimit).passed());
+    }
+
+    @Test
+    void smallCapRejectsFirstBoardLimitPriceBelowFourPointFiveAndKeepsBoundary() {
+        assertFalse(SmallCapFirstBoardSelectionPolicy.evaluate(
+                smallCapCandidate(100_000D, 4.49D)).passed());
+        assertTrue(SmallCapFirstBoardSelectionPolicy.evaluate(
+                smallCapCandidate(100_000D, 4.5D)).passed());
     }
 
     @Test
@@ -44,9 +52,10 @@ class SelectionPolicyBoundaryTest {
                 20D, 2, 2, 10_000_000L, 0, 0, 10D, 10D);
     }
 
-    private SmallCapFirstBoardSelectionCandidate smallCapCandidate(double cap) {
+    private SmallCapFirstBoardSelectionCandidate smallCapCandidate(double cap,
+                                                                    double firstBoardLimitPrice) {
         return new SmallCapFirstBoardSelectionCandidate(
-                cap, 30D, 2, 0, 0, 10D, 10D);
+                cap, firstBoardLimitPrice, 30D, 2, 0, 0, 10D, 10D);
     }
 
     private RelaySelectionCandidate relayCandidate(double maxTurnover) {

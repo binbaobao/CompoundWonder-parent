@@ -11,12 +11,14 @@ public final class SmallCapFirstBoardSelectionPolicy {
 
     /** 小市值首板独占启动流通市值严格小于 119999 万元的候选。 */
     public static final double MAX_START_MARKET_CAP_EXCLUSIVE = 119_999D;
+    /** 小市值首板要求选股日首板涨停收盘价不低于 4.5 元。 */
+    public static final double MIN_FIRST_BOARD_LIMIT_PRICE_INCLUSIVE = 4.5D;
 
     private SmallCapFirstBoardSelectionPolicy() {
     }
 
     /**
-     * 依次执行小市值首板的市值归属、历史换手、高度、异常 K 线和近期形态过滤。
+     * 依次执行小市值首板的市值与首板价格归属、历史换手、高度、异常 K 线和近期形态过滤。
      *
      * <p>本模式只按启动流通市值评分，不复用普通首板的换手和价格筹码阶梯。</p>
      *
@@ -31,6 +33,14 @@ public final class SmallCapFirstBoardSelectionPolicy {
         if (startMarketCap >= MAX_START_MARKET_CAP_EXCLUSIVE) {
             return Decision.rejected("模式市值归属", "actual=" + startMarketCap
                     + "万元, required<119999万元; 普通首板与小市值首板互不回退");
+        }
+        if (candidate.currentPrice() == null) {
+            return Decision.rejected("首板涨停价格", "缺少选股日首板涨停收盘价");
+        }
+        double currentPrice = candidate.currentPrice();
+        if (currentPrice < MIN_FIRST_BOARD_LIMIT_PRICE_INCLUSIVE) {
+            return Decision.rejected("首板涨停价格", "actual=" + currentPrice
+                    + "元, required>=4.5元");
         }
 //        double maxTurnoverRate = Objects.requireNonNullElse(candidate.maxTurnoverRate(), 0D);
 //        if (maxTurnoverRate > 55D) { // 中农联合 54
