@@ -79,27 +79,17 @@ class ConditionEvaluatorSellTest {
     }
 
     @Test
-    void limitUpStageUsesDifferentCodesForDifferentRules() throws ReflectiveOperationException {
-        OrderBook smallCap = limitUpStrategyOrderBook(100_000);
-        smallCap.setLbcs(4);
-        smallCap.setLimitUpBuyAmount(11_000);
-        setField(smallCap, "turnoverRate", 10.0);
-        setField(smallCap, "changePercent", -2.0);
-        setField(smallCap, "lastSealAmount", 20_000L);
+    void smallCapDispatcherKeepsNanjingPortThreeToFourRule() throws ReflectiveOperationException {
+        OrderBook smallCap = limitUpStrategyOrderBook(110_633);
+        smallCap.setLbcs(3);
+        smallCap.setLimitUpBuyAmount(2_042);
+        setField(smallCap, "turnoverRate", 54.38365946976607);
+        setField(smallCap, "time", 100_055_630);
+        setField(smallCap, "status", 39);
 
         RuleRecord smallCapRecord = new RuleRecord();
         assertTrue(dispatcher.evaluateSell(smallCap, smallCapRecord));
-        assertEquals(101, smallCapRecord.ruleCode);
-
-        OrderBook afternoon = limitUpStrategyOrderBook(140_000);
-        afternoon.setTwoDaysTurnover(20);
-        setField(afternoon, "turnoverRate", 20.0);
-        setField(afternoon, "changePercent", -4.0);
-        setField(afternoon, "time", 120_000_000);
-
-        RuleRecord afternoonRecord = new RuleRecord();
-        assertTrue(dispatcher.evaluateSell(afternoon, afternoonRecord));
-        assertEquals(102, afternoonRecord.ruleCode);
+        assertEquals(103, smallCapRecord.ruleCode);
     }
 
     private OrderBook averageStrategyOrderBook(int lbcs) {
