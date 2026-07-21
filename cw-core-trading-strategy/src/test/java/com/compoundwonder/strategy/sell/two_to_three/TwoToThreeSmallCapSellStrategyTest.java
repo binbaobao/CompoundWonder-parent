@@ -55,7 +55,7 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
-    void protectsFivePointThreePercentProfitFromQijingMachineryOn2025_03_14() {
+    void holdsStrongProfitFromQijingMachineryOn2025_03_14() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
         values.put("getTime", 93_301_970);
@@ -69,9 +69,8 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
-        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
-        assertEquals(2_025, rule.price);
+        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(0, rule.ruleCode);
     }
 
     @Test
@@ -95,7 +94,7 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
-    void protectsProfitJustAboveFivePercentFromWankongManufacturingOn2025_01_09() {
+    void holdsProfitJustAboveFivePercentFromWankongManufacturingOn2025_01_09() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
         values.put("getTime", 93_259_700);
@@ -109,9 +108,8 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
-        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
-        assertEquals(1_870, rule.price);
+        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(0, rule.ruleCode);
     }
 
     @Test
