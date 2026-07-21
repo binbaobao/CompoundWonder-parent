@@ -684,10 +684,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     }
 
     @Override
-    public SingleModeSamplePage findSamples(long runId, int page, int pageSize) {
+    public SingleModeSamplePage findSamples(long runId, int page, int pageSize,
+                                            Integer positionType) {
         findRun(runId);
         return persistenceService.findSamples(runId, Math.max(1, page),
-                Math.max(1, Math.min(pageSize, 200)));
+                Math.max(1, Math.min(pageSize, 200)), positionType);
     }
 
     private void validate(LocalDate startDate, LocalDate endDate, int tradeMode) {

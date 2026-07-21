@@ -13,9 +13,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.List;
+import java.lang.reflect.Proxy;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -134,6 +137,46 @@ class BacktestControllerTest {
     }
 
     @Test
+    void filtersSingleModeSamplesByPositionType() throws Exception {
+        AtomicReference<Integer> requestedPositionType = new AtomicReference<>();
+        SingleModeBacktestService service = (SingleModeBacktestService) Proxy.newProxyInstance(
+                SingleModeBacktestService.class.getClassLoader(),
+                new Class<?>[]{SingleModeBacktestService.class},
+                (proxy, method, args) -> {
+                    if (!"findSamples".equals(method.getName())) {
+                        throw new UnsupportedOperationException(method.getName());
+                    }
+                    if (args != null && args.length == 4) {
+                        requestedPositionType.set((Integer) args[3]);
+                    }
+                    return new com.compoundwonder.backtest.service.model.SingleModeSamplePage(
+                            0, 1, 50, List.of());
+                });
+        BacktestController controller = new BacktestController(
+                null, null, null, null, null, service);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/backtest/single-mode-runs/24/samples")
+                        .param("page", "1")
+                        .param("pageSize", "50")
+                        .param("positionType", "2"))
+                .andExpect(status().isOk());
+
+        assertEquals(2, requestedPositionType.get());
+    }
+
+    @Test
+    void rejectsUnknownSingleModeSamplePositionType() throws Exception {
+        BacktestController controller = new BacktestController(
+                null, null, null, null, null, null);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/backtest/single-mode-runs/24/samples")
+                        .param("positionType", "3"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void replaysFixedSelectionResultsFromCompletedSourceRun() throws Exception {
         com.compoundwonder.trader.entity.SingleModeBacktestRun replay =
                 new com.compoundwonder.trader.entity.SingleModeBacktestRun();
@@ -186,7 +229,7 @@ class BacktestControllerTest {
 
             @Override
             public com.compoundwonder.backtest.service.model.SingleModeSamplePage findSamples(
-                    long runId, int page, int pageSize) {
+                    long runId, int page, int pageSize, Integer positionType) {
                 throw new UnsupportedOperationException();
             }
         };
@@ -224,7 +267,7 @@ class BacktestControllerTest {
             @Override public List<com.compoundwonder.trader.entity.SingleModeBacktestRun> findRecentRuns(int tradeMode, int limit) { return List.of(); }
             @Override public com.compoundwonder.backtest.service.model.SingleModeBacktestSummary summarize(long runId) { throw new UnsupportedOperationException(); }
             @Override public List<com.compoundwonder.backtest.service.model.SingleModeBoardStat> boardStats(long runId) { return List.of(); }
-            @Override public com.compoundwonder.backtest.service.model.SingleModeSamplePage findSamples(long runId, int page, int pageSize) { throw new UnsupportedOperationException(); }
+            @Override public com.compoundwonder.backtest.service.model.SingleModeSamplePage findSamples(long runId, int page, int pageSize, Integer positionType) { throw new UnsupportedOperationException(); }
         };
     }
 }

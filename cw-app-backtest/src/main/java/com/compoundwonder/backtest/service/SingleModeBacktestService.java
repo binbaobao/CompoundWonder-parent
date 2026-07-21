@@ -20,5 +20,8 @@ public interface SingleModeBacktestService {
     List<SingleModeBacktestRun> findRecentRuns(int tradeMode, int limit);
     SingleModeBacktestSummary summarize(long runId);
     List<SingleModeBoardStat> boardStats(long runId);
-    SingleModeSamplePage findSamples(long runId, int page, int pageSize);
+    default SingleModeSamplePage findSamples(long runId, int page, int pageSize) {
+        return findSamples(runId, page, pageSize, null);
+    }
+    SingleModeSamplePage findSamples(long runId, int page, int pageSize, Integer positionType);
 }

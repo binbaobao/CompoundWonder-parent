@@ -255,15 +255,25 @@ public class BacktestController {
         return new Result<List<SingleModeBoardStat>>().ok(singleModeBacktestService.boardStats(runId));
     }
 
-    /** 分页查询本轮所有独立买卖样本。 */
+    /** 分页查询独立买卖样本；持仓类型为空时查询全部，1 为真实成交，2 为虚拟卖出。 */
     @GetMapping("single-mode-runs/{runId}/samples")
     public Result<SingleModeSamplePage> singleModeSamples(
             @PathVariable Long runId,
             @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "50") Integer pageSize) {
+            @RequestParam(defaultValue = "50") Integer pageSize,
+            @RequestParam(required = false) Integer positionType) {
         return new Result<SingleModeSamplePage>().ok(
                 singleModeBacktestService.findSamples(
-                        runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize));
+                        runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize,
+                        requireSamplePositionType(positionType)));
+    }
+
+    private Integer requireSamplePositionType(Integer positionType) {
+        if (positionType == null || positionType == 1 || positionType == 2) {
+            return positionType;
+        }
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "样本持仓类型仅支持真实成交或虚拟卖出");
     }
 
     private int requireSingleModeTradeMode(Integer tradeMode) {

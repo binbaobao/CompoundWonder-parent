@@ -1,6 +1,7 @@
 package com.compoundwonder.backtest.service.impl;
 
 import com.baomidou.dynamic.datasource.annotation.DS;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.compoundwonder.backtest.service.model.SingleModeSamplePage;
 import com.compoundwonder.trader.entity.SingleModeBacktestRun;
@@ -113,17 +114,27 @@ public class SingleModeBacktestPersistenceService {
                 .orderByAsc(SingleModeBacktestSample::getId));
     }
 
-    public SingleModeSamplePage findSamples(long runId, int page, int pageSize) {
+    public SingleModeSamplePage findSamples(long runId, int page, int pageSize,
+                                            Integer positionType) {
         schemaService.ensureSchema();
-        long total = sampleMapper.selectCount(Wrappers.<SingleModeBacktestSample>lambdaQuery()
-                .eq(SingleModeBacktestSample::getRunId, runId));
+        long total = sampleMapper.selectCount(sampleQuery(runId, positionType));
         int offset = (page - 1) * pageSize;
         List<SingleModeBacktestSample> rows = sampleMapper.selectList(
-                Wrappers.<SingleModeBacktestSample>lambdaQuery()
-                        .eq(SingleModeBacktestSample::getRunId, runId)
+                sampleQuery(runId, positionType)
                         .orderByAsc(SingleModeBacktestSample::getRecommendDate)
                         .orderByAsc(SingleModeBacktestSample::getId)
                         .last("LIMIT " + pageSize + " OFFSET " + offset));
         return new SingleModeSamplePage(total, page, pageSize, rows);
+    }
+
+    private LambdaQueryWrapper<SingleModeBacktestSample> sampleQuery(
+            long runId, Integer positionType) {
+        LambdaQueryWrapper<SingleModeBacktestSample> query =
+                Wrappers.<SingleModeBacktestSample>lambdaQuery()
+                        .eq(SingleModeBacktestSample::getRunId, runId);
+        if (positionType != null) {
+            query.eq(SingleModeBacktestSample::getPositionType, positionType);
+        }
+        return query;
     }
 }
