@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 class DefaultStockSelectionServiceTest {
 
     @Test
@@ -26,14 +25,16 @@ class DefaultStockSelectionServiceTest {
     }
 
     @Test
-    void rejectsModesNotEnabledByThisSingleModeBacktestRelease() {
+    void selectsEachTradeModeThroughItsDedicatedSelectionService() {
         DefaultStockSelectionService service = new DefaultStockSelectionService(
                 new EmptySelectionDataService());
 
-        assertThrows(UnsupportedOperationException.class,
-                () -> service.select(LocalDate.of(2026, 1, 5), TradeMode.RELAY_LIMIT_UP));
-        assertThrows(UnsupportedOperationException.class,
-                () -> service.select(LocalDate.of(2026, 1, 5), TradeMode.FIRST_BOARD));
+        assertEquals(List.of(),
+                service.select(LocalDate.of(2026, 1, 5), TradeMode.RELAY_LIMIT_UP));
+        assertEquals(List.of(),
+                service.select(LocalDate.of(2026, 1, 5), TradeMode.FIRST_BOARD));
+        assertEquals(List.of(),
+                service.select(LocalDate.of(2026, 1, 5), TradeMode.SMALL_CAP_FIRST_BOARD));
     }
 
     private static final class EmptySelectionDataService implements StockSelectionDataService {

@@ -9,6 +9,7 @@ import com.compoundwonder.backtest.service.model.SingleModeBacktestSummary;
 import com.compoundwonder.backtest.service.model.SingleModeBoardStat;
 import com.compoundwonder.backtest.service.model.SingleModeSamplePage;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
+import com.compoundwonder.common.strategy.trade.TradeMode;
 import com.compoundwonder.dto.*;
 import com.compoundwonder.trader.entity.BacktestDailyRecord;
 import com.compoundwonder.trader.entity.BacktestPosition;
@@ -207,14 +208,15 @@ public class BacktestController {
         return new Result<List<RuleExecuteRecord>>().ok(historicalBacktestTradeService.findRules(runId));
     }
 
-    /** 启动不受仓位约束的 Model 3 全样本回测。 */
+    /** 启动指定交易模式、不受仓位约束的全样本回测。 */
     @PostMapping("single-mode-runs")
     public Result<SingleModeBacktestRun> runSingleModeBacktest(
             @RequestParam LocalDate startDate,
             @RequestParam LocalDate endDate,
             @RequestParam(defaultValue = "3") Integer tradeMode) {
         return new Result<SingleModeBacktestRun>().ok(
-                singleModeBacktestService.startRange(startDate, endDate, requireModel3(tradeMode)));
+                singleModeBacktestService.startRange(
+                        startDate, endDate, requireSingleModeTradeMode(tradeMode)));
     }
 
     /** 固定复用已完成任务的选股结果，不重新选股，只重放触板样本的买入和卖出。 */
@@ -225,14 +227,14 @@ public class BacktestController {
                 singleModeBacktestService.startReplay(sourceRunId));
     }
 
-    /** 查询最近的 Model 3 单模式任务。 */
+    /** 按交易模式查询最近的单模式任务。 */
     @GetMapping("single-mode-runs")
     public Result<List<SingleModeBacktestRun>> singleModeRuns(
             @RequestParam(defaultValue = "3") Integer tradeMode,
             @RequestParam(defaultValue = "20") Integer limit) {
         return new Result<List<SingleModeBacktestRun>>().ok(
                 singleModeBacktestService.findRecentRuns(
-                        requireModel3(tradeMode), limit == null ? 20 : limit));
+                        requireSingleModeTradeMode(tradeMode), limit == null ? 20 : limit));
     }
 
     /** 查询单模式任务进度。 */
@@ -264,12 +266,17 @@ public class BacktestController {
                         runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize));
     }
 
-    private int requireModel3(Integer tradeMode) {
-        if (!Integer.valueOf(3).equals(tradeMode)) {
+    private int requireSingleModeTradeMode(Integer tradeMode) {
+        if (tradeMode == null) {
             throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "本版单模式全量回测仅支持 Model 3");
+                    HttpStatus.BAD_REQUEST, "交易模式不能为空");
         }
-        return tradeMode;
+        try {
+            return TradeMode.fromCode(tradeMode).code();
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "单模式全量回测仅支持 Model 1、2、3", exception);
+        }
     }
 
 

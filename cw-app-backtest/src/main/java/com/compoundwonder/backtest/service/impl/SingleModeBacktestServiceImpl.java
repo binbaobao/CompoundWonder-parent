@@ -33,11 +33,11 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
-/** Model 3 全候选、独立持仓的回测执行器。 */
+/** Model 1/2/3 全候选、独立持仓的回测执行器。 */
 @Slf4j
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
-    static final String STRATEGY_VERSION = "iteration-005";
+    static final String STRATEGY_VERSION = "multi-model-001";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -131,8 +131,8 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             List<LocalDate> recommendDays = recommendationDays(
                     executionDays, findPreviousTradeDate(executionDays.get(0)));
             for (LocalDate recommendDate : recommendDays) {
-                List<SelectionTaskData> tasks = selectionService.select(
-                        recommendDate, TradeMode.SMALL_CAP_FIRST_BOARD);
+                TradeMode tradeMode = TradeMode.fromCode(run.getTradeMode());
+                List<SelectionTaskData> tasks = selectionService.select(recommendDate, tradeMode);
                 for (SelectionTaskData task : tasks) {
                     // 推荐日之后尚未发生的买入日不计入本轮已完成样本。
                     if (task.getTradeDate() == null || task.getTradeDate().isAfter(run.getEndDate())) {
@@ -161,15 +161,16 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                 persistenceService.updateProgress(run.getId(), recommendDate,
                         total, processed, bought, closed);
                 lastCompletedDate = recommendDate;
-                log.info("完成 Model 3 单模式选股日 runId={}, recommendDate={}, totalSamples={}, processed={}",
-                        run.getId(), recommendDate, total, processed);
+                log.info("完成单模式选股日 runId={}, tradeMode={}, recommendDate={}, totalSamples={}, processed={}",
+                        run.getId(), run.getTradeMode(), recommendDate, total, processed);
             }
             persistenceService.complete(run.getId());
         } catch (RuntimeException exception) {
             persistenceService.updateProgress(run.getId(), lastCompletedDate,
                     total, processed, bought, closed);
             persistenceService.fail(run.getId(), exception);
-            log.error("Model 3 单模式全量回测失败 runId={}", run.getId(), exception);
+            log.error("单模式全量回测失败 runId={}, tradeMode={}",
+                    run.getId(), run.getTradeMode(), exception);
         }
     }
 
@@ -212,8 +213,8 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             persistenceService.updateProgress(run.getId(), lastCompletedDate,
                     total, processed, bought, closed);
             persistenceService.fail(run.getId(), exception);
-            log.error("Model 3 固定选股结果回放失败 runId={}, sourceRunId={}",
-                    run.getId(), run.getSourceRunId(), exception);
+            log.error("固定选股结果回放失败 runId={}, tradeMode={}, sourceRunId={}",
+                    run.getId(), run.getTradeMode(), run.getSourceRunId(), exception);
         }
     }
 
@@ -227,12 +228,13 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setLimitUpScore(task.getLimitUpScore());
         sample.setRecommendDate(task.getRecommendDate());
         sample.setTradeDate(task.getTradeDate());
-        sample.setSelectionBoard(1);
+        int selectionBoard = selectionBoard(task);
+        sample.setSelectionBoard(selectionBoard);
         sample.setStatus(SELECTED);
         sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
         sample.setHoldingTradeDays(0);
-        sample.setMaxSealedBoards(1);
-        sample.setMaxTouchedBoards(1);
+        sample.setMaxSealedBoards(selectionBoard);
+        sample.setMaxTouchedBoards(selectionBoard);
         sample.setCreatedTime(LocalDateTime.now());
         return sample;
     }
@@ -319,8 +321,9 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setStatus(SELECTED);
         sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
         sample.setHoldingTradeDays(0);
-        sample.setMaxSealedBoards(1);
-        sample.setMaxTouchedBoards(1);
+        int selectionBoard = sample.getSelectionBoard();
+        sample.setMaxSealedBoards(selectionBoard);
+        sample.setMaxTouchedBoards(selectionBoard);
         sample.setCreatedTime(LocalDateTime.now());
         return sample;
     }
@@ -496,7 +499,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return daily == null;
     }
 
-    /** 从首板推荐日开始统计本轮最高封板、最高触板和理论最高收益。 */
+    /** 从推荐板位开始统计本轮最高封板、最高触板和理论最高收益。 */
     private void calculateBoardPotential(SingleModeBacktestSample sample,
                                          StockDailyEntity buyDaily,
                                          LocalDate dataEndDate) {
@@ -505,9 +508,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                         .eq(StockDailyEntity::getStockCode, sample.getSymbol())
                         .between(StockDailyEntity::getTradeDate, sample.getRecommendDate(), dataEndDate)
                         .orderByAsc(StockDailyEntity::getTradeDate));
-        int sealed = 1;
-        int touched = 1;
-        int currentBoard = 1;
+        int selectedBoard = sample.getSelectionBoard() == null
+                ? 1 : Math.max(1, sample.getSelectionBoard());
+        int sealed = selectedBoard;
+        int touched = selectedBoard;
+        int currentBoard = selectedBoard;
         int referencePrice = sample.getBuyPrice() == null
                 ? cents(buyDaily.getPrevClose() == null
                     ? buyDaily.getClosePrice() : buyDaily.getPrevClose() * 1.1D)
@@ -629,6 +634,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return List.copyOf(dates);
     }
 
+    static int selectionBoard(SelectionTaskData task) {
+        if (task == null || task.getConsecutiveLimitUpDays() == null) return 1;
+        return Math.max(1, task.getConsecutiveLimitUpDays());
+    }
+
     /** 固定复用源任务选股结果，仅保留触板或已经真实成交的样本。 */
     static List<SingleModeBacktestSample> replayCandidates(List<SingleModeBacktestSample> samples) {
         if (samples == null || samples.isEmpty()) return List.of();
@@ -688,9 +698,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     }
 
     private void validateTradeMode(int tradeMode) {
-        if (tradeMode != TradeMode.SMALL_CAP_FIRST_BOARD.code()) {
-            throw new IllegalArgumentException("本版单模式全量回测仅支持 Model 3");
-        }
+        TradeMode.fromCode(tradeMode);
     }
 
     private boolean isSealedLimitUp(Integer state) { return state != null && state >= 1 && state <= 5; }

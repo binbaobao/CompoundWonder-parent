@@ -1,5 +1,6 @@
 package com.compoundwonder.backtest.service.impl;
 
+import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -23,5 +24,16 @@ class SingleModeBacktestDateRangeTest {
                 LocalDate.of(2026, 1, 5),
                 LocalDate.of(2026, 1, 6)), recommendationDays);
         assertEquals(2, executionDays.size());
+    }
+
+    @Test
+    void keepsTheSelectedBoardAsTheIndependentSampleStartingHeight() {
+        SelectionTaskData relay = new SelectionTaskData();
+        relay.setConsecutiveLimitUpDays(3);
+        SelectionTaskData firstBoard = new SelectionTaskData();
+        firstBoard.setConsecutiveLimitUpDays(1);
+
+        assertEquals(3, SingleModeBacktestServiceImpl.selectionBoard(relay));
+        assertEquals(1, SingleModeBacktestServiceImpl.selectionBoard(firstBoard));
     }
 }

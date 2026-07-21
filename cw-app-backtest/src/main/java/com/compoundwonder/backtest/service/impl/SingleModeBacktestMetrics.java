@@ -40,10 +40,7 @@ final class SingleModeBacktestMetrics {
                 .filter(SingleModeBacktestMetrics::isClosed).toList();
         long scenarioWins = scenarioClosed.stream()
                 .filter(s -> value(s.getReturnRate()).signum() > 0).count();
-        SingleModeBoardStat next = boardStats(samples).stream()
-                .filter(stat -> stat.fromBoard() == 1).findFirst()
-                .orElse(new SingleModeBoardStat(1, 0, 0, 0, 0,
-                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        SingleModeBoardStat next = entryPromotionStats(samples);
         return new SingleModeBacktestSummary(total, processed, bought, closed, open, noBuy,
                 errors, wins, percent(bought, total), percent(wins, closed),
                 averageReturn(closedSamples), averagePotential(actualSamples),
@@ -51,7 +48,7 @@ final class SingleModeBacktestMetrics {
                 virtualSamples.size(), virtualClosed.size(), virtualWins,
                 percent(virtualWins, virtualClosed.size()), averageReturn(virtualClosed),
                 percent(scenarioWins, scenarioClosed.size()), averageReturn(scenarioClosed),
-                sealRate(actualSamples), sealRate(virtualSamples));
+                entrySealRate(actualSamples), entrySealRate(virtualSamples));
     }
 
     static List<SingleModeBoardStat> boardStats(List<SingleModeBacktestSample> samples) {
@@ -90,9 +87,30 @@ final class SingleModeBacktestMetrics {
                 .divide(BigDecimal.valueOf(values.size()), 6, RoundingMode.HALF_UP);
     }
 
-    private static BigDecimal sealRate(List<SingleModeBacktestSample> samples) {
-        long sealed = samples.stream().filter(s -> intValue(s.getMaxSealedBoards()) >= 2).count();
+    private static SingleModeBoardStat entryPromotionStats(List<SingleModeBacktestSample> samples) {
+        int eligible = samples.size();
+        int touched = (int) samples.stream().filter(SingleModeBacktestMetrics::touchedNextBoard).count();
+        int sealed = (int) samples.stream().filter(SingleModeBacktestMetrics::sealedNextBoard).count();
+        int broken = Math.max(0, touched - sealed);
+        return new SingleModeBoardStat(0, eligible, touched, sealed, broken,
+                percent(touched, eligible), percent(sealed, touched), percent(broken, touched));
+    }
+
+    private static BigDecimal entrySealRate(List<SingleModeBacktestSample> samples) {
+        long sealed = samples.stream().filter(SingleModeBacktestMetrics::sealedNextBoard).count();
         return percent(sealed, samples.size());
+    }
+
+    private static boolean touchedNextBoard(SingleModeBacktestSample sample) {
+        return intValue(sample.getMaxTouchedBoards()) > selectionBoard(sample);
+    }
+
+    private static boolean sealedNextBoard(SingleModeBacktestSample sample) {
+        return intValue(sample.getMaxSealedBoards()) > selectionBoard(sample);
+    }
+
+    private static int selectionBoard(SingleModeBacktestSample sample) {
+        return sample.getSelectionBoard() == null ? 1 : Math.max(1, sample.getSelectionBoard());
     }
 
     private static boolean isClosed(SingleModeBacktestSample sample) {

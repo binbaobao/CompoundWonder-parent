@@ -8,7 +8,7 @@ import com.compoundwonder.trader.entity.SingleModeBacktestRun;
 import java.time.LocalDate;
 import java.util.List;
 
-/** Model 3 单模式全样本回测应用服务。 */
+/** 指定交易模式的全样本独立持仓回测应用服务。 */
 public interface SingleModeBacktestService {
     SingleModeBacktestRun startRange(LocalDate startDate, LocalDate endDate, int tradeMode);
     SingleModeBacktestRun runRange(LocalDate startDate, LocalDate endDate, int tradeMode);

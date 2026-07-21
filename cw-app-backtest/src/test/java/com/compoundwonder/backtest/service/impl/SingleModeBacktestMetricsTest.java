@@ -55,6 +55,23 @@ class SingleModeBacktestMetricsTest {
         assertEquals("20.000000", summary.virtualAverageReturnRate().toPlainString());
     }
 
+    @Test
+    void summarizesTheFirstPromotionFromEachSamplesSelectedBoard() {
+        SingleModeBacktestSample twoBoardSealedToThree = sample(3, 3);
+        twoBoardSealedToThree.setSelectionBoard(2);
+        SingleModeBacktestSample threeBoardBrokeAtFour = sample(3, 4);
+        threeBoardBrokeAtFour.setSelectionBoard(3);
+        SingleModeBacktestSample threeBoardUntouched = sample(3, 3);
+        threeBoardUntouched.setSelectionBoard(3);
+
+        var summary = SingleModeBacktestMetrics.summarize(
+                List.of(twoBoardSealedToThree, threeBoardBrokeAtFour, threeBoardUntouched));
+
+        assertEquals("66.666667", summary.nextBoardTouchRate().toPlainString());
+        assertEquals("50.000000", summary.nextBoardSealRate().toPlainString());
+        assertEquals("50.000000", summary.nextBoardBreakRate().toPlainString());
+    }
+
     private SingleModeBacktestSample sample(int sealed, int touched) {
         SingleModeBacktestSample sample = new SingleModeBacktestSample();
         sample.setMaxSealedBoards(sealed);

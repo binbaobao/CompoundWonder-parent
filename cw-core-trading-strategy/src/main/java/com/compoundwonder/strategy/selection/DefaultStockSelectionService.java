@@ -36,19 +36,21 @@ public class DefaultStockSelectionService implements StockSelectionService {
                 new SmallCapFirstBoardSelectionService(selectionDataService);
     }
 
-    /**
-     * 本版单模式全量回测只开放小市值首板（Model 3）。
-     * Model 1、2 保留枚举和服务，但等各自策略完成后再接入同一回测框架。
-     */
+    /** 按指定交易模式调用其独立选股服务，不在模式之间混合或回退候选。 */
     @Override
     public List<SelectionTaskData> select(LocalDate tradeDate, TradeMode tradeMode) {
         if (tradeDate == null) {
             throw new IllegalArgumentException("选股日期不能为空");
         }
-        if (tradeMode != TradeMode.SMALL_CAP_FIRST_BOARD) {
-            throw new UnsupportedOperationException("本版单模式全量回测仅支持 Model 3");
+        if (tradeMode == null) {
+            throw new IllegalArgumentException("交易模式不能为空");
         }
-        return List.copyOf(smallCapFirstBoardSelectionService.select(tradeDate));
+        return switch (tradeMode) {
+            case RELAY_LIMIT_UP -> List.copyOf(relaySelectionService.select(tradeDate));
+            case FIRST_BOARD -> List.copyOf(firstBoardSelectionService.select(tradeDate));
+            case SMALL_CAP_FIRST_BOARD ->
+                    List.copyOf(smallCapFirstBoardSelectionService.select(tradeDate));
+        };
     }
 
     /**
