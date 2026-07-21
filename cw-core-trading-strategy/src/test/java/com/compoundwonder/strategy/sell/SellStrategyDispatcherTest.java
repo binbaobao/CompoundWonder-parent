@@ -129,6 +129,7 @@ class SellStrategyDispatcherTest {
                     case "getLbcs" -> lbcs;
                     case "getTime" -> 100_000_000;
                     case "getNextTradingDay" -> nextTradingDay;
+                    case "getEmaSealTrend" -> -1;
                     case "getLastPrice", "getLimitUpPrice" -> 1_000;
                     case "getIncrease" -> 10D;
                     case "getLastLimitUptime" -> 94_000_000;
