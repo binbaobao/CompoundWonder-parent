@@ -35,7 +35,7 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
-    void holdsPositivePricePullbackFromChuhuanTechnologyOn2025_12_23() {
+    void protectsNearlyFourPercentProfitFromChuhuanTechnologyOn2025_12_23() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
         values.put("getTime", 93_559_530);
@@ -45,6 +45,26 @@ class TwoToThreeSmallCapSellStrategyTest {
             case 8 -> 3_020;
             case 9 -> 3_010;
             default -> 3_006;
+        });
+
+        CapturedRule rule = new CapturedRule();
+
+        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
+        assertEquals(3_006, rule.price);
+    }
+
+    @Test
+    void holdsStrongProfitFromQijingMachineryOn2025_03_14() {
+        int index = 10;
+        Map<String, Object> values = baseValues(80_000, 2);
+        values.put("getTime", 93_301_970);
+        values.put("getIncrease", 5.298701298701299D);
+        values.put("getMinutePriceAt", (IntUnaryOperator) i -> switch (i) {
+            case 7 -> 2_050;
+            case 8 -> 2_040;
+            case 9 -> 2_030;
+            default -> 2_025;
         });
 
         CapturedRule rule = new CapturedRule();
