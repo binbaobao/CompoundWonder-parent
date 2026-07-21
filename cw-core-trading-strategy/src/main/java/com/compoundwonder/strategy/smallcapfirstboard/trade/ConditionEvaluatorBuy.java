@@ -93,10 +93,6 @@ public final class ConditionEvaluatorBuy {
      * 最近一次封板后允许产生买入信号的时间窗口，单位：毫秒。
      */
     private static final int RECENT_LIMIT_UP_WINDOW_MILLIS = 30_000;
-    /**
-     * 普通排板前，至少要有一根已经结束的分钟线收在昨收价的 7% 以上。
-     */
-    private static final double MIN_COMPLETED_MINUTE_INCREASE = 7.0;
 
     private ConditionEvaluatorBuy() {
     }
@@ -183,11 +179,6 @@ public final class ConditionEvaluatorBuy {
             }
         }
 
-        // 普通排板只接受已经走出过一根完整 7% 分钟线的流畅上板；当前尚未结束的分钟不计入。
-        // 大单规则 11—13 已在上方返回，因此该条件不会改变大单买入路径。
-        if (!hasCompletedSevenPercentMinute(orderBook)) {
-            return false;
-        }
 
         // 最近一次封板时间转换后的当日毫秒值。
         int lastLimitUpMillis = CompactTimeUtil.compactToMillis(orderBook.getLastLimitUptime());
@@ -225,25 +216,6 @@ public final class ConditionEvaluatorBuy {
         return lastLimitUpMillis == 0
                 || CompactTimeUtil.compactToMillis(time) - lastLimitUpMillis
                 < RECENT_LIMIT_UP_WINDOW_MILLIS;
-    }
-
-    /**
-     * 判断买入时刻之前，是否至少有一根已经结束的分钟线达到 7%。
-     */
-    private static boolean hasCompletedSevenPercentMinute(TradeMarketState orderBook) {
-        int closePrice = orderBook.getClosePrice();
-        int currentMinuteIndex = CompactTimeUtil.calculateIndex(orderBook.getTime());
-        if (closePrice <= 0 || currentMinuteIndex <= 0) {
-            return false;
-        }
-        for (int index = 0; index < currentMinuteIndex; index++) {
-            int minutePrice = orderBook.getMinutePriceAt(index);
-            if (minutePrice > 0
-                    && (minutePrice - closePrice) * 100.0 / closePrice >= MIN_COMPLETED_MINUTE_INCREASE) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
