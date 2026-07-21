@@ -10,8 +10,16 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FirstBoardSelectionServiceTest {
+
+    @Test
+    void keepsFirstBoardCurrentMarketCapStrictlyBelowTwentyTwoHundredMillion() {
+        assertTrue(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(219_999.99D));
+        assertFalse(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(220_000D));
+    }
 
     @Test
     void calculatesThreeDayAmplitudeIncludingCurrentDay() {
