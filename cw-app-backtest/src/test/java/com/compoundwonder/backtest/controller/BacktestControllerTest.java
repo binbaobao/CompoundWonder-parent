@@ -244,6 +244,34 @@ class BacktestControllerTest {
                 .andExpect(jsonPath("$.data.strategyVersion").value("iteration-001"));
     }
 
+    @Test
+    void reexecutesBuysAndSellsFromAllFixedCandidates() throws Exception {
+        com.compoundwonder.trader.entity.SingleModeBacktestRun replay =
+                new com.compoundwonder.trader.entity.SingleModeBacktestRun();
+        replay.setId(25L);
+        replay.setSourceRunId(24L);
+        replay.setStrategyVersion("multi-model-003");
+        SingleModeBacktestService service = (SingleModeBacktestService) Proxy.newProxyInstance(
+                SingleModeBacktestService.class.getClassLoader(),
+                new Class<?>[]{SingleModeBacktestService.class},
+                (proxy, method, args) -> {
+                    if ("startCandidateReplay".equals(method.getName())) {
+                        assertEquals(24L, args[0]);
+                        return replay;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        BacktestController controller = new BacktestController(
+                null, null, null, null, null, service);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/backtest/single-mode-runs/24/candidate-replays"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(25))
+                .andExpect(jsonPath("$.data.sourceRunId").value(24))
+                .andExpect(jsonPath("$.data.strategyVersion").value("multi-model-003"));
+    }
+
     private SingleModeBacktestService singleModeServiceForModelTwo() {
         return new SingleModeBacktestService() {
             @Override

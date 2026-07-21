@@ -37,7 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Slf4j
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
-    static final String STRATEGY_VERSION = "multi-model-002";
+    static final String STRATEGY_VERSION = "multi-model-003";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -115,6 +115,31 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return findRun(run.getId());
     }
 
+    @Override
+    public SingleModeBacktestRun startCandidateReplay(long sourceRunId) {
+        SingleModeBacktestRun source = requireReplaySource(sourceRunId);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                source.getStartDate(), source.getEndDate(), source.getTradeMode(),
+                source.getId(), STRATEGY_VERSION);
+        try {
+            executor.execute(() -> executeCandidateReplayRun(run));
+            return run;
+        } catch (RejectedExecutionException exception) {
+            persistenceService.fail(run.getId(), exception);
+            throw new IllegalStateException("单模式回测任务队列已满，请稍后重试", exception);
+        }
+    }
+
+    @Override
+    public SingleModeBacktestRun runCandidateReplay(long sourceRunId) {
+        SingleModeBacktestRun source = requireReplaySource(sourceRunId);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                source.getStartDate(), source.getEndDate(), source.getTradeMode(),
+                source.getId(), STRATEGY_VERSION);
+        executeCandidateReplayRun(run);
+        return findRun(run.getId());
+    }
+
     private synchronized void executeRun(SingleModeBacktestRun run) {
         int total = 0;
         int processed = 0;
@@ -174,28 +199,43 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         }
     }
 
-    /** 不再重新选股，固定复用源任务的触板样本执行买卖回放。 */
+    /** 不再重新选股，固定源任务的真实/虚拟买入事实并重新执行卖出。 */
     private synchronized void executeReplayRun(SingleModeBacktestRun run) {
+        executeFixedCandidateRun(run, false);
+    }
+
+    /** 不再重新选股，固定复用源任务的全部候选并按当前规则重新执行买入和卖出。 */
+    private synchronized void executeCandidateReplayRun(SingleModeBacktestRun run) {
+        executeFixedCandidateRun(run, true);
+    }
+
+    private void executeFixedCandidateRun(SingleModeBacktestRun run, boolean replayBuys) {
         int total = 0;
         int processed = 0;
         int bought = 0;
         int closed = 0;
         LocalDate lastCompletedDate = null;
         try {
-            List<SingleModeBacktestSample> candidates = replayCandidates(
-                    persistenceService.findAllSamples(run.getSourceRunId()));
+            List<SingleModeBacktestSample> sourceSamples =
+                    persistenceService.findAllSamples(run.getSourceRunId());
+            List<SingleModeBacktestSample> candidates = replayBuys
+                    ? sourceSamples : replayCandidates(sourceSamples);
             for (SingleModeBacktestSample source : candidates) {
                 SingleModeBacktestSample sample = createReplaySample(run, source);
                 persistenceService.insertSample(sample);
                 total++;
                 try {
-                    executeReplaySample(sample, source, run.getEndDate());
+                    if (replayBuys) {
+                        executeSample(sample, run.getEndDate());
+                    } else {
+                        executeReplaySample(sample, source, run.getEndDate());
+                    }
                 } catch (RuntimeException exception) {
                     sample.setStatus(DATA_ERROR);
                     sample.setNoBuyReason(abbreviate(exception.getMessage(), 1000));
                     sample.setSampleEndDate(sample.getTradeDate());
-                    log.warn("单模式固定选股样本回放失败 runId={}, sourceSampleId={}, symbol={}, reason={}",
-                            run.getId(), source.getId(), sample.getSymbol(), exception.getMessage());
+                    log.warn("单模式固定候选回放失败 runId={}, replayBuys={}, sourceSampleId={}, symbol={}, reason={}",
+                            run.getId(), replayBuys, source.getId(), sample.getSymbol(), exception.getMessage());
                 }
                 persistenceService.updateSample(sample);
                 processed++;
@@ -213,8 +253,8 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             persistenceService.updateProgress(run.getId(), lastCompletedDate,
                     total, processed, bought, closed);
             persistenceService.fail(run.getId(), exception);
-            log.error("固定选股结果回放失败 runId={}, tradeMode={}, sourceRunId={}",
-                    run.getId(), run.getTradeMode(), run.getSourceRunId(), exception);
+            log.error("固定候选回放失败 runId={}, replayBuys={}, tradeMode={}, sourceRunId={}",
+                    run.getId(), replayBuys, run.getTradeMode(), run.getSourceRunId(), exception);
         }
     }
 

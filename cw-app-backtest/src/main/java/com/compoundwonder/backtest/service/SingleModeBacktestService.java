@@ -12,10 +12,18 @@ import java.util.List;
 public interface SingleModeBacktestService {
     SingleModeBacktestRun startRange(LocalDate startDate, LocalDate endDate, int tradeMode);
     SingleModeBacktestRun runRange(LocalDate startDate, LocalDate endDate, int tradeMode);
-    /** 固定复用一个已完成任务的选股结果，异步重新执行买入和卖出回放。 */
+    /** 固定源任务的买入事实，异步重新执行卖出回放。 */
     SingleModeBacktestRun startReplay(long sourceRunId);
-    /** 固定复用一个已完成任务的选股结果，同步重新执行买入和卖出回放。 */
+    /** 固定源任务的买入事实，同步重新执行卖出回放。 */
     SingleModeBacktestRun runReplay(long sourceRunId);
+    /** 固定复用一个已完成任务的全部候选，异步按当前规则重新执行买入和卖出。 */
+    default SingleModeBacktestRun startCandidateReplay(long sourceRunId) {
+        throw new UnsupportedOperationException("暂不支持固定候选全买卖重放");
+    }
+    /** 固定复用一个已完成任务的全部候选，同步按当前规则重新执行买入和卖出。 */
+    default SingleModeBacktestRun runCandidateReplay(long sourceRunId) {
+        throw new UnsupportedOperationException("暂不支持固定候选全买卖重放");
+    }
     SingleModeBacktestRun findRun(long runId);
     List<SingleModeBacktestRun> findRecentRuns(int tradeMode, int limit);
     SingleModeBacktestSummary summarize(long runId);

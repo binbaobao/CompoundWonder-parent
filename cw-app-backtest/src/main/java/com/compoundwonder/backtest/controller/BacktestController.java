@@ -219,12 +219,20 @@ public class BacktestController {
                         startDate, endDate, requireSingleModeTradeMode(tradeMode)));
     }
 
-    /** 固定复用已完成任务的选股结果，不重新选股，只重放触板样本的买入和卖出。 */
+    /** 固定源任务的真实/虚拟买入事实，不重新选股，只重放卖出。 */
     @PostMapping("single-mode-runs/{sourceRunId}/replays")
     public Result<SingleModeBacktestRun> replaySingleModeBacktest(
             @PathVariable Long sourceRunId) {
         return new Result<SingleModeBacktestRun>().ok(
                 singleModeBacktestService.startReplay(sourceRunId));
+    }
+
+    /** 固定复用已完成任务的全部候选，不重新选股，按当前规则重新执行买入和卖出。 */
+    @PostMapping("single-mode-runs/{sourceRunId}/candidate-replays")
+    public Result<SingleModeBacktestRun> replaySingleModeCandidates(
+            @PathVariable Long sourceRunId) {
+        return new Result<SingleModeBacktestRun>().ok(
+                singleModeBacktestService.startCandidateReplay(sourceRunId));
     }
 
     /** 按交易模式查询最近的单模式任务。 */

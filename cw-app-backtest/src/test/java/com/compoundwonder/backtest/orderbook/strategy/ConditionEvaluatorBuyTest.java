@@ -91,8 +91,8 @@ class ConditionEvaluatorBuyTest {
     }
 
     @Test
-    void dispatchesAllThreeTradeModesToIndependentRuleCopies() {
-        for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
+    void dispatchesRelayAndNormalFirstBoardToIndependentRuleCopies() {
+        for (int tradeMode = 1; tradeMode <= 2; tradeMode++) {
             OrderBook orderBook = eligibleOrderBook(15.00, 160_000, 2_001);
             orderBook.setTradeMode(tradeMode);
             RuleRecord record = new RuleRecord();

@@ -74,6 +74,10 @@ public final class ConditionEvaluatorBuy {
     private static final long MEDIUM_ORDER_MAX_MARKET_VALUE_WAN = 150_000L;
 
     /**
+     * 普通首板盘中打板要求的最低实时换手率，单位：%。
+     */
+    private static final double MIN_FIRST_BOARD_ENTRY_TURNOVER_RATE = 12.0;
+    /**
      * 无需历史量能补充条件即可买入的最低当前换手率，单位：%。
      */
     private static final double MIN_NORMAL_TURNOVER_RATE = 12.5;
@@ -125,6 +129,9 @@ public final class ConditionEvaluatorBuy {
         double sealChangePercent = orderBook.getChangePercent();
         int lbcs = orderBook.getLbcs();
         if (limitUpBuyAmount > MAX_LIMIT_UP_BUY_AMOUNT_WAN) {
+            return false;
+        }
+        if (turnoverRate < MIN_FIRST_BOARD_ENTRY_TURNOVER_RATE) {
             return false;
         }
         if (!isTurnoverEligible(orderBook, turnoverRate)) {

@@ -1,0 +1,68 @@
+package com.compoundwonder.strategy.firstboard.trade;
+
+import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Proxy;
+import java.util.HashMap;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ConditionEvaluatorBuyTest {
+
+    @Test
+    void rejectsContinuousFirstBoardEntryBelowTwelvePercentTurnover() {
+        assertFalse(ConditionEvaluatorBuy.evaluate(market(11.99D), new CapturedRule()));
+    }
+
+    @Test
+    void keepsContinuousFirstBoardEntryAtTwelvePercentTurnover() {
+        assertTrue(ConditionEvaluatorBuy.evaluate(market(12.00D), new CapturedRule()));
+    }
+
+    private static TradeMarketState market(double turnoverRate) {
+        Map<String, Object> values = new HashMap<>();
+        values.put("getSymbol", "600000");
+        values.put("getStatus", 0);
+        values.put("getLbcs", 1);
+        values.put("getTime", 93_255_150);
+        values.put("getLastPrice", 1_000);
+        values.put("getLimitUpPrice", 1_000);
+        values.put("getOpenIncrease", 0D);
+        values.put("getLowPriceIncrease", 0D);
+        values.put("getAmplitude", 5D);
+        values.put("getTurnoverRate", turnoverRate);
+        values.put("getMaxVolume", 30_000_000L);
+        values.put("getCirculation", 100_000_000L);
+        values.put("getInitialMarketValue", 125_000);
+        values.put("getLimitUpBuyAmount", 600L);
+        values.put("getLastLimitUptime", 93_255_150);
+
+        return (TradeMarketState) Proxy.newProxyInstance(
+                TradeMarketState.class.getClassLoader(),
+                new Class<?>[]{TradeMarketState.class},
+                (proxy, method, args) -> {
+                    Object value = values.get(method.getName());
+                    if (value != null) {
+                        return value;
+                    }
+                    return switch (method.getReturnType().getName()) {
+                        case "int" -> 0;
+                        case "long" -> 0L;
+                        case "double" -> 0D;
+                        case "boolean" -> false;
+                        default -> null;
+                    };
+                });
+    }
+
+    private static final class CapturedRule implements TradeRuleRecord {
+        @Override
+        public void fill(int actionType, int ruleCode, String symbol, int time,
+                         int price, double increase, String remark) {
+        }
+    }
+}
