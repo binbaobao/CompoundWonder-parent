@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public final class TwoToThreeSmallCapSellStrategy implements BoardSellStrategy {
-    private static final double MAX_ACCEPTABLE_DIVERGENCE = -3.0D;
+    private static final double PROFIT_PROTECTION_THRESHOLD = 2.0D;
 
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
@@ -46,12 +46,12 @@ public final class TwoToThreeSmallCapSellStrategy implements BoardSellStrategy {
         int price2 = market.getMinutePriceAt(index - 2);
         int previousPrice = market.getMinutePriceAt(index - 1);
 
-        // 优化样本：华丰股份（605100），2025-02-25；小分歧不再立即卖出。
+        // 优化样本：楚环科技（001336），2025-12-23；强势时观察，利润回落到 2% 即退出。
         if (price3 > price2 && price2 > previousPrice
-                && market.getIncrease() <= MAX_ACCEPTABLE_DIVERGENCE) {
+                && market.getIncrease() <= PROFIT_PROTECTION_THRESHOLD) {
             String remark = StrUtil.format(
-                    "2进3价格连续走弱；条件：连续 3 分钟价格下降，当前涨幅 {}%，卖出阈值 {}%",
-                    market.getIncrease(), MAX_ACCEPTABLE_DIVERGENCE);
+                    "2进3价格连续走弱；条件：连续 3 分钟价格下降，当前涨幅 {}%，利润保护阈值 {}%",
+                    market.getIncrease(), PROFIT_PROTECTION_THRESHOLD);
             return match(market, record, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING,
                     currentPrice, remark);
         }
@@ -62,10 +62,10 @@ public final class TwoToThreeSmallCapSellStrategy implements BoardSellStrategy {
 
         // 回测样本：双枪科技（001211），2025-12-05；明显弱势仍快速卖出。
         if (averagePrice3 > averagePrice2 && averagePrice2 > previousAveragePrice
-                && market.getIncrease() <= MAX_ACCEPTABLE_DIVERGENCE) {
+                && market.getIncrease() <= PROFIT_PROTECTION_THRESHOLD) {
             String remark = StrUtil.format(
-                    "2进3均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%，卖出阈值 {}%",
-                    market.getIncrease(), MAX_ACCEPTABLE_DIVERGENCE);
+                    "2进3均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%，利润保护阈值 {}%",
+                    market.getIncrease(), PROFIT_PROTECTION_THRESHOLD);
             return match(market, record, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING,
                     currentPrice, remark);
         }

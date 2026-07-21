@@ -54,7 +54,7 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
-    void acceptsSmallDivergenceFromHuafengSharesOn2025_02_25() {
+    void protectsCapitalWhenHuafengSharesIsAlreadyBelowTwoPercentOn2025_02_25() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
         values.put("getTime", 93_259_760);
@@ -68,8 +68,9 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
-        assertEquals(0, rule.ruleCode);
+        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
+        assertEquals(1_696, rule.price);
     }
 
     @Test
