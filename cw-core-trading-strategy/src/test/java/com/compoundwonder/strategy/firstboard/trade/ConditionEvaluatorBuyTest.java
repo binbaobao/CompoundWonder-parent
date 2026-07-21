@@ -94,6 +94,7 @@ class ConditionEvaluatorBuyTest {
     void keepsBlockingAfterFastLimitUpUntilTurnoverReachesTwentyFivePercent() {
         Map<String, Object> overrides = new HashMap<>();
         overrides.put("getTime", 94_000_000);
+        overrides.put("getOpenIncrease", 3.01D);
         overrides.put("getLastPrice", 1_100);
         overrides.put("getLimitUpPrice", 1_100);
         overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> {
@@ -106,6 +107,26 @@ class ConditionEvaluatorBuyTest {
         overrides.put("getLargestBuyOrderQuantity", 888_800);
 
         assertFalse(ConditionEvaluatorBuy.evaluate(
+                market(24.99D, overrides), new CapturedRule()));
+    }
+
+    @Test
+    void restoresEntryAfterFastLimitUpWhenOpeningNoHigherThanThreePercent() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("getTime", 94_000_000);
+        overrides.put("getOpenIncrease", 3.00D);
+        overrides.put("getLastPrice", 1_100);
+        overrides.put("getLimitUpPrice", 1_100);
+        overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> {
+            if (index == 2) {
+                return 1_071;
+            }
+            return index == 4 ? 1_100 : 0;
+        });
+        overrides.put("getLargestBuyOrderPrice", 1_100);
+        overrides.put("getLargestBuyOrderQuantity", 888_800);
+
+        assertTrue(ConditionEvaluatorBuy.evaluate(
                 market(24.99D, overrides), new CapturedRule()));
     }
 

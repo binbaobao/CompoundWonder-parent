@@ -37,7 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Slf4j
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
-    static final String STRATEGY_VERSION = "multi-model-007";
+    static final String STRATEGY_VERSION = "multi-model-008";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;

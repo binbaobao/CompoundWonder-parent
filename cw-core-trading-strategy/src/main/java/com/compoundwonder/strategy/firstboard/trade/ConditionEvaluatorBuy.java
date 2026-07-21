@@ -105,6 +105,10 @@ public final class ConditionEvaluatorBuy {
      * 发生过快速冲板后，重新允许买入所需的最低实时换手率，单位：%。
      */
     private static final double MIN_TURNOVER_AFTER_FAST_LIMIT_UP = 25.0;
+    /**
+     * 低位开盘的换手板允许在快速冲板炸开后重新判断，单位：%。
+     */
+    private static final double MAX_OPEN_INCREASE_FOR_FAST_LIMIT_UP_RECOVERY = 3.0;
 
     private ConditionEvaluatorBuy() {
     }
@@ -212,7 +216,8 @@ public final class ConditionEvaluatorBuy {
     /**
      * 当前分钟不参与历史判断，避免用尚未走完的封板分钟反推路径。首次达到 7% 后
      * 不足 8 个交易分钟直接拒绝；若这段窗口内已经完成过涨停分钟，则后续需等实时
-     * 换手达到 25% 才恢复买入。
+     * 高开超过 3% 的加速板需等换手达到 25% 才恢复买入；开盘不高于 3% 的
+     * 低位换手板仍交给后续规则判断。
      */
     static boolean isSevenPercentToLimitUpTooFast(TradeMarketState orderBook) {
         int closePrice = orderBook.getClosePrice();
@@ -237,6 +242,10 @@ public final class ConditionEvaluatorBuy {
             return true;
         }
         if (orderBook.getTurnoverRate() >= MIN_TURNOVER_AFTER_FAST_LIMIT_UP) {
+            return false;
+        }
+        if (orderBook.getOpenIncrease()
+                <= MAX_OPEN_INCREASE_FOR_FAST_LIMIT_UP_RECOVERY) {
             return false;
         }
         int fastWindowEnd = Math.min(
