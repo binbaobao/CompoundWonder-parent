@@ -13,18 +13,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BacktestExecutionPolicyTest {
 
     @Test
-    void shanghaiBuyRequiresMoreThanFiveHundredMilliseconds() {
-        RuleRecordDTO boundary = buyRecord("600001", 100000000, 100000500);
-        RuleRecordDTO fillable = buyRecord("600001", 100000000, 100000501);
+    void shanghaiBuyRequiresMoreThanFourHundredAndFiftyMilliseconds() {
+        RuleRecordDTO boundary = buyRecord("600001", 100000000, 100000450);
+        RuleRecordDTO fillable = buyRecord("600001", 100000000, 100000451);
 
         assertFalse(BacktestExecutionPolicy.isIntradayBuyFillable(boundary));
         assertTrue(BacktestExecutionPolicy.isIntradayBuyFillable(fillable));
     }
 
     @Test
-    void shenzhenBuyRequiresMoreThanOneHundredMilliseconds() {
-        RuleRecordDTO boundary = buyRecord("000001", 95959950, 100000050);
-        RuleRecordDTO fillable = buyRecord("000001", 95959950, 100000051);
+    void shenzhenBuyRequiresMoreThanEightyMilliseconds() {
+        RuleRecordDTO boundary = buyRecord("000001", 95959950, 100000030);
+        RuleRecordDTO fillable = buyRecord("000001", 95959950, 100000031);
 
         assertFalse(BacktestExecutionPolicy.isIntradayBuyFillable(boundary));
         assertTrue(BacktestExecutionPolicy.isIntradayBuyFillable(fillable));
@@ -54,6 +54,14 @@ class BacktestExecutionPolicyTest {
     void overnightBuyAlsoFillsWhenDailyTurnoverExceedsFortyMillionYuan() {
         assertFalse(BacktestExecutionPolicy.isOvernightBuyFillable(91501000, 4000D));
         assertTrue(BacktestExecutionPolicy.isOvernightBuyFillable(91501000, 4000.01D));
+    }
+
+    @Test
+    void modelTwoOvernightBuyRequiresQueueHeadBeforeTwoThirty() {
+        assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(0));
+        assertTrue(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(142959999));
+        assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(143000000));
+        assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(145824770));
     }
 
     @Test

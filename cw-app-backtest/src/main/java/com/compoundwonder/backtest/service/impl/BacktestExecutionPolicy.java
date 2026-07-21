@@ -14,6 +14,7 @@ import java.util.Optional;
 final class BacktestExecutionPolicy {
 
     static final int OVERNIGHT_FILL_TIME = 91_501_000;
+    static final int MODEL_TWO_OVERNIGHT_QUEUE_CUTOFF = 143_000_000;
     private static final int SHANGHAI_DELAY_MILLIS = 450;
     private static final int SHENZHEN_DELAY_MILLIS = 80;
 
@@ -63,6 +64,14 @@ final class BacktestExecutionPolicy {
     static boolean isOvernightBuyFillable(int lastOrderTime, Double dailyTurnoverInTenThousands) {
         return isOvernightBuyFillable(lastOrderTime)
                 || dailyTurnoverInTenThousands != null && dailyTurnoverInTenThousands > 4_000D;
+    }
+
+    /**
+     * Model 2 只接受 14:30 前已经排到的真实队首时间，不使用成交额兜底模拟成交。
+     */
+    static boolean isModelTwoOvernightBuyFillable(int lastOrderTime) {
+        return isOvernightBuyFillable(lastOrderTime)
+                && lastOrderTime < MODEL_TWO_OVERNIGHT_QUEUE_CUTOFF;
     }
 
     /**

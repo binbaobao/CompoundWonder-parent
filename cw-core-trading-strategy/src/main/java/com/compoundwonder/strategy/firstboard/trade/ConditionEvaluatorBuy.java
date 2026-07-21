@@ -97,6 +97,10 @@ public final class ConditionEvaluatorBuy {
      * 最近一次封板后允许产生买入信号的时间窗口，单位：毫秒。
      */
     private static final int RECENT_LIMIT_UP_WINDOW_MILLIS = 30_000;
+    /**
+     * 普通排板从分钟收盘价首次达到 7% 到买入，至少要经历的交易分钟数。
+     */
+    private static final int MIN_MINUTES_AFTER_SEVEN_PERCENT = 8;
 
     private ConditionEvaluatorBuy() {
     }
@@ -176,6 +180,12 @@ public final class ConditionEvaluatorBuy {
             }
         }
 
+        // 仅限制普通规则 14。大单规则 11-13 已在上方优先返回；没有已完成的 7% 分钟
+        // 代表从低位直接封板，仍保留，不把一字或直接跳板误判为快速拉升。
+        if (isSevenPercentToLimitUpTooFast(orderBook)) {
+            return false;
+        }
+
         if (!isNormalLimitUpOrderEligible(
                 marketValue, limitUpBuyAmount, lastPrice, limitUpPrice, time)) {
             return false;
@@ -193,6 +203,25 @@ public final class ConditionEvaluatorBuy {
         ruleRecord.fill(RuleConstant.TRADING_MODE_BUY, RULE_NORMAL_LIMIT_UP_ORDER,
                 orderBook.getSymbol(), time, lastPrice, orderBook.getIncrease(), remark);
         return true;
+    }
+
+    /**
+     * 当前分钟不参与历史判断，避免用尚未走完的封板分钟反推路径。
+     */
+    static boolean isSevenPercentToLimitUpTooFast(TradeMarketState orderBook) {
+        int closePrice = orderBook.getClosePrice();
+        int currentMinuteIndex = CompactTimeUtil.calculateIndex(orderBook.getTime());
+        if (closePrice <= 0 || currentMinuteIndex <= 0) {
+            return false;
+        }
+        for (int index = 0; index < currentMinuteIndex; index++) {
+            int minutePrice = orderBook.getMinutePriceAt(index);
+            if (minutePrice > 0
+                    && (minutePrice - closePrice) * 100.0 / closePrice >= 7.0) {
+                return currentMinuteIndex - index < MIN_MINUTES_AFTER_SEVEN_PERCENT;
+            }
+        }
+        return false;
     }
 
     /**

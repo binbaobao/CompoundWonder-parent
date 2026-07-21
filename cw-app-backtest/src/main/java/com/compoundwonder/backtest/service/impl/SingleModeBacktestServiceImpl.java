@@ -37,7 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Slf4j
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
-    static final String STRATEGY_VERSION = "multi-model-003";
+    static final String STRATEGY_VERSION = "multi-model-004";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -399,8 +399,13 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             }
         } else {
             Double turnover = buyDaily.getTurnover();
-            if (!BacktestExecutionPolicy.isOvernightBuyFillable(
-                    overnight.lastOrderTime(), turnover)) {
+            boolean overnightFillable = Integer.valueOf(TradeMode.FIRST_BOARD.code())
+                    .equals(sample.getTradeMode())
+                    ? BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(
+                    overnight.lastOrderTime())
+                    : BacktestExecutionPolicy.isOvernightBuyFillable(
+                    overnight.lastOrderTime(), turnover);
+            if (!overnightFillable) {
                 sample.setNoBuyReason("隔夜涨停委托未满足成交条件；队首时间="
                         + overnight.lastOrderTime() + "，成交额=" + turnover + "万元");
             } else {

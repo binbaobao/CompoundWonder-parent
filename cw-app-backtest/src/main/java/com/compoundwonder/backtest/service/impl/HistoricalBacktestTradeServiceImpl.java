@@ -3,6 +3,7 @@ package com.compoundwonder.backtest.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.orderbook.data.BacktestDailyTickBatch;
+import com.compoundwonder.common.strategy.trade.TradeMode;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.dto.RuleRecordDTO;
@@ -232,8 +233,13 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 } else {
                     Double dailyTurnover = findDailyTurnover(
                             tradeDate, overnightTask.getStockCode());
-                    if (BacktestExecutionPolicy.isOvernightBuyFillable(
-                            overnightResult.lastOrderTime(), dailyTurnover)) {
+                    boolean overnightFillable = Integer.valueOf(TradeMode.FIRST_BOARD.code())
+                            .equals(overnightTask.getTradeMode())
+                            ? BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(
+                            overnightResult.lastOrderTime())
+                            : BacktestExecutionPolicy.isOvernightBuyFillable(
+                            overnightResult.lastOrderTime(), dailyTurnover);
+                    if (overnightFillable) {
                         buyTask = overnightTask;
                         buyRule = overnightBuyRule(overnightResult, dailyTurnover);
                     }
