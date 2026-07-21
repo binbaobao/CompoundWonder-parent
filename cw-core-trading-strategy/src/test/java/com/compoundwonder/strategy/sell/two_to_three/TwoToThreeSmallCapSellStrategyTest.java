@@ -74,6 +74,26 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
+    void protectsNearlyFivePercentProfitFromXinnongSharesOn2025_10_16() {
+        int index = 10;
+        Map<String, Object> values = baseValues(80_000, 2);
+        values.put("getTime", 93_259_700);
+        values.put("getIncrease", 4.740125D);
+        values.put("getMinutePriceAt", (IntUnaryOperator) i -> switch (i) {
+            case 7 -> 2_510;
+            case 8 -> 2_500;
+            case 9 -> 2_490;
+            default -> 2_480;
+        });
+
+        CapturedRule rule = new CapturedRule();
+
+        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
+        assertEquals(2_480, rule.price);
+    }
+
+    @Test
     void protectsCapitalWhenHuafengSharesIsAlreadyBelowTwoPercentOn2025_02_25() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
