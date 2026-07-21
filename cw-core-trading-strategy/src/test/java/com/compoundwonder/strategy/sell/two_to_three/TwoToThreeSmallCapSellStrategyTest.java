@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.function.IntUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TwoToThreeSmallCapSellStrategyTest {
@@ -34,7 +35,7 @@ class TwoToThreeSmallCapSellStrategyTest {
     }
 
     @Test
-    void keepsPriceWeakeningFromChuhuanTechnologyOn2025_12_23() {
+    void holdsPositivePricePullbackFromChuhuanTechnologyOn2025_12_23() {
         int index = 10;
         Map<String, Object> values = baseValues(80_000, 2);
         values.put("getTime", 93_559_530);
@@ -48,9 +49,27 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
-        assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
-        assertEquals(3_006, rule.price);
+        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void acceptsSmallDivergenceFromHuafengSharesOn2025_02_25() {
+        int index = 10;
+        Map<String, Object> values = baseValues(80_000, 2);
+        values.put("getTime", 93_259_760);
+        values.put("getIncrease", -1.7919075144508672D);
+        values.put("getMinutePriceAt", (IntUnaryOperator) i -> switch (i) {
+            case 7 -> 1_720;
+            case 8 -> 1_710;
+            case 9 -> 1_700;
+            default -> 1_696;
+        });
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertEquals(0, rule.ruleCode);
     }
 
     @Test
