@@ -70,7 +70,7 @@ final class BacktestExecutionPolicy {
      * Model 2 只接受 14:30 前已经排到的真实队首时间，不使用成交额兜底模拟成交。
      */
     static boolean isModelTwoOvernightBuyFillable(int lastOrderTime) {
-        return isOvernightBuyFillable(lastOrderTime)
+        return lastOrderTime > 0
                 && lastOrderTime < MODEL_TWO_OVERNIGHT_QUEUE_CUTOFF;
     }
 

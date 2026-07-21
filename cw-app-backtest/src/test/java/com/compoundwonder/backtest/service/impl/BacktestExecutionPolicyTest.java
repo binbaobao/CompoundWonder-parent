@@ -59,6 +59,7 @@ class BacktestExecutionPolicyTest {
     @Test
     void modelTwoOvernightBuyRequiresQueueHeadBeforeTwoThirty() {
         assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(0));
+        assertTrue(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(91500000));
         assertTrue(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(142959999));
         assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(143000000));
         assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(145824770));
