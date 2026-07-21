@@ -115,7 +115,7 @@ class AuctionStrategyDispatcherTest {
         for (int tradeMode = 1; tradeMode <= 3; tradeMode++) {
             OrderBook orderBook = new OrderBook("600001", 100_000_000L, 10.00, 20_000_000L);
             orderBook.setTradeMode(tradeMode);
-            orderBook.setInitialMarketValue(199_999);
+            orderBook.setInitialMarketValue(tradeMode == 2 ? 159_999 : 199_999);
             int limitUpPrice = orderBook.getLimitUpPrice();
 
             // 绝对强度阈值为 min(流通股 5%=500万股, 最大成交量 20%=400万股)。
@@ -145,6 +145,38 @@ class AuctionStrategyDispatcherTest {
                     0, 91_906_000, growthFromZero));
             assertEquals(3, growthFromZero.ruleCode);
         }
+    }
+
+    @Test
+    void modelTwoRuleTwoRequiresStartupValueStrictlyBelowSixteenBillion() {
+        OrderBook orderBook = new OrderBook(
+                "600001", 100_000_000L, 10.00, 20_000_000L);
+        orderBook.setTradeMode(2);
+        int limitUpPrice = orderBook.getLimitUpPrice();
+
+        orderBook.setInitialMarketValue(159_999);
+        RuleRecord belowBoundary = new RuleRecord();
+        assertTrue(dispatcher.evaluateShanghaiAuctionBuy(
+                orderBook,
+                event((byte) 4, 91_900_000, limitUpPrice,
+                        0, 0, 4_000_001, 1_500_000),
+                -1, 91_900_000, belowBoundary));
+        assertEquals(2, belowBoundary.ruleCode);
+
+        orderBook.setInitialMarketValue(160_000);
+        assertFalse(dispatcher.evaluateShanghaiAuctionBuy(
+                orderBook,
+                event((byte) 4, 91_903_000, limitUpPrice,
+                        0, 0, 4_000_001, 1_500_000),
+                -1, 91_903_000, new RuleRecord()));
+
+        RuleRecord snapshotGrowth = new RuleRecord();
+        assertTrue(dispatcher.evaluateShanghaiAuctionBuy(
+                orderBook,
+                event((byte) 4, 91_906_000, limitUpPrice,
+                        0, 0, 3_600_000, 1_000_000),
+                2_000_000, 91_906_000, snapshotGrowth));
+        assertEquals(3, snapshotGrowth.ruleCode);
     }
 
     @Test

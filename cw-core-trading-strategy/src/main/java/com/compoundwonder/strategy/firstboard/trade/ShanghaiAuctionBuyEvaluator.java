@@ -19,6 +19,8 @@ final class ShanghaiAuctionBuyEvaluator {
 
     /** 启动流通市值必须严格小于 20 亿元；字段单位为万元。 */
     private static final int MAX_START_MARKET_VALUE_EXCLUSIVE = 200_000;
+    /** 规则 2 的启动流通市值必须严格小于 16 亿元；字段单位为万元。 */
+    private static final int RULE_TWO_MAX_START_MARKET_VALUE_EXCLUSIVE = 160_000;
     private static final int RULE_ABSOLUTE_STRENGTH = 2;
     private static final int RULE_SNAPSHOT_GROWTH = 3;
 
@@ -28,8 +30,9 @@ final class ShanghaiAuctionBuyEvaluator {
     /**
      * 上海集合竞价买入规则。
      *
-     * <p>启动市值小于 20 亿元时，不区分交易模式和板高。规则 2 判断当前封单绝对
-     * 强度；规则 3 判断相邻快照封单突然增长。两条规则同时命中时优先记录规则 2。</p>
+     * <p>启动市值小于 16 亿元时，规则 2 判断当前封单绝对强度；启动市值小于
+     * 20 亿元时，规则 3 判断相邻快照封单突然增长。两条规则同时命中时优先记录
+     * 规则 2。</p>
      *
      * @return 命中规则 2 或规则 3 并完成规则记录填充时返回 {@code true}
      */
@@ -49,8 +52,10 @@ final class ShanghaiAuctionBuyEvaluator {
         }
 
         long requiredBuyVolume = calculateRequiredBuyVolume(market);
-        boolean absoluteStrength = hasAbsoluteStrength(
-                currentBuyVolume, matchedSellVolume, requiredBuyVolume);
+        boolean absoluteStrength = market.getInitialMarketValue()
+                < RULE_TWO_MAX_START_MARKET_VALUE_EXCLUSIVE
+                && hasAbsoluteStrength(
+                        currentBuyVolume, matchedSellVolume, requiredBuyVolume);
         boolean snapshotGrowth = hasSnapshotGrowth(
                 currentBuyVolume, previousBuyVolume, market.getCirculation());
         if (!absoluteStrength && !snapshotGrowth) {

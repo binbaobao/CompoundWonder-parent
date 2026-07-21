@@ -98,7 +98,7 @@ public final class ConditionEvaluatorBuy {
      */
     private static final int RECENT_LIMIT_UP_WINDOW_MILLIS = 30_000;
     /**
-     * 普通排板从分钟收盘价首次达到 7% 到买入，至少要经历的交易分钟数。
+     * 连续竞价从分钟收盘价首次达到 7% 到买入，至少要经历的交易分钟数。
      */
     private static final int MIN_MINUTES_AFTER_SEVEN_PERCENT = 8;
 
@@ -167,6 +167,12 @@ public final class ConditionEvaluatorBuy {
             }
         }
 
+        // 同时限制普通排板和大单扫板。没有已完成的 7% 分钟代表从低位直接封板，
+        // 仍保留，不把一字或直接跳板误判为快速拉升。
+        if (isSevenPercentToLimitUpTooFast(orderBook)) {
+            return false;
+        }
+
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。
         if (orderBook.getLargestBuyOrderPrice() != 0
                 && orderBook.getLargestBuyOrderPrice() == limitUpPrice
@@ -178,12 +184,6 @@ public final class ConditionEvaluatorBuy {
                 fillLargeOrderRecord(orderBook, ruleRecord, largeOrderRule);
                 return true;
             }
-        }
-
-        // 仅限制普通规则 14。大单规则 11-13 已在上方优先返回；没有已完成的 7% 分钟
-        // 代表从低位直接封板，仍保留，不把一字或直接跳板误判为快速拉升。
-        if (isSevenPercentToLimitUpTooFast(orderBook)) {
-            return false;
         }
 
         if (!isNormalLimitUpOrderEligible(

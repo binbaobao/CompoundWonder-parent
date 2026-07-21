@@ -55,10 +55,34 @@ class ConditionEvaluatorBuyTest {
     }
 
     @Test
-    void fastPathDoesNotBlockLargeOrderRules() {
+    void rejectsLargeOrderRuleWhenSevenPercentWasReachedLessThanEightMinutesAgo() {
         Map<String, Object> overrides = new HashMap<>();
         overrides.put("getTime", 94_000_000);
         overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> index == 4 ? 1_071 : 0);
+        overrides.put("getLargestBuyOrderPrice", 1_000);
+        overrides.put("getLargestBuyOrderQuantity", 888_800);
+
+        assertFalse(ConditionEvaluatorBuy.evaluate(
+                market(12.00D, overrides), new CapturedRule()));
+    }
+
+    @Test
+    void keepsLargeOrderRuleWhenSevenPercentWasReachedAtLeastEightMinutesAgo() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("getTime", 94_000_000);
+        overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> index == 2 ? 1_071 : 0);
+        overrides.put("getLargestBuyOrderPrice", 1_000);
+        overrides.put("getLargestBuyOrderQuantity", 888_800);
+
+        assertTrue(ConditionEvaluatorBuy.evaluate(
+                market(12.00D, overrides), new CapturedRule()));
+    }
+
+    @Test
+    void keepsDirectLargeOrderLimitUpWithoutCompletedSevenPercentMinute() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("getTime", 94_000_000);
+        overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> 0);
         overrides.put("getLargestBuyOrderPrice", 1_000);
         overrides.put("getLargestBuyOrderQuantity", 888_800);
 
