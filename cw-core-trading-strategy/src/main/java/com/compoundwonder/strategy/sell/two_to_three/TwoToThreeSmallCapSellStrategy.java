@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public final class TwoToThreeSmallCapSellStrategy implements BoardSellStrategy {
-    private static final double PROFIT_PROTECTION_THRESHOLD = 5.0D;
+    private static final double PROFIT_PROTECTION_THRESHOLD = 6.0D;
 
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
@@ -46,7 +46,7 @@ public final class TwoToThreeSmallCapSellStrategy implements BoardSellStrategy {
         int price2 = market.getMinutePriceAt(index - 2);
         int previousPrice = market.getMinutePriceAt(index - 1);
 
-        // 优化样本：奇精机械（603677），2025-03-14；强势时观察，利润回落到 5% 即退出。
+        // 优化样本：奇精机械（603677），2025-03-14；强势时观察，利润回落到 6% 即退出。
         if (price3 > price2 && price2 > previousPrice
                 && market.getIncrease() <= PROFIT_PROTECTION_THRESHOLD) {
             String remark = StrUtil.format(
