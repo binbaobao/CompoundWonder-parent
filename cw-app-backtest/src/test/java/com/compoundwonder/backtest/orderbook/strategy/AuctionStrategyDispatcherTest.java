@@ -170,6 +170,12 @@ class AuctionStrategyDispatcherTest {
                         0, 0, 4_000_001, 1_500_000),
                 -1, 91_903_000, new RuleRecord()));
 
+        assertFalse(dispatcher.evaluateShanghaiAuctionBuy(
+                orderBook,
+                event((byte) 4, 91_904_000, limitUpPrice,
+                        0, 0, 5_600_000, 1_000_000),
+                3_000_000, 91_904_000, new RuleRecord()));
+
         RuleRecord snapshotGrowth = new RuleRecord();
         assertTrue(dispatcher.evaluateShanghaiAuctionBuy(
                 orderBook,

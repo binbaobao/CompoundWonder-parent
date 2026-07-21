@@ -32,7 +32,7 @@ final class ShanghaiAuctionBuyEvaluator {
      *
      * <p>启动市值小于 16 亿元时，规则 2 判断当前封单绝对强度；启动市值小于
      * 20 亿元时，规则 3 判断相邻快照封单突然增长。两条规则同时命中时优先记录
-     * 规则 2。</p>
+     * 规则 2。启动市值达到 16 亿元且原始绝对强度成立时，不能降级为规则 3。</p>
      *
      * @return 命中规则 2 或规则 3 并完成规则记录填充时返回 {@code true}
      */
@@ -52,10 +52,12 @@ final class ShanghaiAuctionBuyEvaluator {
         }
 
         long requiredBuyVolume = calculateRequiredBuyVolume(market);
-        boolean absoluteStrength = market.getInitialMarketValue()
-                < RULE_TWO_MAX_START_MARKET_VALUE_EXCLUSIVE
-                && hasAbsoluteStrength(
-                        currentBuyVolume, matchedSellVolume, requiredBuyVolume);
+        boolean absoluteStrength = hasAbsoluteStrength(
+                currentBuyVolume, matchedSellVolume, requiredBuyVolume);
+        if (absoluteStrength && market.getInitialMarketValue()
+                >= RULE_TWO_MAX_START_MARKET_VALUE_EXCLUSIVE) {
+            return false;
+        }
         boolean snapshotGrowth = hasSnapshotGrowth(
                 currentBuyVolume, previousBuyVolume, market.getCirculation());
         if (!absoluteStrength && !snapshotGrowth) {

@@ -101,6 +101,10 @@ public final class ConditionEvaluatorBuy {
      * 连续竞价从分钟收盘价首次达到 7% 到买入，至少要经历的交易分钟数。
      */
     private static final int MIN_MINUTES_AFTER_SEVEN_PERCENT = 8;
+    /**
+     * 发生过快速冲板后，重新允许买入所需的最低实时换手率，单位：%。
+     */
+    private static final double MIN_TURNOVER_AFTER_FAST_LIMIT_UP = 25.0;
 
     private ConditionEvaluatorBuy() {
     }
@@ -206,7 +210,9 @@ public final class ConditionEvaluatorBuy {
     }
 
     /**
-     * 当前分钟不参与历史判断，避免用尚未走完的封板分钟反推路径。
+     * 当前分钟不参与历史判断，避免用尚未走完的封板分钟反推路径。首次达到 7% 后
+     * 不足 8 个交易分钟直接拒绝；若这段窗口内已经完成过涨停分钟，则后续需等实时
+     * 换手达到 25% 才恢复买入。
      */
     static boolean isSevenPercentToLimitUpTooFast(TradeMarketState orderBook) {
         int closePrice = orderBook.getClosePrice();
@@ -214,11 +220,31 @@ public final class ConditionEvaluatorBuy {
         if (closePrice <= 0 || currentMinuteIndex <= 0) {
             return false;
         }
+        int firstSevenPercentIndex = -1;
         for (int index = 0; index < currentMinuteIndex; index++) {
             int minutePrice = orderBook.getMinutePriceAt(index);
             if (minutePrice > 0
                     && (minutePrice - closePrice) * 100.0 / closePrice >= 7.0) {
-                return currentMinuteIndex - index < MIN_MINUTES_AFTER_SEVEN_PERCENT;
+                firstSevenPercentIndex = index;
+                break;
+            }
+        }
+        if (firstSevenPercentIndex < 0) {
+            return false;
+        }
+        if (currentMinuteIndex - firstSevenPercentIndex
+                < MIN_MINUTES_AFTER_SEVEN_PERCENT) {
+            return true;
+        }
+        if (orderBook.getTurnoverRate() >= MIN_TURNOVER_AFTER_FAST_LIMIT_UP) {
+            return false;
+        }
+        int fastWindowEnd = Math.min(
+                currentMinuteIndex,
+                firstSevenPercentIndex + MIN_MINUTES_AFTER_SEVEN_PERCENT);
+        for (int index = firstSevenPercentIndex; index < fastWindowEnd; index++) {
+            if (orderBook.getMinutePriceAt(index) == orderBook.getLimitUpPrice()) {
+                return true;
             }
         }
         return false;
