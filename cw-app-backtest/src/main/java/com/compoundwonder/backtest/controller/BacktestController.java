@@ -217,6 +217,14 @@ public class BacktestController {
                 singleModeBacktestService.startRange(startDate, endDate, requireModel3(tradeMode)));
     }
 
+    /** 固定复用已完成任务的选股结果，不重新选股，只重放触板样本的买入和卖出。 */
+    @PostMapping("single-mode-runs/{sourceRunId}/replays")
+    public Result<SingleModeBacktestRun> replaySingleModeBacktest(
+            @PathVariable Long sourceRunId) {
+        return new Result<SingleModeBacktestRun>().ok(
+                singleModeBacktestService.startReplay(sourceRunId));
+    }
+
     /** 查询最近的 Model 3 单模式任务。 */
     @GetMapping("single-mode-runs")
     public Result<List<SingleModeBacktestRun>> singleModeRuns(

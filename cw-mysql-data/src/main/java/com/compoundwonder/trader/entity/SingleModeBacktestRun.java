@@ -14,6 +14,10 @@ import java.time.LocalDateTime;
 public class SingleModeBacktestRun {
     @TableId(type = IdType.AUTO)
     private Long id;
+    /** 固定复用选股结果时对应的源任务；普通按日期选股回测为空。 */
+    private Long sourceRunId;
+    /** 每轮优化的稳定版本标识，用于把代码提交与回测结果对应起来。 */
+    private String strategyVersion;
     private LocalDate startDate;
     private LocalDate endDate;
     private Integer tradeMode;

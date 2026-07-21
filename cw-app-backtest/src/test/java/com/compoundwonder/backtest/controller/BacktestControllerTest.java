@@ -2,6 +2,7 @@ package com.compoundwonder.backtest.controller;
 
 import com.compoundwonder.backtest.orderbook.BacktestOrderExecutionGateway;
 import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
+import com.compoundwonder.backtest.service.SingleModeBacktestService;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.trader.entity.BacktestRun;
@@ -115,5 +116,73 @@ class BacktestControllerTest {
                         .param("endDate", "2026-01-10")
                         .param("tradeMode", "1"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void replaysFixedSelectionResultsFromCompletedSourceRun() throws Exception {
+        com.compoundwonder.trader.entity.SingleModeBacktestRun replay =
+                new com.compoundwonder.trader.entity.SingleModeBacktestRun();
+        replay.setId(7L);
+        replay.setSourceRunId(6L);
+        replay.setStrategyVersion("iteration-001");
+        SingleModeBacktestService service = new SingleModeBacktestService() {
+            @Override
+            public com.compoundwonder.trader.entity.SingleModeBacktestRun startRange(
+                    LocalDate startDate, LocalDate endDate, int tradeMode) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public com.compoundwonder.trader.entity.SingleModeBacktestRun runRange(
+                    LocalDate startDate, LocalDate endDate, int tradeMode) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public com.compoundwonder.trader.entity.SingleModeBacktestRun startReplay(long sourceRunId) {
+                return replay;
+            }
+
+            @Override
+            public com.compoundwonder.trader.entity.SingleModeBacktestRun runReplay(long sourceRunId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public com.compoundwonder.trader.entity.SingleModeBacktestRun findRun(long runId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public List<com.compoundwonder.trader.entity.SingleModeBacktestRun> findRecentRuns(
+                    int tradeMode, int limit) {
+                return List.of();
+            }
+
+            @Override
+            public com.compoundwonder.backtest.service.model.SingleModeBacktestSummary summarize(long runId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public List<com.compoundwonder.backtest.service.model.SingleModeBoardStat> boardStats(long runId) {
+                return List.of();
+            }
+
+            @Override
+            public com.compoundwonder.backtest.service.model.SingleModeSamplePage findSamples(
+                    long runId, int page, int pageSize) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        BacktestController controller = new BacktestController(
+                null, null, null, null, null, service);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/backtest/single-mode-runs/6/replays"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(7))
+                .andExpect(jsonPath("$.data.sourceRunId").value(6))
+                .andExpect(jsonPath("$.data.strategyVersion").value("iteration-001"));
     }
 }

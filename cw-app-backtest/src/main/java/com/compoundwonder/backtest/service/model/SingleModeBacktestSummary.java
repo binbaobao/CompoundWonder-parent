@@ -8,5 +8,9 @@ public record SingleModeBacktestSummary(
         long openSamples, long noBuySamples, long errorSamples, long winSamples,
         BigDecimal buyRate, BigDecimal closeWinRate, BigDecimal averageReturnRate,
         BigDecimal averagePotentialMaxReturnRate, BigDecimal nextBoardTouchRate,
-        BigDecimal nextBoardSealRate, BigDecimal nextBoardBreakRate) {
+        BigDecimal nextBoardSealRate, BigDecimal nextBoardBreakRate,
+        long virtualSamples, long virtualClosedSamples, long virtualWinSamples,
+        BigDecimal virtualCloseWinRate, BigDecimal virtualAverageReturnRate,
+        BigDecimal scenarioCloseWinRate, BigDecimal scenarioAverageReturnRate,
+        BigDecimal actualEntrySealRate, BigDecimal virtualEntrySealRate) {
 }

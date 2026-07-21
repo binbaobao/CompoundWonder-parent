@@ -13,9 +13,14 @@ import java.time.LocalDateTime;
 @Data
 @TableName("single_mode_backtest_sample")
 public class SingleModeBacktestSample {
+    public static final int POSITION_NONE = 0;
+    public static final int POSITION_ACTUAL = 1;
+    public static final int POSITION_VIRTUAL = 2;
+
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long runId;
+    private Long sourceSampleId;
     private String symbol;
     private String symbolName;
     private Integer tradeMode;
@@ -25,6 +30,8 @@ public class SingleModeBacktestSample {
     private Integer selectionBoard;
     /** 1 已选出，2 未买入，3 持仓至数据末尾，4 已卖出，5 数据异常。 */
     private Integer status;
+    /** 0 无持仓，1 实际成交，2 为积累卖出场景建立的虚拟持仓。 */
+    private Integer positionType;
     private String noBuyReason;
     private LocalDate buyDate;
     private Integer buyTime;

@@ -37,12 +37,14 @@ import java.util.concurrent.RejectedExecutionException;
 @Slf4j
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
+    static final String STRATEGY_VERSION = "iteration-001";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
     private static final int CLOSED = 4;
     private static final int DATA_ERROR = 5;
     private static final int OVERNIGHT_BUY_RULE_CODE = 1;
+    private static final int VIRTUAL_BUY_RULE_CODE = 0;
 
     private final StockSelectionService selectionService;
     private final StockTradeCalendarService calendarService;
@@ -68,7 +70,8 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     @Override
     public SingleModeBacktestRun startRange(LocalDate startDate, LocalDate endDate, int tradeMode) {
         validate(startDate, endDate, tradeMode);
-        SingleModeBacktestRun run = persistenceService.createRun(startDate, endDate, tradeMode);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                startDate, endDate, tradeMode, null, STRATEGY_VERSION);
         try {
             executor.execute(() -> executeRun(run));
             return run;
@@ -81,8 +84,34 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     @Override
     public SingleModeBacktestRun runRange(LocalDate startDate, LocalDate endDate, int tradeMode) {
         validate(startDate, endDate, tradeMode);
-        SingleModeBacktestRun run = persistenceService.createRun(startDate, endDate, tradeMode);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                startDate, endDate, tradeMode, null, STRATEGY_VERSION);
         executeRun(run);
+        return findRun(run.getId());
+    }
+
+    @Override
+    public SingleModeBacktestRun startReplay(long sourceRunId) {
+        SingleModeBacktestRun source = requireReplaySource(sourceRunId);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                source.getStartDate(), source.getEndDate(), source.getTradeMode(),
+                source.getId(), STRATEGY_VERSION);
+        try {
+            executor.execute(() -> executeReplayRun(run));
+            return run;
+        } catch (RejectedExecutionException exception) {
+            persistenceService.fail(run.getId(), exception);
+            throw new IllegalStateException("单模式回测任务队列已满，请稍后重试", exception);
+        }
+    }
+
+    @Override
+    public SingleModeBacktestRun runReplay(long sourceRunId) {
+        SingleModeBacktestRun source = requireReplaySource(sourceRunId);
+        SingleModeBacktestRun run = persistenceService.createRun(
+                source.getStartDate(), source.getEndDate(), source.getTradeMode(),
+                source.getId(), STRATEGY_VERSION);
+        executeReplayRun(run);
         return findRun(run.getId());
     }
 
@@ -123,8 +152,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                     }
                     persistenceService.updateSample(sample);
                     processed++;
-                    if (sample.getBuyDate() != null) bought++;
-                    if (Integer.valueOf(CLOSED).equals(sample.getStatus())) closed++;
+                    if (Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
+                            .equals(sample.getPositionType())) {
+                        bought++;
+                        if (Integer.valueOf(CLOSED).equals(sample.getStatus())) closed++;
+                    }
                 }
                 persistenceService.updateProgress(run.getId(), recommendDate,
                         total, processed, bought, closed);
@@ -141,6 +173,50 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         }
     }
 
+    /** 不再重新选股，固定复用源任务的触板样本执行买卖回放。 */
+    private synchronized void executeReplayRun(SingleModeBacktestRun run) {
+        int total = 0;
+        int processed = 0;
+        int bought = 0;
+        int closed = 0;
+        LocalDate lastCompletedDate = null;
+        try {
+            List<SingleModeBacktestSample> candidates = replayCandidates(
+                    persistenceService.findAllSamples(run.getSourceRunId()));
+            for (SingleModeBacktestSample source : candidates) {
+                SingleModeBacktestSample sample = createReplaySample(run, source);
+                persistenceService.insertSample(sample);
+                total++;
+                try {
+                    executeReplaySample(sample, source, run.getEndDate());
+                } catch (RuntimeException exception) {
+                    sample.setStatus(DATA_ERROR);
+                    sample.setNoBuyReason(abbreviate(exception.getMessage(), 1000));
+                    sample.setSampleEndDate(sample.getTradeDate());
+                    log.warn("单模式固定选股样本回放失败 runId={}, sourceSampleId={}, symbol={}, reason={}",
+                            run.getId(), source.getId(), sample.getSymbol(), exception.getMessage());
+                }
+                persistenceService.updateSample(sample);
+                processed++;
+                if (Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
+                        .equals(sample.getPositionType())) {
+                    bought++;
+                    if (Integer.valueOf(CLOSED).equals(sample.getStatus())) closed++;
+                }
+                lastCompletedDate = sample.getRecommendDate();
+                persistenceService.updateProgress(run.getId(), lastCompletedDate,
+                        total, processed, bought, closed);
+            }
+            persistenceService.complete(run.getId());
+        } catch (RuntimeException exception) {
+            persistenceService.updateProgress(run.getId(), lastCompletedDate,
+                    total, processed, bought, closed);
+            persistenceService.fail(run.getId(), exception);
+            log.error("Model 3 固定选股结果回放失败 runId={}, sourceRunId={}",
+                    run.getId(), run.getSourceRunId(), exception);
+        }
+    }
+
     private SingleModeBacktestSample createSample(SingleModeBacktestRun run,
                                                    SelectionTaskData task) {
         SingleModeBacktestSample sample = new SingleModeBacktestSample();
@@ -153,6 +229,95 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setTradeDate(task.getTradeDate());
         sample.setSelectionBoard(1);
         sample.setStatus(SELECTED);
+        sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
+        sample.setHoldingTradeDays(0);
+        sample.setMaxSealedBoards(1);
+        sample.setMaxTouchedBoards(1);
+        sample.setCreatedTime(LocalDateTime.now());
+        return sample;
+    }
+
+    /**
+     * 固定源任务的买入事实，只重放卖出生命周期。
+     * 真实成交复用源任务快照；触板未成交样本按当日涨停价建立虚拟持仓。
+     */
+    private void executeReplaySample(SingleModeBacktestSample sample,
+                                     SingleModeBacktestSample source,
+                                     LocalDate dataEndDate) {
+        StockDailyEntity buyDaily = findDailyOrNull(sample.getSymbol(), sample.getTradeDate());
+        if (buyDaily == null) {
+            sample.setStatus(DATA_ERROR);
+            sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
+            sample.setNoBuyReason("固定样本买入日无日 K（停牌或数据缺失）");
+            sample.setSampleEndDate(sample.getTradeDate());
+            return;
+        }
+        if (buyDaily.getKlineState() == null || buyDaily.getKlineState() <= 0) {
+            sample.setStatus(DATA_ERROR);
+            sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
+            sample.setNoBuyReason("固定触板样本的买入日日 K 状态不一致，klineState=" + buyDaily.getKlineState());
+            sample.setSampleEndDate(sample.getTradeDate());
+            return;
+        }
+        prepareReplayPosition(sample, source, buyDaily);
+        calculateBoardPotential(sample, buyDaily, dataEndDate);
+        calculateSellLifecycle(sample, dataEndDate);
+    }
+
+    static void prepareReplayPosition(SingleModeBacktestSample sample,
+                                      SingleModeBacktestSample source,
+                                      StockDailyEntity buyDaily) {
+        if (isActualSourcePosition(source)) {
+            if (source.getBuyPrice() == null || source.getBuyPrice() <= 0) {
+                throw new IllegalStateException("源任务真实成交样本缺少有效买入价");
+            }
+            sample.setPositionType(SingleModeBacktestSample.POSITION_ACTUAL);
+            sample.setBuyDate(source.getBuyDate());
+            sample.setBuyTime(source.getBuyTime());
+            sample.setBuyPrice(source.getBuyPrice());
+            sample.setBuyRuleCode(source.getBuyRuleCode());
+            sample.setBuyRemark(source.getBuyRemark());
+            sample.setBuyDayKlineState(source.getBuyDayKlineState() == null
+                    ? buyDaily.getKlineState() : source.getBuyDayKlineState());
+            sample.setStatus(OPEN);
+            sample.setHoldingTradeDays(1);
+            return;
+        }
+
+        sample.setPositionType(SingleModeBacktestSample.POSITION_VIRTUAL);
+        sample.setNoBuyReason(source.getNoBuyReason());
+        sample.setBuyDate(sample.getTradeDate());
+        sample.setBuyTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
+        sample.setBuyPrice(cents(buyDaily.getHighPrice()));
+        sample.setBuyRuleCode(VIRTUAL_BUY_RULE_CODE);
+        sample.setBuyRemark("卖出场景虚拟持仓；复用固定选股结果；实际未成交原因="
+                + source.getNoBuyReason());
+        sample.setBuyDayKlineState(buyDaily.getKlineState());
+        sample.setStatus(OPEN);
+        sample.setHoldingTradeDays(1);
+    }
+
+    private static boolean isActualSourcePosition(SingleModeBacktestSample source) {
+        if (source.getPositionType() != null) {
+            return source.getPositionType() == SingleModeBacktestSample.POSITION_ACTUAL;
+        }
+        return source.getBuyDate() != null;
+    }
+
+    private SingleModeBacktestSample createReplaySample(SingleModeBacktestRun run,
+                                                         SingleModeBacktestSample source) {
+        SingleModeBacktestSample sample = new SingleModeBacktestSample();
+        sample.setRunId(run.getId());
+        sample.setSourceSampleId(source.getId());
+        sample.setSymbol(source.getSymbol());
+        sample.setSymbolName(source.getSymbolName());
+        sample.setTradeMode(run.getTradeMode());
+        sample.setLimitUpScore(source.getLimitUpScore());
+        sample.setRecommendDate(source.getRecommendDate());
+        sample.setTradeDate(source.getTradeDate());
+        sample.setSelectionBoard(source.getSelectionBoard() == null ? 1 : source.getSelectionBoard());
+        sample.setStatus(SELECTED);
+        sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
         sample.setHoldingTradeDays(0);
         sample.setMaxSealedBoards(1);
         sample.setMaxTouchedBoards(1);
@@ -164,6 +329,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         StockDailyEntity buyDaily = findDailyOrNull(sample.getSymbol(), sample.getTradeDate());
         if (buyDaily == null) {
             sample.setStatus(NO_BUY);
+            sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
             sample.setNoBuyReason("买入日无日 K（停牌或数据缺失）");
             sample.setSampleEndDate(sample.getTradeDate());
             return;
@@ -171,6 +337,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         calculateBoardPotential(sample, buyDaily, dataEndDate);
         if (buyDaily.getKlineState() == null || buyDaily.getKlineState() <= 0) {
             sample.setStatus(NO_BUY);
+            sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
             sample.setNoBuyReason("买入日未触板，klineState=" + buyDaily.getKlineState());
             return;
         }
@@ -180,27 +347,31 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         BacktestReplayResult overnight = replayService.replay(
                 sample.getTradeDate(), sample.getSymbol(), BacktestReplayMode.OVERNIGHT_BUY,
                 null, buyTicks, sample.getTradeMode());
-        RuleRecordDTO buyRule;
+        RuleRecordDTO buyRule = null;
         RuleRecordDTO cancel = overnight.firstCancelRecord().orElse(null);
         if (cancel != null) {
             buyRule = findIntradayBuy(sample, buyTicks, cancel.getTime());
+            if (buyRule == null) {
+                sample.setNoBuyReason("集合竞价撤单后未出现可成交买点");
+            }
         } else {
             Double turnover = buyDaily.getTurnover();
             if (!BacktestExecutionPolicy.isOvernightBuyFillable(
                     overnight.lastOrderTime(), turnover)) {
-                sample.setStatus(NO_BUY);
                 sample.setNoBuyReason("隔夜涨停委托未满足成交条件；队首时间="
                         + overnight.lastOrderTime() + "，成交额=" + turnover + "万元");
-                return;
+            } else {
+                buyRule = overnightBuyRule(overnight, turnover);
             }
-            buyRule = overnightBuyRule(overnight, turnover);
         }
         if (buyRule == null) {
-            sample.setStatus(NO_BUY);
-            sample.setNoBuyReason("集合竞价撤单后未出现可成交买点");
+            prepareVirtualPosition(sample, buyDaily, overnight);
+            calculateBoardPotential(sample, buyDaily, dataEndDate);
+            calculateSellLifecycle(sample, dataEndDate);
             return;
         }
 
+        sample.setPositionType(SingleModeBacktestSample.POSITION_ACTUAL);
         sample.setBuyDate(sample.getTradeDate());
         sample.setBuyTime(buyRule.getTime());
         sample.setBuyPrice(buyRule.getPrice());
@@ -211,7 +382,26 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setHoldingTradeDays(1);
         // 买入价确定后重新按真实成交价计算本轮理论最高收益。
         calculateBoardPotential(sample, buyDaily, dataEndDate);
-        calculateActualLifecycle(sample, dataEndDate);
+        calculateSellLifecycle(sample, dataEndDate);
+    }
+
+    /** 为触板但未实际成交的样本建立只用于卖出场景统计的虚拟持仓。 */
+    static void prepareVirtualPosition(SingleModeBacktestSample sample,
+                                       StockDailyEntity buyDaily,
+                                       BacktestReplayResult overnight) {
+        if (overnight.limitUpPrice() <= 0) {
+            throw new IllegalStateException("虚拟持仓缺少有效涨停价格");
+        }
+        String missReason = sample.getNoBuyReason();
+        sample.setPositionType(SingleModeBacktestSample.POSITION_VIRTUAL);
+        sample.setBuyDate(sample.getTradeDate());
+        sample.setBuyTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
+        sample.setBuyPrice(overnight.limitUpPrice());
+        sample.setBuyRuleCode(VIRTUAL_BUY_RULE_CODE);
+        sample.setBuyRemark("卖出场景虚拟持仓；实际未成交原因=" + missReason);
+        sample.setBuyDayKlineState(buyDaily.getKlineState());
+        sample.setStatus(OPEN);
+        sample.setHoldingTradeDays(1);
     }
 
     private RuleRecordDTO findIntradayBuy(SingleModeBacktestSample sample,
@@ -249,20 +439,25 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return null;
     }
 
-    private void calculateActualLifecycle(SingleModeBacktestSample sample,
-                                          LocalDate dataEndDate) {
+    private void calculateSellLifecycle(SingleModeBacktestSample sample,
+                                        LocalDate dataEndDate) {
         List<LocalDate> holdingDays = calendarService.findTradeDays(sample.getBuyDate(), dataEndDate);
         BigDecimal highestReturn = BigDecimal.ZERO;
         BigDecimal maximumDrawdown = BigDecimal.ZERO;
         LocalDate sellDate = null;
         for (int index = 0; index < holdingDays.size(); index++) {
             LocalDate date = holdingDays.get(index);
-            StockDailyEntity daily = findDaily(sample.getSymbol(), date);
+            sample.setHoldingTradeDays(index + 1);
+            StockDailyEntity daily = findDailyOrNull(sample.getSymbol(), date);
+            if (shouldSkipHoldingDay(daily)) {
+                log.warn("单模式卖出生命周期跳过缺失日K runId={}, symbol={}, date={}",
+                        sample.getRunId(), sample.getSymbol(), date);
+                continue;
+            }
             BigDecimal highReturn = priceReturn(cents(daily.getHighPrice()), sample.getBuyPrice());
             BigDecimal lowReturn = priceReturn(cents(daily.getLowPrice()), sample.getBuyPrice());
             highestReturn = highestReturn.max(highReturn);
             maximumDrawdown = maximumDrawdown.max(highestReturn.subtract(lowReturn));
-            sample.setHoldingTradeDays(index + 1);
             if (index == 0) continue;
 
             RuleRecordDTO sellRule;
@@ -295,6 +490,10 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             sample.setPostSellMaxReturnRate(calculatePostSellMaximum(
                     sample, sellDate, dataEndDate));
         }
+    }
+
+    static boolean shouldSkipHoldingDay(StockDailyEntity daily) {
+        return daily == null;
     }
 
     /** 从首板推荐日开始统计本轮最高封板、最高触板和理论最高收益。 */
@@ -355,7 +554,8 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                         .eq(StockDailyEntity::getStockCode, sample.getSymbol())
                         .between(StockDailyEntity::getTradeDate, sellDate, end))
                 .stream().map(StockDailyEntity::getHighPrice).filter(java.util.Objects::nonNull)
-                .map(this::cents).map(price -> priceReturn(price, sample.getBuyPrice()))
+                .map(SingleModeBacktestServiceImpl::cents)
+                .map(price -> priceReturn(price, sample.getBuyPrice()))
                 .max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
     }
 
@@ -429,6 +629,25 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return List.copyOf(dates);
     }
 
+    /** 固定复用源任务选股结果，仅保留触板或已经真实成交的样本。 */
+    static List<SingleModeBacktestSample> replayCandidates(List<SingleModeBacktestSample> samples) {
+        if (samples == null || samples.isEmpty()) return List.of();
+        return samples.stream()
+                .filter(sample -> sample.getBuyDate() != null
+                        || sample.getMaxTouchedBoards() != null && sample.getMaxTouchedBoards() >= 2)
+                .toList();
+    }
+
+    private SingleModeBacktestRun requireReplaySource(long sourceRunId) {
+        SingleModeBacktestRun source = findRun(sourceRunId);
+        validateTradeMode(source.getTradeMode());
+        if (!Integer.valueOf(SingleModeBacktestPersistenceService.COMPLETED)
+                .equals(source.getStatus())) {
+            throw new IllegalArgumentException("只能复用已完成的单模式任务: " + sourceRunId);
+        }
+        return source;
+    }
+
     @Override
     public SingleModeBacktestRun findRun(long runId) {
         SingleModeBacktestRun run = persistenceService.findRun(runId);
@@ -476,7 +695,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
 
     private boolean isSealedLimitUp(Integer state) { return state != null && state >= 1 && state <= 5; }
     private boolean isBrokenLimitUp(Integer state) { return state != null && state >= 11 && state <= 13; }
-    private int cents(Double price) {
+    private static int cents(Double price) {
         if (price == null || price <= 0) throw new IllegalStateException("日 K 缺少有效价格");
         return BigDecimal.valueOf(price).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValue();
     }

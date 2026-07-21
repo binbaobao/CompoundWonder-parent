@@ -33,9 +33,12 @@ public class SingleModeBacktestPersistenceService {
         this.sampleMapper = sampleMapper;
     }
 
-    public SingleModeBacktestRun createRun(LocalDate startDate, LocalDate endDate, int tradeMode) {
+    public SingleModeBacktestRun createRun(LocalDate startDate, LocalDate endDate, int tradeMode,
+                                           Long sourceRunId, String strategyVersion) {
         schemaService.ensureSchema();
         SingleModeBacktestRun run = new SingleModeBacktestRun();
+        run.setSourceRunId(sourceRunId);
+        run.setStrategyVersion(strategyVersion);
         run.setStartDate(startDate);
         run.setEndDate(endDate);
         run.setTradeMode(tradeMode);

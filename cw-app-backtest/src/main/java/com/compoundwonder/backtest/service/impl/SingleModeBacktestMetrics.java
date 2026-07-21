@@ -15,26 +15,43 @@ final class SingleModeBacktestMetrics {
 
     static SingleModeBacktestSummary summarize(List<SingleModeBacktestSample> samples) {
         long total = samples.size();
-        long bought = samples.stream().filter(s -> s.getBuyDate() != null).count();
-        long closed = samples.stream().filter(s -> Integer.valueOf(4).equals(s.getStatus())).count();
-        long open = samples.stream().filter(s -> Integer.valueOf(3).equals(s.getStatus())).count();
-        long noBuy = samples.stream().filter(s -> Integer.valueOf(2).equals(s.getStatus())).count();
+        List<SingleModeBacktestSample> actualSamples = samples.stream()
+                .filter(s -> positionType(s) == SingleModeBacktestSample.POSITION_ACTUAL).toList();
+        List<SingleModeBacktestSample> virtualSamples = samples.stream()
+                .filter(s -> positionType(s) == SingleModeBacktestSample.POSITION_VIRTUAL).toList();
+        long bought = actualSamples.size();
+        long closed = actualSamples.stream().filter(SingleModeBacktestMetrics::isClosed).count();
+        long open = actualSamples.stream().filter(s -> Integer.valueOf(3).equals(s.getStatus())).count();
         long errors = samples.stream().filter(s -> Integer.valueOf(5).equals(s.getStatus())).count();
-        long processed = closed + open + noBuy + errors;
-        long wins = samples.stream().filter(s -> Integer.valueOf(4).equals(s.getStatus()))
+        long noBuy = samples.stream()
+                .filter(s -> positionType(s) != SingleModeBacktestSample.POSITION_ACTUAL)
+                .filter(s -> !Integer.valueOf(5).equals(s.getStatus())).count();
+        long processed = samples.stream().filter(s -> !Integer.valueOf(1).equals(s.getStatus())).count();
+        long wins = actualSamples.stream().filter(SingleModeBacktestMetrics::isClosed)
                 .filter(s -> value(s.getReturnRate()).signum() > 0).count();
-        List<SingleModeBacktestSample> closedSamples = samples.stream()
-                .filter(s -> Integer.valueOf(4).equals(s.getStatus())).toList();
-        List<SingleModeBacktestSample> boughtSamples = samples.stream()
-                .filter(s -> s.getBuyDate() != null).toList();
+        List<SingleModeBacktestSample> closedSamples = actualSamples.stream()
+                .filter(SingleModeBacktestMetrics::isClosed).toList();
+        List<SingleModeBacktestSample> virtualClosed = virtualSamples.stream()
+                .filter(SingleModeBacktestMetrics::isClosed).toList();
+        long virtualWins = virtualClosed.stream()
+                .filter(s -> value(s.getReturnRate()).signum() > 0).count();
+        List<SingleModeBacktestSample> scenarioClosed = samples.stream()
+                .filter(s -> positionType(s) != SingleModeBacktestSample.POSITION_NONE)
+                .filter(SingleModeBacktestMetrics::isClosed).toList();
+        long scenarioWins = scenarioClosed.stream()
+                .filter(s -> value(s.getReturnRate()).signum() > 0).count();
         SingleModeBoardStat next = boardStats(samples).stream()
                 .filter(stat -> stat.fromBoard() == 1).findFirst()
                 .orElse(new SingleModeBoardStat(1, 0, 0, 0, 0,
                         BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
         return new SingleModeBacktestSummary(total, processed, bought, closed, open, noBuy,
                 errors, wins, percent(bought, total), percent(wins, closed),
-                average(closedSamples, true), average(boughtSamples, false),
-                next.touchRate(), next.sealRate(), next.breakRate());
+                averageReturn(closedSamples), averagePotential(actualSamples),
+                next.touchRate(), next.sealRate(), next.breakRate(),
+                virtualSamples.size(), virtualClosed.size(), virtualWins,
+                percent(virtualWins, virtualClosed.size()), averageReturn(virtualClosed),
+                percent(scenarioWins, scenarioClosed.size()), averageReturn(scenarioClosed),
+                sealRate(actualSamples), sealRate(virtualSamples));
     }
 
     static List<SingleModeBoardStat> boardStats(List<SingleModeBacktestSample> samples) {
@@ -53,13 +70,40 @@ final class SingleModeBacktestMetrics {
         return List.copyOf(result);
     }
 
-    private static BigDecimal average(List<SingleModeBacktestSample> samples, boolean actual) {
+    private static BigDecimal averageReturn(List<SingleModeBacktestSample> samples) {
         List<BigDecimal> values = samples.stream()
-                .map(s -> actual ? s.getReturnRate() : s.getPotentialMaxReturnRate())
+                .map(SingleModeBacktestSample::getReturnRate)
                 .filter(java.util.Objects::nonNull).toList();
+        return average(values);
+    }
+
+    private static BigDecimal averagePotential(List<SingleModeBacktestSample> samples) {
+        List<BigDecimal> values = samples.stream()
+                .map(SingleModeBacktestSample::getPotentialMaxReturnRate)
+                .filter(java.util.Objects::nonNull).toList();
+        return average(values);
+    }
+
+    private static BigDecimal average(List<BigDecimal> values) {
         if (values.isEmpty()) return BigDecimal.ZERO;
         return values.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
                 .divide(BigDecimal.valueOf(values.size()), 6, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal sealRate(List<SingleModeBacktestSample> samples) {
+        long sealed = samples.stream().filter(s -> intValue(s.getMaxSealedBoards()) >= 2).count();
+        return percent(sealed, samples.size());
+    }
+
+    private static boolean isClosed(SingleModeBacktestSample sample) {
+        return Integer.valueOf(4).equals(sample.getStatus());
+    }
+
+    private static int positionType(SingleModeBacktestSample sample) {
+        if (sample.getPositionType() != null) return sample.getPositionType();
+        return sample.getBuyDate() == null
+                ? SingleModeBacktestSample.POSITION_NONE
+                : SingleModeBacktestSample.POSITION_ACTUAL;
     }
 
     static BigDecimal percent(long numerator, long denominator) {

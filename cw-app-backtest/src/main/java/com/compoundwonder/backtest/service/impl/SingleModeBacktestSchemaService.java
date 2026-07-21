@@ -20,6 +20,8 @@ public class SingleModeBacktestSchemaService {
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS single_mode_backtest_run (
                   id BIGINT NOT NULL AUTO_INCREMENT,
+                  source_run_id BIGINT NULL,
+                  strategy_version VARCHAR(64) NULL,
                   start_date DATE NOT NULL,
                   end_date DATE NOT NULL,
                   trade_mode INT NOT NULL,
@@ -42,6 +44,7 @@ public class SingleModeBacktestSchemaService {
                 CREATE TABLE IF NOT EXISTS single_mode_backtest_sample (
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   run_id BIGINT NOT NULL,
+                  source_sample_id BIGINT NULL,
                   symbol VARCHAR(6) NOT NULL,
                   symbol_name VARCHAR(32) NULL,
                   trade_mode INT NOT NULL,
@@ -50,6 +53,7 @@ public class SingleModeBacktestSchemaService {
                   trade_date DATE NOT NULL,
                   selection_board INT NOT NULL DEFAULT 1,
                   status INT NOT NULL,
+                  position_type INT NOT NULL DEFAULT 0,
                   no_buy_reason VARCHAR(1000) NULL,
                   buy_date DATE NULL,
                   buy_time INT NULL,
@@ -80,6 +84,44 @@ public class SingleModeBacktestSchemaService {
                   KEY idx_single_mode_sample_run_date (run_id, recommend_date, id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
+        ensureColumn("single_mode_backtest_run", "source_run_id",
+                "ALTER TABLE single_mode_backtest_run ADD COLUMN source_run_id BIGINT NULL AFTER id");
+        ensureColumn("single_mode_backtest_run", "strategy_version",
+                "ALTER TABLE single_mode_backtest_run ADD COLUMN strategy_version VARCHAR(64) NULL AFTER source_run_id");
+        ensureColumn("single_mode_backtest_sample", "source_sample_id",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN source_sample_id BIGINT NULL AFTER run_id");
+        ensureColumn("single_mode_backtest_sample", "position_type",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN position_type INT NOT NULL DEFAULT 0 AFTER status");
+        // 新列首次加入旧表时默认值为 0；按既有买入记录回填实际成交，保持历史汇总口径不变。
+        jdbcTemplate.update("""
+                UPDATE single_mode_backtest_sample
+                SET position_type = 1
+                WHERE position_type = 0
+                  AND buy_date IS NOT NULL
+                  AND (buy_rule_code IS NULL OR buy_rule_code <> 0)
+                """);
+        // 回测线程不跨进程恢复；服务重启后仍标记为运行中的任务均为上次被中断的任务。
+        jdbcTemplate.update("""
+                UPDATE single_mode_backtest_run
+                SET status = 3,
+                    error_message = '服务重启导致任务中断，请重新发起回放',
+                    finished_time = NOW(),
+                    updated_time = NOW()
+                WHERE status = 1
+                """);
         initialized = true;
+    }
+
+    private void ensureColumn(String tableName, String columnName, String alterSql) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = ?
+                  AND column_name = ?
+                """, Integer.class, tableName, columnName);
+        if (count != null && count == 0) {
+            jdbcTemplate.execute(alterSql);
+        }
     }
 }

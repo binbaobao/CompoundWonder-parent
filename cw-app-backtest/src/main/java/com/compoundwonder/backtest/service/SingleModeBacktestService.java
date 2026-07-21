@@ -12,6 +12,10 @@ import java.util.List;
 public interface SingleModeBacktestService {
     SingleModeBacktestRun startRange(LocalDate startDate, LocalDate endDate, int tradeMode);
     SingleModeBacktestRun runRange(LocalDate startDate, LocalDate endDate, int tradeMode);
+    /** 固定复用一个已完成任务的选股结果，异步重新执行买入和卖出回放。 */
+    SingleModeBacktestRun startReplay(long sourceRunId);
+    /** 固定复用一个已完成任务的选股结果，同步重新执行买入和卖出回放。 */
+    SingleModeBacktestRun runReplay(long sourceRunId);
     SingleModeBacktestRun findRun(long runId);
     List<SingleModeBacktestRun> findRecentRuns(int tradeMode, int limit);
     SingleModeBacktestSummary summarize(long runId);
