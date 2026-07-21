@@ -59,8 +59,8 @@ public class BacktestPersistenceService {
         run.setStartDate(startDate);
         run.setEndDate(endDate);
         run.setInitialCapital(initialCapital);
-        run.setShanghaiDelayMs(500);
-        run.setShenzhenDelayMs(100);
+        run.setShanghaiDelayMs(450);
+        run.setShenzhenDelayMs(80);
         run.setOvernightFillTime(BacktestExecutionPolicy.OVERNIGHT_FILL_TIME);
         run.setLimitUpBreakCount(0);
         run.setStatus(RUNNING);

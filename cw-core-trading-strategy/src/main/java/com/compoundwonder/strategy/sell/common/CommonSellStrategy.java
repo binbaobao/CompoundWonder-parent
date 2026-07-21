@@ -38,6 +38,7 @@ public final class CommonSellStrategy implements BoardSellStrategy {
         int nextTradingDay = market.getNextTradingDay();
         int lastPrice = market.getLastPrice();
         double increase = market.getIncrease();
+        int emaSealTrend = market.getEmaSealTrend();
 
         // 临近周末或假期时，高位连板已经超过市值档换手阈值，优先落袋。
         double maxTurnover = maxTurnover(marketValue);
@@ -55,7 +56,7 @@ public final class CommonSellStrategy implements BoardSellStrategy {
         }
 
         // 三天及以上长假前，高位连板或早盘秒板且换手不足时先锁定利润。
-        if (isLimitUp(status)
+        if (isLimitUp(status) && emaSealTrend == -1
                 && nextTradingDay >= 3
                 && (lbcs >= 6 || market.getLastLimitUptime() < ConstantUtil.TIME_931)
                 && turnover < 12) {

@@ -14,8 +14,8 @@ import java.util.Optional;
 final class BacktestExecutionPolicy {
 
     static final int OVERNIGHT_FILL_TIME = 91_501_000;
-    private static final int SHANGHAI_DELAY_MILLIS = 500;
-    private static final int SHENZHEN_DELAY_MILLIS = 100;
+    private static final int SHANGHAI_DELAY_MILLIS = 450;
+    private static final int SHENZHEN_DELAY_MILLIS = 80;
 
     private BacktestExecutionPolicy() {
     }

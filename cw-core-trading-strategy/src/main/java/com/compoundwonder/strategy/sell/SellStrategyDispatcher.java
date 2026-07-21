@@ -76,6 +76,10 @@ public final class SellStrategyDispatcher {
         if (strategy == null) {
             return false;
         }
+        // 均线不参与涨停状态的卖出
+        if (market.getStatus() % 2 == 1) {
+            return false;
+        }
         if (strategy.evaluateAveragePrice(index, market, record)) {
             return true;
         }
