@@ -22,15 +22,25 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 final class ShenzhenAuctionBuyEvaluator {
 
-    /** 启动流通市值单位为万元，200000 表示 20 亿元；边界采用严格小于。 */
+    /**
+     * 启动流通市值单位为万元，200000 表示 20 亿元；边界采用严格小于。
+     */
     private static final int MAX_START_MARKET_VALUE_EXCLUSIVE = 200_000;
-    /** 深圳集合竞价单笔大单买入沿用原规则编号 6。 */
+    /**
+     * 深圳集合竞价单笔大单买入沿用原规则编号 6。
+     */
     private static final int RULE_LARGE_ORDER = 6;
-    /** 深圳集合竞价封单绝对强度买入沿用原规则编号 7。 */
+    /**
+     * 深圳集合竞价封单绝对强度买入沿用原规则编号 7。
+     */
     private static final int RULE_ABSOLUTE_STRENGTH = 7;
-    /** 快照竞价价格离开涨停价时使用撤单规则编号 1。 */
+    /**
+     * 快照竞价价格离开涨停价时使用撤单规则编号 1。
+     */
     private static final int RULE_PRICE_CANCEL = 1;
-    /** 快照价格仍为涨停价、但绝对强度不足时使用撤单规则编号 2。 */
+    /**
+     * 快照价格仍为涨停价、但绝对强度不足时使用撤单规则编号 2。
+     */
     private static final int RULE_STRENGTH_CANCEL = 2;
 
     private ShenzhenAuctionBuyEvaluator() {
@@ -40,31 +50,24 @@ final class ShenzhenAuctionBuyEvaluator {
      * 判断深圳集合竞价买入。
      *
      * <p>绝对强度是订单簿状态规则，任一有效逐笔事件更新订单簿后都可命中；大单是
-     * 单笔事件规则，只有 Handler 已确认本次委托成功入簿、方向为买且有效价格等于
-     * 涨停价时，{@code acceptedLimitUpBuyOrder} 才能为 {@code true}。重复委托已经由
-     * 订单簿插入结果自然排除，这里不再重复查询订单号。</p>
+     * 单笔大单规则直接读取当前逐笔事件：必须是买方向、涨停价的逐笔委托。</p>
      *
      * @param limitUpBuyVolume 当前涨停价买队列剩余总量，单位为股
-     * @param totalSellVolume 当前所有价格档位卖队列剩余总量，单位为股
+     * @param totalSellVolume  当前所有价格档位卖队列剩余总量，单位为股
      * @return 命中大单或封单绝对强度，并完成规则记录填充时返回 {@code true}
      */
     static boolean evaluateBuy(TradeMarketState market, AuctionMarketEvent event,
-                               int recordTime, boolean acceptedLimitUpBuyOrder,
-                               long limitUpBuyVolume, long totalSellVolume,
+                               int recordTime, long limitUpBuyVolume, long totalSellVolume,
                                TradeRuleRecord record) {
-        if (event.getTime() >= ConstantUtil.TIME_925
-                || market.getInitialMarketValue() >= MAX_START_MARKET_VALUE_EXCLUSIVE) {
+        if (event.getTime() >= ConstantUtil.TIME_925 || market.getInitialMarketValue() >= MAX_START_MARKET_VALUE_EXCLUSIVE) {
             return false;
         }
 
         int limitUpPrice = market.getLimitUpPrice();
         long requiredBuyVolume = calculateRequiredBuyVolume(market);
-        boolean absoluteStrength = hasAbsoluteStrength(
-                limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
-        int continuousLargeOrderRule = acceptedLimitUpBuyOrder
-                ? ConditionEvaluatorBuy.matchLargeOrderRule(
-                        market.getInitialMarketValue(), limitUpPrice, event.getQuantity())
-                : 0;
+        boolean absoluteStrength = hasAbsoluteStrength(limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
+        boolean limitUpBuyOrder = event.getDataType() == 1 && event.getDirection() == 1 && event.getPrice() == limitUpPrice;
+        int continuousLargeOrderRule = limitUpBuyOrder ? ConditionEvaluatorBuy.matchLargeOrderRule(market.getInitialMarketValue(), limitUpPrice, event.getQuantity()) : 0;
 
         if (continuousLargeOrderRule == 0 && !absoluteStrength) {
             return false;
@@ -75,10 +78,7 @@ final class ShenzhenAuctionBuyEvaluator {
         if (continuousLargeOrderRule != 0) {
             ruleCode = RULE_LARGE_ORDER;
             long orderAmountWan = event.getQuantity() / 100L * limitUpPrice / 10_000L;
-            remark = StrUtil.format(
-                    "买入 - 深圳早盘竞价涨停大单，股票代码:{}，时间:{}，订单号:{}，委托量:{}，委托金额:{}W，复用连续竞价大单档位规则:{}",
-                    market.getSymbol(), event.getTime(), event.getOrderId(),
-                    event.getQuantity(), orderAmountWan, continuousLargeOrderRule);
+            remark = StrUtil.format("买入 - 深圳早盘竞价涨停大单，股票代码:{}，时间:{}，订单号:{}，委托量:{}，委托金额:{}W，复用连续竞价大单档位规则:{}", market.getSymbol(), event.getTime(), event.getOrderId(), event.getQuantity(), orderAmountWan, continuousLargeOrderRule);
         } else {
             ruleCode = RULE_ABSOLUTE_STRENGTH;
             long estimatedMatchedVolume = totalSellVolume;
@@ -171,7 +171,9 @@ final class ShenzhenAuctionBuyEvaluator {
         return true;
     }
 
-    /** 涨停买量最低要求取流通股本 5% 与近 200 根 K 线最大成交量 20% 中的较小值。 */
+    /**
+     * 涨停买量最低要求取流通股本 5% 与近 200 根 K 线最大成交量 20% 中的较小值。
+     */
     private static long calculateRequiredBuyVolume(TradeMarketState market) {
         return Math.min(market.getCirculation() / 20, market.getMaxVolume() / 5);
     }
@@ -185,9 +187,7 @@ final class ShenzhenAuctionBuyEvaluator {
     private static boolean hasAbsoluteStrength(long limitUpBuyVolume,
                                                long totalSellVolume,
                                                long requiredBuyVolume) {
-        return limitUpBuyVolume > totalSellVolume
-                && limitUpBuyVolume > requiredBuyVolume
-                && totalSellVolume * 100L < limitUpBuyVolume * 40L;
+        return limitUpBuyVolume > totalSellVolume && limitUpBuyVolume > requiredBuyVolume && totalSellVolume * 100L < limitUpBuyVolume * 40L;
     }
 
     private static double increase(int price, int closePrice) {

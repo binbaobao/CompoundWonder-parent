@@ -47,13 +47,9 @@ public class ClickHouseLevel2QueryService {
                    toUInt64(0) AS TotalValueTrade,
                    toUInt8(0) AS EventPriority,
                    toUInt64(No) AS PrimarySortNo,
-                   toUInt64(CASE TickType
-                       WHEN 'A' THEN 0
-                       WHEN '1' THEN 0
-                       WHEN '2' THEN 0
-                       WHEN '3' THEN 0
-                       WHEN 'D' THEN 1
-                       WHEN '0' THEN 1
+                   toUInt64(CASE
+                       WHEN TickType = 'D' OR (TickType = '0' AND Price = 0) THEN 1
+                       WHEN TickType IN ('A', '0', '1', '2', '3') THEN 0
                        ELSE 2
                    END) AS SecondarySortNo
             FROM stock.`order`
@@ -130,15 +126,11 @@ public class ClickHouseLevel2QueryService {
             FROM stock.`order`
             WHERE SecurityID = ? AND TradeDate = ?
             -- 沪深可能在同一毫秒、同一订单号同时保存新增和撤单。
-            -- 上海 A、深圳 1/2/3 必须先于上海 D、深圳 0 进入回放，避免幽灵委托。
+            -- 上海新增、深圳有效价格委托必须先于上海 D、深圳零价 0 撤单，避免幽灵委托。
             ORDER BY TradeTime, No,
-                     CASE TickType
-                         WHEN 'A' THEN 0
-                         WHEN '1' THEN 0
-                         WHEN '2' THEN 0
-                         WHEN '3' THEN 0
-                         WHEN 'D' THEN 1
-                         WHEN '0' THEN 1
+                     CASE
+                         WHEN TickType = 'D' OR (TickType = '0' AND Price = 0) THEN 1
+                         WHEN TickType IN ('A', '0', '1', '2', '3') THEN 0
                          ELSE 2
                      END
             """;
@@ -161,8 +153,8 @@ public class ClickHouseLevel2QueryService {
      * 使用一条 UNION ALL 查询流式读取当天全部候选股票的必要 Level2 字段。
      *
      * <p>排序先按股票分组，再按毫秒时间排序；同一毫秒固定委托、成交、快照的顺序。
-     * 委托内部继续按订单号排序，并保证上海 A、深圳 1/2/3 在同订单号的
-     * 上海 D、深圳 0 之前，避免撤单先到导致幽灵委托。</p>
+     * 委托内部继续按订单号排序，并保证上海新增、深圳有效价格委托在同订单号的
+     * 上海 D、深圳零价 0 撤单之前，避免撤单先到导致幽灵委托。</p>
      */
     @DS("clickhouse")
     public ClickHouseDailyQueryResult streamDailyTicks(

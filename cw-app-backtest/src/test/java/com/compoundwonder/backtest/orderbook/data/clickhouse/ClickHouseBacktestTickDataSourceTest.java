@@ -37,7 +37,9 @@ class ClickHouseBacktestTickDataSourceTest {
     }
 
     @Test
-    void mapsShenzhenOrderTypesAndConvertsOrderZeroToCancellation() {
+    void mapsShenzhenOrderTypesAndOnlyConvertsZeroPriceTypeZeroToCancellation() {
+        TickData typeZeroOrder = ClickHouseBacktestTickDataSource.toOrderTick(
+                order("0", "1", 12.72F, 995_600, 356_555), 1_001_331, false);
         TickData limitOrder = ClickHouseBacktestTickDataSource.toOrderTick(
                 order("1", "1", 10.59F, 400, 59_697_075), 1_002_632, false);
         TickData marketOrder = ClickHouseBacktestTickDataSource.toOrderTick(
@@ -49,6 +51,11 @@ class ClickHouseBacktestTickDataSourceTest {
         TickData sellCancel = ClickHouseBacktestTickDataSource.toOrderTick(
                 order("0", "2", 0F, 500, 59_697_076), 1_002_632, false);
 
+        assertEquals(1, typeZeroOrder.dataType);
+        assertEquals(0, typeZeroOrder.type);
+        assertEquals(1_272, typeZeroOrder.price);
+        assertEquals(995_600, typeZeroOrder.quantity);
+        assertEquals(356_555, typeZeroOrder.orderId);
         assertEquals(1, limitOrder.dataType);
         assertEquals(1, limitOrder.type);
         assertEquals(1_059, limitOrder.price);

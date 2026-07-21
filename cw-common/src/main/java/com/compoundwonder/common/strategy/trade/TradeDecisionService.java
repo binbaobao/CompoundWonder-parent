@@ -93,16 +93,13 @@ public interface TradeDecisionService {
      * @param market Handler 私有订单簿提供的只读市场状态
      * @param event 深圳逐笔委托或成交事件
      * @param recordTime Handler 当前市场时间，格式为 {@code HHmmssSSS}
-     * @param acceptedLimitUpBuyOrder 本次事件是否为成功进入订单簿的买方向涨停价新增委托；
-     *                                该标志只控制单笔大单规则，不限制盘口绝对强度规则
      * @param limitUpBuyVolume 当前涨停价买队列总量，单位为股
      * @param totalSellVolume 当前订单簿所有价位的剩余卖单总量，单位为股
      * @param record 调用方预分配的规则记录
      * @return 命中买入规则并完成记录填充时返回 {@code true}
      */
     boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                      int recordTime, boolean acceptedLimitUpBuyOrder,
-                                      long limitUpBuyVolume,
+                                      int recordTime, long limitUpBuyVolume,
                                       long totalSellVolume, TradeRuleRecord record);
 
     /**

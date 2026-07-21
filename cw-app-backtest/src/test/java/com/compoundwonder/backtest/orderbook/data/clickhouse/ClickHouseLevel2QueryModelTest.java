@@ -71,9 +71,9 @@ class ClickHouseLevel2QueryModelTest {
                 .replaceAll("\\s+", " ")
                 .trim();
 
-        assertTrue(normalizedSql.contains("ORDER BY TradeTime, No, CASE TickType "
-                + "WHEN 'A' THEN 0 WHEN '1' THEN 0 WHEN '2' THEN 0 WHEN '3' THEN 0 "
-                + "WHEN 'D' THEN 1 WHEN '0' THEN 1 ELSE 2 END"));
+        assertTrue(normalizedSql.contains("ORDER BY TradeTime, No, CASE "
+                + "WHEN TickType = 'D' OR (TickType = '0' AND Price = 0) THEN 1 "
+                + "WHEN TickType IN ('A', '0', '1', '2', '3') THEN 0 ELSE 2 END"));
     }
 
     @Test
@@ -88,9 +88,9 @@ class ClickHouseLevel2QueryModelTest {
         assertTrue(normalizedSql.contains("FROM stock.market"));
         assertTrue(normalizedSql.contains(
                 "ORDER BY SecurityID, TradeTime, EventPriority, PrimarySortNo, SecondarySortNo"));
-        assertTrue(normalizedSql.contains("toUInt64(CASE TickType "
-                + "WHEN 'A' THEN 0 WHEN '1' THEN 0 WHEN '2' THEN 0 WHEN '3' THEN 0 "
-                + "WHEN 'D' THEN 1 WHEN '0' THEN 1 ELSE 2 END) AS SecondarySortNo"));
+        assertTrue(normalizedSql.contains("toUInt64(CASE "
+                + "WHEN TickType = 'D' OR (TickType = '0' AND Price = 0) THEN 1 "
+                + "WHEN TickType IN ('A', '0', '1', '2', '3') THEN 0 ELSE 2 END) AS SecondarySortNo"));
         assertFalse(normalizedSql.contains("TradeTimeStamp"));
         assertFalse(normalizedSql.contains("LastPrice"));
         assertFalse(normalizedSql.contains("PreClosePrice"));

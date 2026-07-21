@@ -226,7 +226,7 @@ class DisruptorOrderBookEngineTest {
     }
 
     @Test
-    void shenzhenAuctionMarksOnlyAcceptedBuyAtLimitUpAsLargeOrderCandidate() {
+    void shenzhenAuctionSnapshotReadsVolumesFromTheUpdatedOrderBook() {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("000001");
         OrderBook orderBook = new OrderBook(
@@ -242,17 +242,13 @@ class DisruptorOrderBookEngineTest {
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
 
-        // 卖单和非涨停价买单虽然都会改变订单簿，但不能成为单笔大单候选。
+        // 逐笔买卖委托先更新订单簿，快照撤单只读取更新后的完整盘口。
         engine.publish(order(symbolId, 1, orderBook.getLimitUpPrice(), 100, (byte) 2));
         engine.publish(order(symbolId, 2, orderBook.getLimitUpPrice() - 1,
                 900_001, (byte) 1));
-        // 只有成功入簿的买方向涨停价新增委托，Handler 才传入 true。
         engine.publish(order(symbolId, 3, orderBook.getLimitUpPrice(),
                 900_001, (byte) 1));
         engine.awaitProcessed(Duration.ofSeconds(1));
-
-        assertEquals(List.of(false, false, true),
-                decisions.acceptedLimitUpBuyOrders);
 
         // 快照只触发撤单判断，并携带逐笔订单簿中的涨停买量与全价位卖量。
         orderBook.setTransactionStatus(2);
@@ -283,13 +279,39 @@ class DisruptorOrderBookEngineTest {
         engine.start();
         engine.registerOrderBook(symbolId, orderBook);
 
-        // 逐笔卖单进入后盘口绝对强度变弱，应当立即进入撤单判断，不能等待下一张快照。
-        engine.publish(order(symbolId, 1, orderBook.getLimitUpPrice(),
-                1_000_000, (byte) 2));
+        // 09:19:57 后，逐笔卖单使盘口绝对强度变弱时允许撤单，不能等待下一张快照。
+        TickData weakeningOrder = order(symbolId, 1, orderBook.getLimitUpPrice(), 1_000_000, (byte) 2);
+        weakeningOrder.time = ConstantUtil.TIME_91957 + 1;
+        engine.publish(weakeningOrder);
         engine.awaitProcessed(Duration.ofSeconds(1));
 
         assertEquals(1, gateway.cancelCount);
         assertEquals(1, orderBook.getTransactionStatus());
+    }
+
+    @Test
+    void shenzhenPendingAuctionOrderCannotCancelFromOrderBookAtNineNineteenFiftySevenOrEarlier() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("000001");
+        OrderBook orderBook = new OrderBook("000001", 100_000_000L, 10.00, 20_000_000L);
+        orderBook.setTradeMode(1);
+        orderBook.setInitialMarketValue(100_000);
+        orderBook.setTransactionStatus(2);
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        ShenzhenAuctionRecordingTradeDecisionService decisions = new ShenzhenAuctionRecordingTradeDecisionService();
+        decisions.cancelOnOrderBookEvent = true;
+        engine = new DisruptorOrderBookEngine(repository, gateway, decisions, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerOrderBook(symbolId, orderBook);
+
+        TickData weakeningOrder = order(symbolId, 1, orderBook.getLimitUpPrice(), 1_000_000, (byte) 2);
+        weakeningOrder.time = ConstantUtil.TIME_91957;
+        engine.publish(weakeningOrder);
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(0, gateway.cancelCount);
+        assertEquals(2, orderBook.getTransactionStatus());
     }
 
     @Test
@@ -320,8 +342,9 @@ class DisruptorOrderBookEngineTest {
         assertEquals(0, gateway.cancelCount);
         assertEquals(2, orderBook.getTransactionStatus());
 
-        engine.publish(order(symbolId, 2, orderBook.getLimitUpPrice(),
-                1_000_000, (byte) 2));
+        TickData nextOrderBookEvent = order(symbolId, 2, orderBook.getLimitUpPrice(), 1_000_000, (byte) 2);
+        nextOrderBookEvent.time = ConstantUtil.TIME_91957 + 1;
+        engine.publish(nextOrderBookEvent);
         engine.awaitProcessed(Duration.ofSeconds(1));
 
         assertEquals(1, gateway.cancelCount);
@@ -593,7 +616,6 @@ class DisruptorOrderBookEngineTest {
         public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
                                                  AuctionMarketEvent event,
                                                  int recordTime,
-                                                 boolean acceptedLimitUpBuyOrder,
                                                  long limitUpBuyVolume,
                                                  long totalSellVolume,
                                                  TradeRuleRecord record) {
@@ -668,11 +690,10 @@ class DisruptorOrderBookEngineTest {
         }
     }
 
-    /** 记录深圳 Handler 传给策略层的事件资格和订单簿派生数量。 */
+    /** 记录深圳 Handler 传给策略层的订单簿派生数量。 */
     private static final class ShenzhenAuctionRecordingTradeDecisionService
             extends TestTradeDecisionService {
 
-        private final List<Boolean> acceptedLimitUpBuyOrders = new ArrayList<>();
         private final List<Long> snapshotLimitUpBuyVolumes = new ArrayList<>();
         private final List<Long> snapshotTotalSellVolumes = new ArrayList<>();
         private boolean buyOnOrderBookEvent;
@@ -682,11 +703,9 @@ class DisruptorOrderBookEngineTest {
         public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
                                                   AuctionMarketEvent event,
                                                   int recordTime,
-                                                  boolean acceptedLimitUpBuyOrder,
                                                   long limitUpBuyVolume,
                                                   long totalSellVolume,
                                                   TradeRuleRecord record) {
-            acceptedLimitUpBuyOrders.add(acceptedLimitUpBuyOrder);
             if (!buyOnOrderBookEvent) {
                 return false;
             }

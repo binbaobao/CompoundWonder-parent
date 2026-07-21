@@ -192,6 +192,37 @@ class OrderBookPriceLevelTest {
         assertEquals(0, orderBook.getEmaSealTrend());
     }
 
+    @Test
+    void freezesThePreviousMinuteAverageBeforeUpdatingTheHistoricalMinimum() {
+        OrderBook orderBook = new OrderBook("000001", 10_000_000L, 10.00, 5_000_000L);
+
+        orderBook.updateMinuteAveragePrice(0, 1_005, 93_000_000);
+        orderBook.updateMinuteAveragePrice(0, 990, 93_030_000);
+        assertEquals(0, orderBook.getMinAveragePrice());
+
+        orderBook.updateMinuteAveragePrice(1, 995, 93_100_000);
+        assertEquals(990, orderBook.getMinAveragePrice());
+        assertEquals(-1D, orderBook.getMinAveragePriceIncrease());
+
+        orderBook.updateMinuteAveragePrice(1, 980, 93_130_000);
+        assertEquals(990, orderBook.getMinAveragePrice());
+
+        orderBook.updateMinuteAveragePrice(2, 1_000, 93_200_000);
+        assertEquals(980, orderBook.getMinAveragePrice());
+        assertEquals(-2D, orderBook.getMinAveragePriceIncrease());
+    }
+
+    @Test
+    void recognizesMinuteChangeWhenMorningCloseAndAfternoonOpenShareAnArrayIndex() {
+        OrderBook orderBook = new OrderBook("000001", 10_000_000L, 10.00, 5_000_000L);
+
+        orderBook.updateMinuteAveragePrice(120, 995, 113_000_000);
+        orderBook.updateMinuteAveragePrice(120, 985, 130_000_000);
+
+        assertEquals(995, orderBook.getMinAveragePrice());
+        assertEquals(985, orderBook.avgPrice[120]);
+    }
+
     private OrderBook limitUpOrderBook(int initialQuantity) {
         OrderBook orderBook = new OrderBook("000001", 10_000_000L, 10.00, 5_000_000L);
         orderBook.addOrder(node(1, orderBook.getLimitUpPrice(), initialQuantity, (byte) 1));

@@ -227,6 +227,22 @@ public class OrderBook implements TradeMarketState {
     @ToString.Exclude
     public final int[] price = new int[60 * 4];
 
+    /** 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100 */
+    private int minAveragePrice = 0;
+
+    /** 最低分钟累计均价相对昨收的涨跌幅，单位为百分比 */
+    private double minAveragePriceIncrease = 0;
+
+    /** 上一张有效快照所属分钟，格式为 HHmm；用于识别分钟切换 */
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private int lastAverageMinute = 0;
+
+    /** 上一分钟累计均价所在的数组下标 */
+    @Getter(AccessLevel.NONE)
+    @ToString.Exclude
+    private int lastAveragePriceIndex = -1;
+
     private long totalBuyVolume = 0;
 
     private long totalSellVolume = 0;
@@ -276,6 +292,10 @@ public class OrderBook implements TradeMarketState {
         this.totalBuyVolume = 0;
         this.totalSellVolume = 0;
         this.limitUpBreakLowestPrice = this.limitUpPrice;
+        this.minAveragePrice = 0;
+        this.minAveragePriceIncrease = 0;
+        this.lastAverageMinute = 0;
+        this.lastAveragePriceIndex = -1;
     }
 
     /**
@@ -520,6 +540,39 @@ public class OrderBook implements TradeMarketState {
         if (this.lowPrice == lowPrice) {
             this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
         }
+    }
+
+    /**
+     * 更新当前分钟累计均价，并在分钟切换时用上一分钟的最终值维护历史最低均价。
+     *
+     * <p>同一分钟内每张三秒快照都会覆盖对应数组元素；只有收到下一分钟第一张
+     * 有效快照时，上一分钟均价才被视为已经定格。分钟判断使用 HHmm，而不是
+     * 数组元素是否为 0，因此 11:30 与 13:00 共用下标 120 时仍能正确切换。</p>
+     *
+     * @param calculateIndex 当前分钟在均价数组中的下标
+     * @param currentAveragePrice 当前快照计算出的累计均价，整数价格口径为元乘以 100
+     * @param time 当前快照时间，格式为 HHmmssSSS
+     */
+    public void updateMinuteAveragePrice(int calculateIndex, int currentAveragePrice, int time) {
+        if (calculateIndex < 0 || calculateIndex >= avgPrice.length || currentAveragePrice <= 0) {
+            return;
+        }
+
+        int currentMinute = time / 100_000;
+        if (lastAverageMinute != 0 && currentMinute != lastAverageMinute
+                && lastAveragePriceIndex >= 0) {
+            int completedMinuteAveragePrice = avgPrice[lastAveragePriceIndex];
+            if (completedMinuteAveragePrice > 0
+                    && (minAveragePrice == 0 || completedMinuteAveragePrice < minAveragePrice)) {
+                minAveragePrice = completedMinuteAveragePrice;
+                minAveragePriceIncrease = Math.round(
+                        (minAveragePrice - closePrice) * 100.0 / closePrice * 100.0) / 100.0;
+            }
+        }
+
+        lastAverageMinute = currentMinute;
+        lastAveragePriceIndex = calculateIndex;
+        avgPrice[calculateIndex] = currentAveragePrice;
     }
 
     /**

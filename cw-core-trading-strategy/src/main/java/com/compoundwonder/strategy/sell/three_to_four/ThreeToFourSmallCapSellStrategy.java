@@ -17,30 +17,40 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy {
 
-    /** 调用本场景独立的逐笔与盘口卖出规则。 */
+    /**
+     * 调用本场景独立的逐笔与盘口卖出规则。
+     */
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
         return OrderBookRules.evaluate(market, record);
     }
 
-    /** 调用本场景独立的分钟价格与均价走势卖出规则。 */
+    /**
+     * 调用本场景独立的分钟价格与均价走势卖出规则。
+     */
     @Override
     public boolean evaluateAveragePrice(int index, TradeMarketState market, TradeRuleRecord record) {
         return AveragePriceRules.evaluate(index, market, record);
     }
 
-    /** 本场景独有的逐笔与盘口卖出规则，按书写顺序首个命中即结束。 */
+    /**
+     * 本场景独有的逐笔与盘口卖出规则，按书写顺序首个命中即结束。
+     */
     private static final class OrderBookRules {
         /**
          * 按既定优先级评估涨停盘口卖出规则；首个命中规则会填充记录并立即返回。
          *
-         * @param orderBook 当前 Handler 私有订单簿的只读交易视图
+         * @param orderBook  当前 Handler 私有订单簿的只读交易视图
          * @param ruleRecord 调用方预分配的规则记录
          * @return 命中任意涨停盘口卖出规则时返回 {@code true}
          */
         private static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
             // 本轮连板启动时的流通市值，单位：万元。
             long marketValue = orderBook.getInitialMarketValue();
+            // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+            int minAveragePrice = orderBook.getMinAveragePrice();
+            // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+            double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
             // 当日截至当前时刻的累计换手率，单位：%。
             double turnover = orderBook.getTurnoverRate();
             // 最新成交价，单位：分。
@@ -74,6 +84,9 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
             // 最新价相对昨收价的涨跌幅，单位：%。
             double increase = orderBook.getIncrease();
 
+            int emaSealTrend = orderBook.getEmaSealTrend();
+
+
             if (changePercent < -1 && marketValue < 130_000 && lbcs > 3
                     && turnover < 15 && limitUpBuyAmount > 10_000
                     && lastPrice == limitUpPrice && limitUpBuyAmount < lastSealAmount / 1.5) {
@@ -94,6 +107,14 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
 
             // 根据启动市值分档得到的基准最大换手率，单位：%。
             double maxTurnover = maxTurnover(marketValue);
+
+            if (turnover > 50 && isLimitUp(status) && time < ConstantUtil.TIME_14563) {
+                // 楚环科技 25 12 23
+                String remark = StrUtil.format(" 今日二进三放量炸板 条件：今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，炸板状态 {}", lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent, status);
+                return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_MULTI_BREAK, lastPrice, increase, remark);
+            }
+
+
             if (turnover > maxTurnover - 5 && isLimitUp(status)
                     && lbcs <= 7 && time < ConstantUtil.TIME_14563) {
                 if (turnover > maxTurnover + 5 && status > 20 && amplitude > 15) {
@@ -205,23 +226,27 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
                         lastPrice, increase, remark);
             }
 
-    //        if (isLimitUp(status) && lbcs == 2 && status >= 5
-    //                && lastSealAmount > 2_000 && lastSealAmount < 5_500
-    //                && changePercent <= -2.8) {
-    //            String remark = StrUtil.format("2进3 多次炸板骗炮；条件：昨日连板 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，涨停状态 {}",
-    //                    lbcs, marketValue, limitUpBuyAmount, turnover, changePercent, status);
-    //            return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_TWO_TO_THREE_MULTI_BREAK,
-    //                    lastPrice, increase, remark);
-    //        }
+            //        if (isLimitUp(status) && lbcs == 2 && status >= 5
+            //                && lastSealAmount > 2_000 && lastSealAmount < 5_500
+            //                && changePercent <= -2.8) {
+            //            String remark = StrUtil.format("2进3 多次炸板骗炮；条件：昨日连板 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%，涨停状态 {}",
+            //                    lbcs, marketValue, limitUpBuyAmount, turnover, changePercent, status);
+            //            return recordAndLog(orderBook, ruleRecord, RuleConstant.SELL_LIMIT_UP_TWO_TO_THREE_MULTI_BREAK,
+            //                    lastPrice, increase, remark);
+            //        }
             return false;
         }
 
-        /** 订单簿状态为奇数时表示当前处于涨停封板状态。 */
+        /**
+         * 订单簿状态为奇数时表示当前处于涨停封板状态。
+         */
         private static boolean isLimitUp(int status) {
             return status % 2 == 1;
         }
 
-        /** 按启动市值（万元）返回卖出规则使用的换手率基准上限（%）。 */
+        /**
+         * 按启动市值（万元）返回卖出规则使用的换手率基准上限（%）。
+         */
         private static double maxTurnover(long marketValue) {
             if (marketValue < 80_000) {
                 return 60;
@@ -250,19 +275,25 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
         }
     }
 
-    /** 本场景独有的分钟价格与均价走势卖出规则，按书写顺序首个命中即结束。 */
+    /**
+     * 本场景独有的分钟价格与均价走势卖出规则，按书写顺序首个命中即结束。
+     */
     private static final class AveragePriceRules {
         /**
          * 按既定优先级评估分钟走势卖出规则；首个命中规则会填充记录并立即返回。
          *
          * @param calculateIndex 当前分钟采样下标
-         * @param orderBook 当前 Handler 私有订单簿的只读交易视图
-         * @param ruleRecord 调用方预分配的规则记录
+         * @param orderBook      当前 Handler 私有订单簿的只读交易视图
+         * @param ruleRecord     调用方预分配的规则记录
          * @return 命中任意分钟走势卖出规则时返回 {@code true}
          */
         private static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
             // 本轮连板启动时的流通市值，单位：万元。
             long marketValue = orderBook.getInitialMarketValue();
+            // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+            int minAveragePrice = orderBook.getMinAveragePrice();
+            // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+            double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
             // 当日截至当前时刻的累计换手率，单位：%。
             double turnoverRate = orderBook.getTurnoverRate();
             // 当日最高价与最低价相对昨收价形成的振幅，单位：%。
@@ -450,24 +481,14 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
                 return false;
             }
 
-            if (increase < 3.5 && amplitude > 10) {
-                String remark = StrUtil.format("跌破均线后振幅过大且涨幅偏弱；条件：振幅 {}%，当前涨幅 {}%",
-                        amplitude, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_LARGE_AMPLITUDE,
-                        currentPrice, remark);
-            }
+
             if (increase < 5.5 && amplitude > 15) {
                 String remark = StrUtil.format("跌破均线后振幅超过 15% 且涨幅不足；条件：振幅 {}%，当前涨幅 {}%",
                         amplitude, increase);
                 return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_EXTREME_AMPLITUDE,
                         currentPrice, remark);
             }
-            if (increase <= 4 && peakToCurrentDrawdown >= 5) {
-                String remark = StrUtil.format("跌破均线后高点回落过大；条件：高点回落 {}%，当前涨幅 {}%",
-                        peakToCurrentDrawdown, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_PEAK_DRAWDOWN,
-                        currentPrice, remark);
-            }
+
             if ((time > ConstantUtil.TIME_1330 || turnoverRate > maxTurnover) && increase < 7 && turnoverRate < maxHs * 0.6) {
                 String remark = StrUtil.format("跌破均线后高换手或尾盘涨幅不足；条件：换手率 {}%，当前涨幅 {}%",
                         turnoverRate, increase);
@@ -477,7 +498,9 @@ public final class ThreeToFourSmallCapSellStrategy implements BoardSellStrategy 
             return false;
         }
 
-        /** 按启动市值（万元）返回均价卖出规则使用的换手率基准上限（%）。 */
+        /**
+         * 按启动市值（万元）返回均价卖出规则使用的换手率基准上限（%）。
+         */
         private static double maxTurnover(long marketValue) {
             if (marketValue < 80_000) {
                 return 55;

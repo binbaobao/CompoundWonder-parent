@@ -31,10 +31,14 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
 
     private final OrderExecutionGateway executionGateway;
 
-    /** 按订单簿 tradeMode 以 switch 分发到三套独立交易规则。 */
+    /**
+     * 按订单簿 tradeMode 以 switch 分发到三套独立交易规则。
+     */
     private final TradeDecisionService tradeDecisionService;
 
-    /** 上海集合竞价状态维护和交易执行编排，避免继续把业务判断堆在 Handler。 */
+    /**
+     * 上海集合竞价状态维护和交易执行编排，避免继续把业务判断堆在 Handler。
+     */
     private final ShanghaiAuctionEventProcessor auctionEventProcessor;
 
     private final TickNodePool tickNodePool = new TickNodePool(100000);
@@ -154,7 +158,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 // 计算均价
                 int calculateIndex = CompactTimeUtil.calculateIndex(order.time);
                 if (order.sellerOrderId != 0) {
-                    orderBook.avgPrice[calculateIndex] = (int) (turnover * 100L / order.sellerOrderId);
+                    int currentAveragePrice = (int) (turnover * 100L / order.sellerOrderId);
+                    orderBook.updateMinuteAveragePrice(calculateIndex, currentAveragePrice, order.time);
                 }
                 // 如果这一分钟的价格是 0 就打印一次信息，这就是每分钟一次
                 int l1v = order.sellerOrderId / 1000000;
@@ -168,12 +173,13 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 }
                 orderBook.price[calculateIndex] = order.price;
                 // 执行均价卖出策略
-                if (transStatus == -1 && calculateIndex >= 5 && tradeDecisionService.evaluateAveragePriceSell(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
+                if (transStatus == -1 && calculateIndex >= 3 && tradeDecisionService.evaluateAveragePriceSell(calculateIndex, orderBook, ruleRecordBuffer.nextRecord())) {
                     executionGateway.quickSell(orderBook.getSymbol(), order.price, orderBook.getLimitDownPrice());
                     orderBook.setTransactionStatus(-2);
                     transStatus = 0;
                     log.info("执行均价卖出策略 时间：{},成交额：{},成交量：{},均价：{},价格 {},涨幅:{} %", order.time / 1000, turnover, order.sellerOrderId, orderBook.avgPrice[calculateIndex], order.price, orderBook.getIncrease());
                     ruleRecordBuffer.commit();
+                    log.info("卖出股票,股票:{}", orderBook);
                 }
                 // 09:31 前行情只更新订单簿；time 等于 L1 行情时间且买一为涨停价时，09:31 后才允许触发买入。
                 if (transStatus == 1 && order.time == time && time >= ConstantUtil.TIME_931 && orderBook.getLimitUpPrice() == order.price) {
@@ -197,7 +203,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                     }
                 }
                 // 可交易状态下，10点还没有涨停的首板就是弱了，直接关闭打板任务
-                if (transStatus == 1 && time >= ConstantUtil.TIME_1000 && orderBook.getStatus() % 2 == 0 && orderBook.getLbcs() == 1) {
+                if (transStatus == 1 && time >= ConstantUtil.TIME_1000 && orderBook.getStatus() == 0 && orderBook.getLbcs() == 1) {
                     orderBook.setTransactionStatus(0);
                     transStatus = 0;
                 }
@@ -207,17 +213,15 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
         // 上交所盘中策略统一从 09:31 开始，避开开盘初段行情延迟。
         if (transStatus != 0 && order.time >= ConstantUtil.TIME_931 && order.time >= time && order.time < ConstantUtil.TIME_1457) {
             // 调用当前模式的盘中交易模式切换规则。
-            if (transStatus == 1
-                    && tradeDecisionService.shouldEnableFirstBoardTradingMode(orderBook)) {
+            if (transStatus == 1                    && tradeDecisionService.shouldEnableFirstBoardTradingMode(orderBook)) {
                 executionGateway.enableFirstLimitUpTradingMode(orderBook.getSymbol());
             }
             // 调用当前模式连续竞价买入时段与买入规则。
-            if (transStatus == 1
-                    && tradeDecisionService.isContinuousBuyTimeAllowed(orderBook, order.time)
-                    && tradeDecisionService.evaluateBuy(orderBook, ruleRecordBuffer.nextRecord())) {
+            if (transStatus == 1 && tradeDecisionService.isContinuousBuyTimeAllowed(orderBook, order.time) && tradeDecisionService.evaluateBuy(orderBook, ruleRecordBuffer.nextRecord())) {
                 executionGateway.buy(orderBook.getDate(), order.symbolId, orderBook.getLimitUpPrice(), orderBook.getTime());
                 orderBook.setTransactionStatus(2);
                 log.info("打板股票代码 {} 触发单号 OrderId :{}，time:{}, 数据类型:({}) 封单变化：{},换手:{}", order.symbolId, order.orderId, order.time, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getTurnoverRate());
+                log.info("打板,股票:{}", orderBook);
                 ruleRecordBuffer.commit();
             }
             // 卖出监控中
@@ -225,6 +229,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
                 executionGateway.quickSell(orderBook.getSymbol(), orderBook.getLastPrice(), orderBook.getLimitDownPrice());
                 orderBook.setTransactionStatus(-2);
                 log.info("卖出股票代码 {} 触发单号 OrderId :{}，time :{} ,数据类型:({}) 封单变化：{},换手:{}", order.symbolId, order.orderId, order.time, order.dataType == 1 ? "委托" : "成交", orderBook.getChangePercent(), orderBook.getTurnoverRate());
+                log.info("卖出股票,股票:{}", orderBook);
                 ruleRecordBuffer.commit();
             }
         }

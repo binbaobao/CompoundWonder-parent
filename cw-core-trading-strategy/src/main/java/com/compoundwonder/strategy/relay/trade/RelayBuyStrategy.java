@@ -56,13 +56,11 @@ public final class RelayBuyStrategy implements BuyStrategy {
     @Override
     public boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
                                               int recordTime,
-                                              boolean acceptedLimitUpBuyOrder,
                                               long limitUpBuyVolume,
                                               long totalSellVolume, TradeRuleRecord record) {
         // 调用当前模式深圳集合竞价买入规则。
         return ShenzhenAuctionBuyEvaluator.evaluateBuy(
-                market, event, recordTime, acceptedLimitUpBuyOrder,
-                limitUpBuyVolume, totalSellVolume, record);
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override

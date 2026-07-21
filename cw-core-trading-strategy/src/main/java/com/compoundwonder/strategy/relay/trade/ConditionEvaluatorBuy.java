@@ -107,6 +107,10 @@ public final class ConditionEvaluatorBuy {
     public static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+        int minAveragePrice = orderBook.getMinAveragePrice();
+        // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+        double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
         // 当日截至当前时刻的累计换手率，单位：%。
         double turnoverRate = orderBook.getTurnoverRate();
         // 最新成交价，单位：分。

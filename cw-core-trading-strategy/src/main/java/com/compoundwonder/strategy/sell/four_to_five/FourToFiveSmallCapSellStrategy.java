@@ -41,6 +41,10 @@ public final class FourToFiveSmallCapSellStrategy implements BoardSellStrategy {
         private static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
             // 本轮连板启动时的流通市值，单位：万元。
             long marketValue = orderBook.getInitialMarketValue();
+            // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+            int minAveragePrice = orderBook.getMinAveragePrice();
+            // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+            double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
             // 当日截至当前时刻的累计换手率，单位：%。
             double turnover = orderBook.getTurnoverRate();
             // 最新成交价，单位：分。
@@ -263,6 +267,10 @@ public final class FourToFiveSmallCapSellStrategy implements BoardSellStrategy {
         private static boolean evaluate(int calculateIndex, TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
             // 本轮连板启动时的流通市值，单位：万元。
             long marketValue = orderBook.getInitialMarketValue();
+            // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+            int minAveragePrice = orderBook.getMinAveragePrice();
+            // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+            double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
             // 当日截至当前时刻的累计换手率，单位：%。
             double turnoverRate = orderBook.getTurnoverRate();
             // 当日最高价与最低价相对昨收价形成的振幅，单位：%。
@@ -281,7 +289,7 @@ public final class FourToFiveSmallCapSellStrategy implements BoardSellStrategy {
             int lbcs = orderBook.getLbcs();
             // 当日截至当前时刻的累计成交额，单位：元。
             long turnover = orderBook.getTurnover();
-
+            int oneWordLimitUp = orderBook.getOneWordLimitUp();
             double maxHs = orderBook.getMaxHs();
 
             // 当前分钟最新价，单位：分。
@@ -325,154 +333,19 @@ public final class FourToFiveSmallCapSellStrategy implements BoardSellStrategy {
             // 上一分钟价格相对昨收价的涨跌幅，单位：%。
             double previousPriceIncrease = (previousPrice - closePrice) * 100.0 / closePrice;
 
-            if ((lbcs == 2 || orderBook.getYesterdayTurnover() > 45)
-                    && openDropPercentage >= 4.5
-                    && previousPriceIncrease < -3
-                    && averagePrice3 > averagePrice2
-                    && averagePrice2 > previousAveragePrice
-                    && price3 > price2
-                    && price2 > previousPrice) {
-                String remark = StrUtil.format("2进3或昨日高换手后均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%", increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING,
-                        currentPrice, remark);
+            if (averagePrice3 > averagePrice2 && averagePrice2 > previousAveragePrice && oneWordLimitUp >=1) {// 南矿集团 2025-07-24
+                String remark = StrUtil.format("4进5均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%", increase);
+                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, currentPrice, remark);
             }
 
-            if (lbcs == 2 && increase <= -3 && calculateIndex >= 12) {
-                // 上一分钟均价相对昨收价的涨跌幅，单位：%。
-                double movingAverageIncrease = (previousAveragePrice - closePrice) * 100.0 / closePrice;
-                if (movingAverageIncrease <= -3
-                        && averagePrice3 >= averagePrice2
-                        && averagePrice2 >= previousAveragePrice
-                        && averagePrice3 > previousAveragePrice) {
-                    String remark = StrUtil.format("2进3 开盘后均线与走势同步走弱；条件：均线涨幅 {}%，当前涨幅 {}%",
-                            movingAverageIncrease, increase);
-                    return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_TWO_TO_THREE_WEAKENING,
-                            currentPrice, remark);
-                }
+            if (averagePrice3 > averagePrice2 && averagePrice2 > previousAveragePrice && openIncrease >= 1) {// 南矿集团 2025-07-24
+                String remark = StrUtil.format("4进5均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%", increase);
+                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, currentPrice, remark);
             }
 
-            // 当日最高价相对昨收价的涨幅，单位：%。
-            double highestIncrease = (highestPrice - closePrice) * 100.0 / closePrice;
-            // 最高价到当前价的回落幅度，分母仍为昨收价，表示回落了多少个百分点。
-            double peakToCurrentDrawdown = (highestPrice - currentPrice) * 100.0 / closePrice;
-
-            if (lbcs == 2 && highestIncrease >= 8
-                    && previousPrice < previousAveragePrice
-                    && price2 >= averagePrice2) {
-                String remark = StrUtil.format("2进3 冲高后跌破均线；条件：高点回落 {}%，当前涨幅 {}%，均线连续走弱",
-                        peakToCurrentDrawdown, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_TWO_TO_THREE_BREAK_AVERAGE,
-                        currentPrice, remark);
-            }
-
-            if (calculateIndex >= 5 && calculateIndex <= 30
-                    && highestIncrease >= 9.5
-                    && increase < 5.5 && turnoverRate < maxHs * 0.6
-                    && previousPrice < previousAveragePrice
-                    && currentAveragePrice <= previousAveragePrice) {
-                String remark = StrUtil.format("冲高接近涨停后被均线压制；条件：高点回落 {}%，当前涨幅 {}%，均线继续下行",
-                        peakToCurrentDrawdown, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_NEAR_LIMIT_UP_PRESSURE,
-                        currentPrice, remark);
-            }
-
-            // 最近 15 个分钟采样的起点，窗口内只识别本轮“回落—再冲高”结构。
-            int patternStartIndex = Math.max(0, calculateIndex - 15);
-            // 当前分钟之前的最高采样位置，作为开盘回落后的二次冲高高点。
-            int secondPeakIndex = -1;
-            for (int i = patternStartIndex + 1; i < calculateIndex; i++) {
-                if (orderBook.getMinutePriceAt(i) > 0
-                        && (secondPeakIndex < 0 || orderBook.getMinutePriceAt(i) > orderBook.getMinutePriceAt(secondPeakIndex))) {
-                    secondPeakIndex = i;
-                }
-            }
-            if (orderBook.getOpenPrice() > 0 && secondPeakIndex > patternStartIndex) {
-                // 开盘价与第二高点之间的最低采样位置，作为首次回落低点。
-                int pullbackLowIndex = -1;
-                for (int i = patternStartIndex; i < secondPeakIndex; i++) {
-                    if (orderBook.getMinutePriceAt(i) > 0
-                            && (pullbackLowIndex < 0 || orderBook.getMinutePriceAt(i) < orderBook.getMinutePriceAt(pullbackLowIndex))) {
-                        pullbackLowIndex = i;
-                    }
-                }
-                if (pullbackLowIndex >= 0) {
-                    // 第一高点固定使用集合竞价形成的开盘价，不能使用 09:30 分钟结束价。
-                    int firstPeakPrice = orderBook.getOpenPrice();
-                    // 首次回落最低价，单位：分。
-                    int pullbackLowPrice = orderBook.getMinutePriceAt(pullbackLowIndex);
-                    // 二次冲高价格，单位：分。
-                    int secondPeakPrice = orderBook.getMinutePriceAt(secondPeakIndex);
-                    // 第一高点相对昨收价的涨幅，单位：%。
-                    double firstPeakIncrease = (firstPeakPrice - closePrice) * 100.0 / closePrice;
-                    // 二次高点相对昨收价的涨幅，单位：%。
-                    double secondPeakIncrease = (secondPeakPrice - closePrice) * 100.0 / closePrice;
-                    // 第一高点到首次低点的回落幅度，分母为昨收价，单位：%。
-                    double firstPullback = (firstPeakPrice - pullbackLowPrice) * 100.0 / closePrice;
-                    // 二次高点到当前价的回落幅度，分母为昨收价，单位：%。
-                    double secondDrawdown = (secondPeakPrice - currentPrice) * 100.0 / closePrice;
-                    if ((highestPrice != orderBook.getLimitUpPrice() || time > ConstantUtil.TIME_1330)
-                            && firstPeakIncrease >= 5
-                            && firstPullback >= 2.5
-                            && secondPeakPrice >= firstPeakPrice
-                            && secondPeakIncrease >= 8
-                            && secondDrawdown >= 3.5
-                            && increase <= 5.5
-                            && currentAveragePrice > 0
-                            && currentPrice < currentAveragePrice) {
-                        String remark = StrUtil.format(
-                                "高开回落后二次冲高失败；条件：首次回落 {}%，二次高点涨幅 {}%，二次回落 {}%，当前涨幅 {}%",
-                                firstPullback, secondPeakIncrease, secondDrawdown, increase);
-                        return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_PEAK_DRAWDOWN,
-                                currentPrice, remark);
-                    }
-                }
-            }
-
-            if (price2 > previousPrice && previousPrice > currentPrice
-                    && increase > 0 && increase < 2.5 && amplitude > 9) {
-                // 当日最低价相对昨收价的涨跌幅，单位：%。
-                double lowIncrease = (orderBook.getLowPrice() - closePrice) * 100.0 / closePrice;
-                if (lowIncrease < -7) {
-                    String remark = StrUtil.format("大振幅后涨幅偏弱且走势连续下降；条件：振幅 {}%，当前涨幅 {}%",
-                            amplitude, increase);
-                    return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_LARGE_AMPLITUDE_WEAKENING,
-                            currentPrice, remark);
-                }
-            }
-
-            // 价格由均线上方跌到均线下方，同时最近三分钟均价整体不抬升。
-            boolean crossesBelowAverage = previousPrice > previousAveragePrice
-                    && currentPrice < currentAveragePrice
-                    && averagePrice3 >= averagePrice2
-                    && averagePrice2 >= previousAveragePrice
-                    && averagePrice3 > previousAveragePrice;
-            if (!crossesBelowAverage) {
-                return false;
-            }
-
-            if (increase < 3.5 && amplitude > 10) {
-                String remark = StrUtil.format("跌破均线后振幅过大且涨幅偏弱；条件：振幅 {}%，当前涨幅 {}%",
-                        amplitude, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_LARGE_AMPLITUDE,
-                        currentPrice, remark);
-            }
-            if (increase < 5.5 && amplitude > 15) {
-                String remark = StrUtil.format("跌破均线后振幅超过 15% 且涨幅不足；条件：振幅 {}%，当前涨幅 {}%",
-                        amplitude, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_EXTREME_AMPLITUDE,
-                        currentPrice, remark);
-            }
-            if (increase <= 4 && peakToCurrentDrawdown >= 5) {
-                String remark = StrUtil.format("跌破均线后高点回落过大；条件：高点回落 {}%，当前涨幅 {}%",
-                        peakToCurrentDrawdown, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_WITH_PEAK_DRAWDOWN,
-                        currentPrice, remark);
-            }
-            if ((time > ConstantUtil.TIME_1330 || turnoverRate > maxTurnover) && increase < 7 && turnoverRate < maxHs * 0.6) {
-                String remark = StrUtil.format("跌破均线后高换手或尾盘涨幅不足；条件：换手率 {}%，当前涨幅 {}%",
-                        turnoverRate, increase);
-                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_BREAK_LATE_OR_HIGH_TURNOVER,
-                        currentPrice, remark);
+            if (averagePrice2 > previousAveragePrice && openIncrease >= 1) {// 南矿集团 2025-07-24
+                String remark = StrUtil.format("4进5均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%", increase);
+                return match(orderBook, ruleRecord, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, currentPrice, remark);
             }
             return false;
         }

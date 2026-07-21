@@ -27,6 +27,10 @@ public final class CommonSellStrategy implements BoardSellStrategy {
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
         long marketValue = market.getInitialMarketValue();
+        // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+        int minAveragePrice = market.getMinAveragePrice();
+        // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+        double minAveragePriceIncrease = market.getMinAveragePriceIncrease();
         double turnover = market.getTurnoverRate();
         int status = market.getStatus();
         int lbcs = market.getLbcs();

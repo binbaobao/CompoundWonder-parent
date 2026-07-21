@@ -11,6 +11,9 @@ public interface AuctionMarketEvent {
     /** @return 数据类型：1 委托、2 成交、4 三秒行情快照 */
     byte getDataType();
 
+    /** @return 逐笔委托方向：1 买、2 卖；快照和无方向事件为 0 */
+    byte getDirection();
+
     /** @return 行情时间，紧凑格式 {@code HHmmssSSS} */
     int getTime();
 

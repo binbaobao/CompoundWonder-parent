@@ -119,6 +119,12 @@ public interface TradeMarketState {
     /** @return 最近一次涨停状态更新时记录的封单金额，单位为万元 */
     long getLastSealAmount();
 
+    /** @return 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100 */
+    int getMinAveragePrice();
+
+    /** @return 最低分钟累计均价相对昨收的涨跌幅，单位为百分比 */
+    double getMinAveragePriceIncrease();
+
     /**
      * 读取指定分钟槽位记录的最新成交价。
      *

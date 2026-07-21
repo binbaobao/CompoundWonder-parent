@@ -88,6 +88,11 @@ public class TickData implements AuctionMarketEvent {
     }
 
     @Override
+    public byte getDirection() {
+        return direction;
+    }
+
+    @Override
     public int getTime() {
         return time;
     }

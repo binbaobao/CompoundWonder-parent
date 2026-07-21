@@ -134,6 +134,8 @@ class SellStrategyDispatcherTest {
                     case "getLastLimitUptime" -> 94_000_000;
                     case "getLimitUpBuyAmount" -> 10_000L;
                     case "getChangePercent" -> 0D;
+                    case "getMinAveragePrice" -> 1_000;
+                    case "getMinAveragePriceIncrease" -> 0D;
                     case "getSymbol" -> "600000";
                     default -> throw new AssertionError("公共假期规则不应读取字段: " + method.getName());
                 });

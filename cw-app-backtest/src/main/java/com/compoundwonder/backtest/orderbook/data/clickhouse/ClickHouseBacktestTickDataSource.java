@@ -167,8 +167,8 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
      * 转换逐笔委托。
      *
      * <p>上海 A/D 映射为限价委托/撤单，状态包 S 与实盘入口一致直接忽略。
-     * 深圳原始类型 0/1/2/3 分别表示撤单、限价、市价、本方最优；其中 0 要转换成
-     * 核心 Handler 已有的 {@code dataType=2,type=1} 撤单事件，不能作为新增委托入队。</p>
+     * 深圳只有 TickType=0 且价格为 0 才是撤单，转换成核心 Handler 使用的
+     * {@code dataType=2,type=1}；TickType=0 但价格有效时仍按逐笔委托入队。</p>
      */
     static TickData toOrderTick(ClickHouseOrderRow row, int symbolId, boolean shanghai) {
         return toOrderTick(row.tickType(), row.side(), row.price(), row.volume(), row.no(),
@@ -196,7 +196,7 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         tick.orderId = toInt(orderNo, "委托号");
         tick.price = toPrice(price);
         tick.quantity = toInt(volume, "委托数量");
-        if (!shanghai && type == 0) {
+        if (!shanghai && type == 0 && tick.price == 0) {
             tick.dataType = 2;
             tick.type = 1;
             if (tick.direction == 1) {
@@ -321,7 +321,7 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         }
         for (ClickHouseOrderRow row : orders) {
             if (isUnidentifiableShenzhenCancellation(
-                    row.tickType(), row.side(), row.no())) {
+                    row.tickType(), row.price(), row.side(), row.no())) {
                 return true;
             }
         }
@@ -334,13 +334,13 @@ public class ClickHouseBacktestTickDataSource implements BacktestTickDataSource 
         return row.eventSource() == ClickHouseLevel2BatchRow.EVENT_ORDER
                 && !row.securityId().startsWith("60")
                 && isUnidentifiableShenzhenCancellation(
-                        row.tickType(), row.side(), row.orderNo());
+                        row.tickType(), row.price(), row.side(), row.orderNo());
     }
 
     /** 深圳撤单必须同时具备有效订单号和买卖方向，缺少任一字段都无法精确撤单。 */
     private static boolean isUnidentifiableShenzhenCancellation(
-            String tickType, String side, long orderNo) {
-        return "0".equals(tickType)
+            String tickType, float price, String side, long orderNo) {
+        return "0".equals(tickType) && price == 0F
                 && (orderNo <= 0 || parseSide(side) == 0);
     }
 

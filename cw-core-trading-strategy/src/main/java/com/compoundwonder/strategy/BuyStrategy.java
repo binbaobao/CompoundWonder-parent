@@ -39,13 +39,9 @@ public interface BuyStrategy {
     boolean evaluateShanghaiAuctionCancel(TradeMarketState market, AuctionMarketEvent event,
                                           int recordTime, TradeRuleRecord record);
 
-    /**
-     * 深圳逐笔事件驱动的早盘集合竞价买入。{@code acceptedLimitUpBuyOrder} 只标识
-     * 本次事件能否触发单笔大单规则；订单簿绝对强度始终使用更新后的盘口计算。
-     */
+    /** 深圳逐笔事件驱动的早盘集合竞价买入。 */
     boolean evaluateShenzhenAuctionBuy(TradeMarketState market, AuctionMarketEvent event,
-                                      int recordTime, boolean acceptedLimitUpBuyOrder,
-                                      long limitUpBuyVolume,
+                                      int recordTime, long limitUpBuyVolume,
                                       long totalSellVolume, TradeRuleRecord record);
 
     /** 深圳逐笔订单簿事件驱动撤单，只判断与买入共用的封单绝对强度。 */

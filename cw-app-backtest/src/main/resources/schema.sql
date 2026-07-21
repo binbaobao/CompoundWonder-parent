@@ -1,144 +1,189 @@
-CREATE TABLE `rule_execute_record`
+create table stock_convertible_bond_history
 (
-    `id`              bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `execution_source` tinyint NOT NULL DEFAULT '0' COMMENT '执行来源：0历史未知，1实盘，2回测',
-    `backtest_run_id` bigint DEFAULT NULL COMMENT '回测任务ID',
-    `position_id` bigint DEFAULT NULL COMMENT '持仓ID',
-    `watching_task_id` bigint DEFAULT NULL COMMENT '推荐任务ID',
-    `action_type`     int               DEFAULT NULL COMMENT '操作类型：BUY / SELL / CANCEL / REBUY',
-    `rule_code`       int               DEFAULT NULL COMMENT '规则编码',
-    `symbol`          varchar(20)       DEFAULT NULL COMMENT '证券代码',
-    `symbol_name`     varchar(50)       DEFAULT NULL COMMENT '证券名称',
-    `trade_date`      date              DEFAULT NULL COMMENT '交易日期',
-    `time`            int               DEFAULT NULL COMMENT '下单时间',
-    `last_order_time` int               DEFAULT NULL COMMENT '最后委托时间',
-    `quantity` int DEFAULT NULL COMMENT '实际买卖数量',
-    `trade_amount` decimal(18,2) DEFAULT NULL COMMENT '成交金额',
-    `fee_amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '手续费及税费',
-    `trade_mode` int DEFAULT NULL COMMENT '买入时交易模式快照',
-    `limit_up_score` int DEFAULT NULL COMMENT '买入时涨停分数快照',
-    `price`           int               DEFAULT NULL COMMENT '下单价格',
-    `increase` double DEFAULT NULL COMMENT '涨幅',
-    `remark`          varchar(500)      DEFAULT NULL COMMENT '交易说明',
-    `created_time`    datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    PRIMARY KEY (`id`),
-    KEY               `idx_symbol` (`symbol`),
-    KEY               `idx_rule_code` (`rule_code`),
-    KEY               `idx_action_type` (`action_type`),
-    KEY               `idx_time` (`time`),
-    KEY `idx_rule_execute_backtest_date_time` (`backtest_run_id`,`trade_date`,`time`),
-    KEY `idx_rule_execute_position_action` (`position_id`,`action_type`),
-    KEY `idx_rule_execute_watching_task` (`watching_task_id`),
-    UNIQUE KEY `uk_rule_execute_backtest_event` (`backtest_run_id`,`trade_date`,`symbol`,`action_type`,`rule_code`,`time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='规则执行记录表';
+    id                  bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code          varchar(6)                         null comment '正股代码',
+    bond_code           varchar(6)                         not null comment '转债代码',
+    market              varchar(10)                        not null comment '转债市场',
+    bond_name           varchar(50)                        null comment '转债名称',
+    start_date          date                               null comment '上市日期',
+    end_date            date                               null comment '退市或到期日期',
+    maturity_date       date                               null comment '到期日期',
+    failure             int                                null comment '是否失效',
+    outstanding_balance double                             null comment '存续余额',
+    created_time        datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updated_time        datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_bond_market
+        unique (bond_code, market)
+)
+    comment '股票可转债历史表';
 
-CREATE TABLE `stock_emotion_cycle_daily`
-(
-    `id`                                bigint   NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `trade_date`                        date     NOT NULL COMMENT '交易日期',
-    `limit_up_count`                    int      NOT NULL DEFAULT '0' COMMENT '涨停家数',
-    `limit_down_count`                  int      NOT NULL DEFAULT '0' COMMENT '跌停家数',
-    `consecutive_limit_up_count`        int      NOT NULL DEFAULT '0' COMMENT '连板数',
-    `highest_consecutive_limit_up_days` int               DEFAULT '0' COMMENT '最高连板',
-    `limit_up_broken_count`             int               DEFAULT '0' COMMENT '炸板数量',
-    `down_limit_count`                  int      NOT NULL DEFAULT '0' COMMENT '跌停数',
-    `dominant_cycle_stock_code`         varchar(6)        DEFAULT NULL COMMENT '占领周期股票代码',
-    `dominant_cycle_stock_name`         varchar(20)       DEFAULT NULL COMMENT '占领周期股票名称',
-    `rising_count`                      int      NOT NULL DEFAULT '0' COMMENT '涨家数',
-    `falling_count`                     int      NOT NULL DEFAULT '0' COMMENT '跌家数',
-    `all_market_turnover_amount`        decimal(20, 2)    DEFAULT NULL COMMENT '全市场成交金额，单位：亿元',
-    `created_time`                      datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_trade_date` (`trade_date`),
-    KEY                                 `idx_dominant_cycle_stock_code` (`dominant_cycle_stock_code`),
-    KEY                                 `idx_limit_up_count` (`limit_up_count`),
-    KEY                                 `idx_consecutive_limit_up_count` (`consecutive_limit_up_count`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票情绪周期表';
+create index idx_bond_code
+    on stock_convertible_bond_history (bond_code);
 
-CREATE TABLE `backtest_run`
-(
-    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '回测任务ID',
-    `start_date` date NOT NULL COMMENT '开始日期',
-    `end_date` date NOT NULL COMMENT '结束日期',
-    `initial_capital` decimal(18,2) NOT NULL DEFAULT '100000.00' COMMENT '初始资金',
-    `shanghai_delay_ms` int NOT NULL DEFAULT '500' COMMENT '上海成交延迟毫秒',
-    `shenzhen_delay_ms` int NOT NULL DEFAULT '100' COMMENT '深圳成交延迟毫秒',
-    `overnight_fill_time` int NOT NULL DEFAULT '91501000' COMMENT '隔夜成交判断时间',
-    `status` tinyint NOT NULL DEFAULT '0' COMMENT '0待执行，1执行中，2完成，3失败',
-    `last_completed_date` date DEFAULT NULL COMMENT '最后完成交易日',
-    `final_asset` decimal(18,2) DEFAULT NULL COMMENT '最终资产',
-    `total_return_rate` decimal(18,8) DEFAULT NULL COMMENT '累计收益率',
-    `limit_up_break_count` int NOT NULL DEFAULT '0' COMMENT '实际买入后当日炸板次数',
-    `error_message` varchar(1000) DEFAULT NULL COMMENT '失败原因',
-    `started_time` datetime DEFAULT NULL COMMENT '开始时间',
-    `finished_time` datetime DEFAULT NULL COMMENT '完成时间',
-    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_backtest_run_status` (`status`),
-    KEY `idx_backtest_run_date_range` (`start_date`,`end_date`),
-    KEY `idx_backtest_run_last_date` (`last_completed_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测任务表';
+create index idx_stock_code
+    on stock_convertible_bond_history (stock_code);
 
-CREATE TABLE `backtest_position`
-(
-    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '持仓ID',
-    `backtest_run_id` bigint NOT NULL COMMENT '回测任务ID',
-    `watching_task_id` bigint DEFAULT NULL COMMENT '推荐任务ID',
-    `symbol` varchar(20) NOT NULL COMMENT '股票代码',
-    `symbol_name` varchar(50) DEFAULT NULL COMMENT '股票名称',
-    `trade_mode` int DEFAULT NULL COMMENT '交易模式快照',
-    `limit_up_score` int DEFAULT NULL COMMENT '涨停分数快照',
-    `buy_date` date NOT NULL COMMENT '买入日期',
-    `buy_time` int NOT NULL COMMENT '买入时间',
-    `buy_price` int NOT NULL COMMENT '买入价格，分',
-    `quantity` int NOT NULL COMMENT '持仓股数',
-    `buy_amount` decimal(18,2) NOT NULL COMMENT '买入金额',
-    `buy_fee` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '买入手续费',
-    `sell_date` date DEFAULT NULL COMMENT '卖出日期',
-    `sell_time` int DEFAULT NULL COMMENT '卖出时间',
-    `sell_price` int DEFAULT NULL COMMENT '卖出价格，分',
-    `sell_amount` decimal(18,2) DEFAULT NULL COMMENT '卖出金额',
-    `sell_fee` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '卖出手续费及税费',
-    `status` tinyint NOT NULL DEFAULT '1' COMMENT '1持仓中，2已卖出',
-    `holding_trade_days` int NOT NULL DEFAULT '1' COMMENT '持仓交易日数',
-    `realized_profit` decimal(18,2) DEFAULT NULL COMMENT '已实现收益',
-    `return_rate` decimal(18,8) DEFAULT NULL COMMENT '持仓收益率',
-    `max_floating_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '最高浮盈率',
-    `max_drawdown_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '最大回撤率',
-    `limit_up_break_days` int NOT NULL DEFAULT '0' COMMENT '炸板天数',
-    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_backtest_position_run_status` (`backtest_run_id`,`status`),
-    KEY `idx_backtest_position_run_buy_date` (`backtest_run_id`,`buy_date`),
-    KEY `idx_backtest_position_symbol_date` (`symbol`,`buy_date`),
-    KEY `idx_backtest_position_watching_task` (`watching_task_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测持仓生命周期表';
+create index idx_stock_date_range
+    on stock_convertible_bond_history (stock_code, start_date, end_date);
 
-CREATE TABLE `backtest_daily_record`
+create table stock_current_status
 (
-    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `backtest_run_id` bigint NOT NULL COMMENT '回测任务ID',
-    `trade_date` date NOT NULL COMMENT '交易日期',
-    `position_id` bigint DEFAULT NULL COMMENT '持仓ID',
-    `account_status` tinyint NOT NULL DEFAULT '0' COMMENT '0空仓，1持仓',
-    `symbol` varchar(20) DEFAULT NULL COMMENT '持仓股票代码',
-    `symbol_name` varchar(50) DEFAULT NULL COMMENT '持仓股票名称',
-    `quantity` int NOT NULL DEFAULT '0' COMMENT '持仓数量',
-    `available_cash` decimal(18,2) NOT NULL COMMENT '可用现金',
-    `close_price` int DEFAULT NULL COMMENT '收盘价，分',
-    `position_market_value` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '持仓市值',
-    `total_asset` decimal(18,2) NOT NULL COMMENT '总资产',
-    `daily_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '当日收益率',
-    `cumulative_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '累计收益率',
-    `position_return_rate` decimal(18,8) NOT NULL DEFAULT '0' COMMENT '持仓收益率',
-    `kline_state` int DEFAULT NULL COMMENT '日K状态',
-    `adjust_factor` decimal(20,10) DEFAULT NULL COMMENT '复权因子',
-    `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `updated_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_backtest_daily_run_date` (`backtest_run_id`,`trade_date`),
-    KEY `idx_backtest_daily_position` (`position_id`),
-    KEY `idx_backtest_daily_symbol_date` (`symbol`,`trade_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='历史回测每日账户与持仓快照表';
+    id               bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code       varchar(6)                         not null comment '股票代码',
+    margin_trading   tinyint  default 1                 not null comment '是否融资融券：0=否，1=是',
+    convertible_bond tinyint  default 0                 not null comment '是否有可转债：0=否，1=是',
+    region_name      varchar(50)                        null comment '地域名称',
+    updated_time     datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_stock_code
+        unique (stock_code)
+)
+    comment '股票当前状态表';
+
+create index idx_convertible_bond
+    on stock_current_status (convertible_bond);
+
+create index idx_margin_trading
+    on stock_current_status (margin_trading);
+
+create index idx_region_name
+    on stock_current_status (region_name);
+
+create table stock_daily
+(
+    id                        bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code                varchar(6)                         not null comment '股票代码',
+    stock_name                varchar(20)                        null comment '当日股票名称',
+    is_st                     tinyint  default 0                 not null comment '当日是否ST：0=否，1=是',
+    trade_date                date                               not null comment '交易日期',
+    open_price                double                             null comment '开盘价',
+    high_price                double                             null comment '最高价',
+    low_price                 double                             null comment '最低价',
+    close_price               double                             null comment '收盘价',
+    prev_close                double                             null comment '前收盘价',
+    adjust_pre_close_price    double                             null comment '复权昨收盘价',
+    adjust_open_price         double                             null comment '复权开盘价',
+    adjust_high_price         double                             null comment '复权最高价',
+    adjust_low_price          double                             null comment '复权最低价',
+    adjust_close_price        double                             null comment '复权收盘价',
+    adjust_factor             double                             null comment '复权因子',
+    volume                    bigint                             null comment '成交量，单位：股',
+    turnover                  double                             null comment '成交额，单位：万元',
+    turnover_rate             double                             null comment '真实换手率，单位：%',
+    change_rate               double                             null comment '涨跌幅，单位：%',
+    amplitude                 double                             null comment '振幅，单位：%',
+    float_market_cap          double                             null comment '流通市值，单位：万元',
+    float_shares              bigint                             null comment '流通股本，单位：股',
+    kline_state               int                                null comment 'K线状态',
+    consecutive_limit_up_days int                                null comment '连续涨停天数或断板高度',
+    created_at                datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    constraint uk_stock_trade_date
+        unique (stock_code, trade_date)
+)
+    comment '股票日K线数据表';
+
+create index idx_consecutive_limit_up_days
+    on stock_daily (consecutive_limit_up_days);
+
+create index idx_kline_state
+    on stock_daily (kline_state);
+
+create index idx_stock_code
+    on stock_daily (stock_code);
+
+create index idx_trade_date
+    on stock_daily (trade_date);
+
+create table stock_daily_update_task
+(
+    id                      bigint auto_increment comment '主键ID'
+        primary key,
+    task_date               date                                 not null comment '任务日期',
+    trade_day               tinyint(1) default 0                 not null comment '是否交易日',
+    previous_name_synced    tinyint(1) default 0                 not null comment '曾用名同步是否完成',
+    new_listing_synced      tinyint(1) default 0                 not null comment '新上市股票发现是否完成',
+    free_float_synced       tinyint(1) default 0                 not null comment '自由流通股本同步是否完成',
+    convertible_bond_synced tinyint(1) default 0                 not null comment '可转债当前状态同步是否完成',
+    region_synced           tinyint(1) default 0                 not null comment '地域信息同步是否完成',
+    margin_trading_synced   tinyint(1) default 0                 not null comment '融资融券标识维护是否完成',
+    daily_kline_synced      tinyint(1) default 0                 not null comment '日K同步是否完成',
+    pre_open_finished       tinyint(1) default 0                 not null comment '盘前任务是否完成',
+    post_close_finished     tinyint(1) default 0                 not null comment '盘后任务是否完成',
+    created_time            datetime   default CURRENT_TIMESTAMP not null comment '创建时间',
+    updated_time            datetime   default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_task_date
+        unique (task_date)
+)
+    comment '股票每日更新任务记录表';
+
+create table stock_free_float_share_history
+(
+    id                bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code        varchar(6)                         not null comment '股票代码',
+    free_shares       bigint                             not null comment '自由流通股本，单位：股；接口返回万股后放大10000倍',
+    start_date        date                               not null comment '区间开始日期，对应接口ChangeDateEX',
+    end_date          date                               null comment '区间结束日期；NULL表示当前仍然有效',
+    announcement_date date                               null comment '公告日期，对应接口AnnouncementDate',
+    created_time      datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updated_time      datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_stock_start_date
+        unique (stock_code, start_date)
+)
+    comment '股票自由流通股本历史区间表';
+
+create index idx_current
+    on stock_free_float_share_history (stock_code, end_date);
+
+create index idx_stock_code
+    on stock_free_float_share_history (stock_code);
+
+create index idx_stock_date_range
+    on stock_free_float_share_history (stock_code, start_date, end_date);
+
+create table stock_previous_name_history
+(
+    id         bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code varchar(6)  null,
+    stock_name varchar(20) not null,
+    start_date date        not null,
+    end_date   date        null,
+    constraint uk_stock_start_date
+        unique (stock_code, start_date)
+)
+    comment '股票曾用名历史表' charset = utf8mb3;
+
+create table stock_sync_task
+(
+    id                 bigint auto_increment comment '主键ID'
+        primary key,
+    stock_code         varchar(6)                         not null comment '股票代码',
+    free_float_synced  tinyint  default 0                 not null comment '是否已完成自由流通股同步：0=未完成，1=已完成',
+    daily_kline_synced tinyint  default 0                 not null comment '是否已完成日K同步：0=未完成，1=已完成',
+    created_time       datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updated_time       datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_stock_code
+        unique (stock_code)
+)
+    comment '股票历史数据同步任务进度表';
+
+create index idx_daily_kline_synced
+    on stock_sync_task (daily_kline_synced);
+
+create index idx_free_float_synced
+    on stock_sync_task (free_float_synced);
+
+create table stock_trade_calendar
+(
+    id           bigint auto_increment comment '主键ID'
+        primary key,
+    trade_date   date                               not null comment '交易日期',
+    updated_time datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    constraint uk_trade_date
+        unique (trade_date)
+)
+    comment '股票交易日历表';
+

@@ -81,13 +81,11 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
     public boolean evaluateShenzhenAuctionBuy(TradeMarketState market,
                                               AuctionMarketEvent event,
                                               int recordTime,
-                                              boolean acceptedLimitUpBuyOrder,
                                               long limitUpBuyVolume,
                                               long totalSellVolume,
                                               TradeRuleRecord record) {
         return buyStrategy(market.getTradeMode()).evaluateShenzhenAuctionBuy(
-                market, event, recordTime, acceptedLimitUpBuyOrder,
-                limitUpBuyVolume, totalSellVolume, record);
+                market, event, recordTime, limitUpBuyVolume, totalSellVolume, record);
     }
 
     @Override

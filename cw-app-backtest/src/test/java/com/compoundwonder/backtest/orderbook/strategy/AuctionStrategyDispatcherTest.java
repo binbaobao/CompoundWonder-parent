@@ -59,7 +59,7 @@ class AuctionStrategyDispatcherTest {
                     limitUpPrice, 900_001, 12_345, 15_000_000, 500);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     largeOrderBook, shenzhenLargeOrderEvent, 91_900_000,
-                    true, 15_000_000, 500, shenzhenLargeOrderBuy));
+                    15_000_000, 500, shenzhenLargeOrderBuy));
             assertEquals(6, shenzhenLargeOrderBuy.ruleCode);
             assertTrue(shenzhenLargeOrderBuy.remark.contains("涨停大单"));
 
@@ -68,7 +68,7 @@ class AuctionStrategyDispatcherTest {
                     limitUpPrice, 1, 12_346, 5_001, 500);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     orderBook, shenzhenVolumeEvent, 91_900_000,
-                    false, 5_001, 500, shenzhenVolumeBuy));
+                    5_001, 500, shenzhenVolumeBuy));
             assertEquals(7, shenzhenVolumeBuy.ruleCode);
             assertTrue(shenzhenVolumeBuy.remark.contains("封单绝对强度"));
 
@@ -222,7 +222,7 @@ class AuctionStrategyDispatcherTest {
                     orderBook,
                     event((byte) 2, 91_900_000, limitUpPrice,
                             0, 12_348, 0, 0),
-                    91_900_000, false, 4_000_001, 1_599_999,
+                    91_900_000, 4_000_001, 1_599_999,
                     absoluteStrength));
             assertEquals(7, absoluteStrength.ruleCode);
 
@@ -231,13 +231,13 @@ class AuctionStrategyDispatcherTest {
                     orderBook,
                     event((byte) 2, 91_900_000, limitUpPrice,
                             0, 12_349, 0, 0),
-                    91_900_000, false, 4_000_000, 1_000_000,
+                    91_900_000, 4_000_000, 1_000_000,
                     new RuleRecord()));
             assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
                     orderBook,
                     event((byte) 2, 91_900_000, limitUpPrice,
                             0, 12_350, 0, 0),
-                    91_900_000, false, 5_000_000, 2_000_000,
+                    91_900_000, 5_000_000, 2_000_000,
                     new RuleRecord()));
 
             // 启动流通市值达到 20 亿元时，两种深圳集合竞价买入都不执行。
@@ -246,7 +246,7 @@ class AuctionStrategyDispatcherTest {
                     orderBook,
                     event((byte) 2, 91_900_000, limitUpPrice,
                             0, 12_351, 0, 0),
-                    91_900_000, false, 8_000_000, 100_000,
+                    91_900_000, 8_000_000, 100_000,
                     new RuleRecord()));
 
             // 低价股大单分档本身不限制市值，仍必须被深圳竞价统一的 20 亿元硬门槛挡住。
@@ -259,7 +259,7 @@ class AuctionStrategyDispatcherTest {
                     event((byte) 1, 91_900_000,
                             lowPriceOrderBook.getLimitUpPrice(),
                             888_800, 12_352, 0, 0),
-                    91_900_000, true, 888_800, 888_799,
+                    91_900_000, 888_800, 888_799,
                     new RuleRecord()));
         }
     }
@@ -279,15 +279,23 @@ class AuctionStrategyDispatcherTest {
                     orderBook,
                     event((byte) 1, 91_900_000, limitUpPrice,
                             900_001, 12_352, 0, 0),
-                    91_900_000, true, 900_001, 900_000,
+                    91_900_000, 900_001, 900_000,
                     largeOrder));
             assertEquals(6, largeOrder.ruleCode);
 
+            // 卖方向涨停价大单不能触发竞价买入。
+            TickData sellLimitUpOrder = event((byte) 1, 91_900_000, limitUpPrice,
+                    900_001, 12_353, 0, 0);
+            sellLimitUpOrder.direction = 2;
             assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
-                    orderBook,
+                    orderBook, sellLimitUpOrder, 91_900_000,
+                    900_001, 900_000, new RuleRecord()));
+
+            assertFalse(dispatcher.evaluateShenzhenAuctionBuy(
+                orderBook,
                     event((byte) 1, 91_900_000, limitUpPrice - 1,
                             900_001, 12_353, 0, 0),
-                    91_900_000, false, 900_001, 900_000,
+                    91_900_000, 900_001, 900_000,
                     new RuleRecord()));
 
             // 09:25 批量到达的是集合竞价结果，不能再产生竞价买入信号。
@@ -295,7 +303,7 @@ class AuctionStrategyDispatcherTest {
                     orderBook,
                     event((byte) 1, ConstantUtil.TIME_925, limitUpPrice,
                             900_001, 12_354, 0, 0),
-                    ConstantUtil.TIME_925, true, 900_001, 100,
+                    ConstantUtil.TIME_925, 900_001, 100,
                     new RuleRecord()));
         }
     }
@@ -340,6 +348,7 @@ class AuctionStrategyDispatcherTest {
                            int orderId, int buyerOrderId, int sellerOrderId) {
         TickData event = new TickData();
         event.dataType = dataType;
+        event.direction = 1;
         event.time = time;
         event.price = price;
         event.quantity = quantity;

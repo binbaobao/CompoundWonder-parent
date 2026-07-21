@@ -107,6 +107,10 @@ public final class ConditionEvaluatorBuy {
     public static boolean evaluate(TradeMarketState orderBook, TradeRuleRecord ruleRecord) {
         // 本轮连板启动时的流通市值，单位：万元。
         long marketValue = orderBook.getInitialMarketValue();
+        // 已经定格的分钟累计均价中的最低值，整数价格口径为元乘以 100。
+        int minAveragePrice = orderBook.getMinAveragePrice();
+        // 最低分钟累计均价相对昨收的涨跌幅，单位：%。
+        double minAveragePriceIncrease = orderBook.getMinAveragePriceIncrease();
         // 当日截至当前时刻的累计换手率，单位：%。
         double turnoverRate = orderBook.getTurnoverRate();
         // 最新成交价，单位：分。
@@ -142,7 +146,7 @@ public final class ConditionEvaluatorBuy {
         // 如果是首板不允许最低点小于-1.5
         // 首板只是补充交易模式，不能接加速，只做换手充分，经历过程分歧的，不然特别容易炸板
         // 首板如果跌入深水也容易第二天走弱
-        if (orderBook.getLowPriceIncrease() < -1.5 && orderBook.getOpenPrice() > orderBook.getLowPrice() ) {
+        if (orderBook.getMinAveragePriceIncrease() < -3.5 ) {
             return false;
         }
         if (orderBook.getStatus() > 20) {
@@ -158,6 +162,9 @@ public final class ConditionEvaluatorBuy {
         }
         // 开的高不能封板太快,也不大
         if (orderBook.getOpenIncrease() > 3.5  && time < ConstantUtil.TIME_935) {
+            return false;
+        }
+        if (orderBook.getOpenIncrease() > 6.5  && time < ConstantUtil.TIME_1000) {//  美能能源 2025-11-26
             return false;
         }
 
