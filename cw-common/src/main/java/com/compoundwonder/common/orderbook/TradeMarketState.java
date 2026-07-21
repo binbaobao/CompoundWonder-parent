@@ -105,6 +105,18 @@ public interface TradeMarketState {
     /** @return 最近一次有效封板时间，格式为 {@code HHmmssSSS} */
     int getLastLimitUptime();
 
+    /** @return 最近一次炸板时间，格式为 {@code HHmmssSSS}；当日尚未炸板时为 0 */
+    int getLastLimitUpBreakTime();
+
+    /** @return 最近一次封板状态下记录的振幅，炸板后保留用于确认炸板前状态 */
+    double getLastSealedAmplitude();
+
+    /** @return 最近一次封板状态下记录的 EMA 变化率，炸板后保留用于确认炸板前状态 */
+    double getLastSealedChangePercent();
+
+    /** @return 最近一次封板状态下记录的封单金额，单位为万元 */
+    long getLastSealedAmount();
+
     /** @return 最近一次计算得到的涨停封单量 EMA，单位为股 */
     double getLastEmaVolume();
 

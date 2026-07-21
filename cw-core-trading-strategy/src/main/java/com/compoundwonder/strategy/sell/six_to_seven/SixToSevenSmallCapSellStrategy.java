@@ -18,6 +18,9 @@ public final class SixToSevenSmallCapSellStrategy implements BoardSellStrategy {
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
         int lbcs = market.getLbcs();
+        int todayBoard = lbcs + 1;
+        int averageLimitUpHeight = market.getAverageLimitUpHeight();
+        int heightGap = todayBoard - averageLimitUpHeight;
         double openIncrease = market.getOpenIncrease();
         double turnover = market.getTurnoverRate();
         double yesterdayTurnover = market.getYesterdayTurnover();
@@ -38,11 +41,12 @@ public final class SixToSevenSmallCapSellStrategy implements BoardSellStrategy {
         if (lbcs >= 5 && lbcs < 7 && market.getInitialMarketValue() < 130_000
                 && market.getThreeDaysTurnover() <= 16.6
                 && changePercent < -2 && market.getLastSealAmount() < 2_500) {
-            // 回测样本：国芳集团（601086），2025-04-14。
+            // 回测样本：国芳集团（601086），2025-04-14；兴业股份（603928），2025-01-27。
             String remark = StrUtil.format(
-                    "高位连板缩量板炸板；条件：今日 {} 板，启动市值 {} 万，三日换手 {}%，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
-                    lbcs + 1, market.getInitialMarketValue(), market.getThreeDaysTurnover(),
-                    market.getLimitUpBuyAmount(), turnover, changePercent);
+                    "高位连板缩量板炸板；条件：今日 {} 板，近 15 日平均高度 {} 板，高度差 {} 板，启动市值 {} 万，三日换手 {}%，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
+                    todayBoard, averageLimitUpHeight, heightGap, market.getInitialMarketValue(),
+                    market.getThreeDaysTurnover(), market.getLimitUpBuyAmount(), turnover,
+                    changePercent);
             return match(market, record, RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_LOW_TURNOVER,
                     market.getLastPrice(), remark);
         }

@@ -39,7 +39,7 @@ public final class SmallCapFirstBoardSelectionPolicy {
 //        }
         int highestBoard = Objects.requireNonNullElse(
                 candidate.highestConsecutiveLimitUpDays(), 0);
-        if (highestBoard >= 3) {
+        if (highestBoard > 3) {
             return Decision.rejected("200根K线历史最高板",
                     "actual=" + highestBoard + ", required<3");
         }

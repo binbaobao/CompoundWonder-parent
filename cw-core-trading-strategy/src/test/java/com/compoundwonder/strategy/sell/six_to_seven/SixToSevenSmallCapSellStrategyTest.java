@@ -50,6 +50,27 @@ class SixToSevenSmallCapSellStrategyTest {
         assertEquals(928, rule.price);
     }
 
+    @Test
+    void sellsMarketHeightBreakFromXingyeSharesOn2025_01_27() {
+        Map<String, Object> values = baseValues("603928", 64_154);
+        values.put("getTime", 94_858_850);
+        values.put("getLastPrice", 1_597);
+        values.put("getLimitUpBuyAmount", 1_732L);
+        values.put("getTurnoverRate", 29.261810552833257D);
+        values.put("getThreeDaysTurnover", 10.661666666666667D);
+        values.put("getChangePercent", -3.37D);
+        values.put("getLastSealAmount", 1_732L);
+        values.put("getAverageLimitUpHeight", 6);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertTrue(new SixToSevenSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_LOW_TURNOVER, rule.ruleCode);
+        assertEquals(1_597, rule.price);
+        assertTrue(rule.remark.contains("近 15 日平均高度 6 板"));
+        assertTrue(rule.remark.contains("高度差 1 板"));
+    }
+
     private static Map<String, Object> baseValues(String symbol, int marketValue) {
         Map<String, Object> values = new HashMap<>();
         values.put("getSymbol", symbol);
@@ -80,12 +101,14 @@ class SixToSevenSmallCapSellStrategyTest {
     private static final class CapturedRule implements TradeRuleRecord {
         private int ruleCode;
         private int price;
+        private String remark;
 
         @Override
         public void fill(int actionType, int ruleCode, String symbol, int time,
                          int price, double increase, String remark) {
             this.ruleCode = ruleCode;
             this.price = price;
+            this.remark = remark;
         }
     }
 }

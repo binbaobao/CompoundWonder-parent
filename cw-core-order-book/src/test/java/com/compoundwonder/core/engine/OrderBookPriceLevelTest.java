@@ -136,6 +136,23 @@ class OrderBookPriceLevelTest {
     }
 
     @Test
+    void recordsTheLatestBreakTimeForSellConfirmation() {
+        OrderBook orderBook = limitUpOrderBook(1_500_000);
+
+        orderBook.applyTrade(1, 300_000);
+        orderBook.updateLimitUpStatus();
+
+        orderBook.updatePrice(0, 0, orderBook.getLimitUpPrice() - 1, 100_615_400);
+        orderBook.updateLimitUpStatus();
+
+        assertEquals(2, orderBook.getStatus());
+        assertEquals(100_615_400, orderBook.getLastLimitUpBreakTime());
+        assertEquals(0D, orderBook.getLastSealedAmplitude());
+        assertEquals(-5D, orderBook.getLastSealedChangePercent());
+        assertEquals(1_320L, orderBook.getLastSealedAmount());
+    }
+
+    @Test
     void confirmsWeakeningOnlyAfterFiveConsecutiveNegativeEmaChanges() {
         OrderBook orderBook = limitUpOrderBook(1_500_000);
 

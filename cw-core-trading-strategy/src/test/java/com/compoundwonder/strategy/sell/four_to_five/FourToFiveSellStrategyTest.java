@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FourToFiveSellStrategyTest {
 
     @Test
-    void keepsSmallCapOneWordWeakeningFromXinjuNetworkOn2025_02_05() {
+    void waitsForBreakConfirmationBelowAverageHeightForXinjuNetworkOn2025_02_05() {
         Map<String, Object> values = baseValues(89_217, 4);
         values.put("getTime", 100_615_400);
         values.put("getLastPrice", 3_071);
@@ -32,6 +32,106 @@ class FourToFiveSellStrategyTest {
         values.put("getLastSealAmount", 2_000L);
         values.put("getAmplitude", 1D);
         values.put("getOpenIncrease", 9D);
+        values.put("getAverageLimitUpHeight", 6);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void doesNotSellWhenXinjuNetworkResealsWithinSixtySeconds() {
+        Map<String, Object> values = xinjuNetworkBreakValues(100_659_000, 3);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void keepsWaitingWhileBreakIsShorterThanSixtySeconds() {
+        Map<String, Object> values = xinjuNetworkBreakValues(100_715_399, 2);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void sellsBelowAverageHeightWhenBreakLastsSixtySeconds() {
+        Map<String, Object> values = xinjuNetworkBreakValues(100_715_400, 2);
+        values.put("getLastPrice", 2_951);
+        values.put("getLimitUpBreakDepth", 4D);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertTrue(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(RuleConstant.SELL_LIMIT_UP_SMALL_CAP_ONE_WORD_WEAKENING, rule.ruleCode);
+        assertEquals(2_951, rule.price);
+    }
+
+    @Test
+    void doesNotConfirmAtLaishenTongling3_8961PercentBreakDepth() {
+        Map<String, Object> values = xinjuNetworkBreakValues(100_715_400, 2);
+        values.put("getLimitUpBreakDepth", 3.8961D);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void doesNotStartDelayedSellWithoutPreBreakSealWeakening() {
+        Map<String, Object> values = xinjuNetworkBreakValues(100_715_400, 2);
+        values.put("getLastSealedChangePercent", -2D);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void doesNotLetAveragePriceRuleBypassXinjuNetworkResealObservation() {
+        int calculateIndex = 10;
+        Map<String, Object> values = xinjuNetworkBreakValues(100_619_910, 2);
+        values.put("getLastPrice", 2_997);
+        values.put("getIncrease", 7.41404011461318D);
+        values.put("getAveragePriceAt", (IntUnaryOperator) index -> switch (index) {
+            case 7 -> 3_070;
+            case 8 -> 3_030;
+            case 9 -> 3_000;
+            default -> 2_990;
+        });
+        values.put("getMinutePriceAt", (IntUnaryOperator) index -> 2_997);
+
+        CapturedRule rule = new CapturedRule();
+
+        assertFalse(new FourToFiveSmallCapSellStrategy()
+                .evaluateAveragePrice(calculateIndex, market(values), rule));
+        assertEquals(0, rule.ruleCode);
+    }
+
+    @Test
+    void sellsImmediatelyWhenOneWordWeakeningReachesAverageHeight() {
+        Map<String, Object> values = baseValues(89_217, 4);
+        values.put("getTime", 100_615_400);
+        values.put("getLastPrice", 3_071);
+        values.put("getLimitUpBuyAmount", 1_334L);
+        values.put("getStatus", 1);
+        values.put("getChangePercent", -3.3D);
+        values.put("getTurnoverRate", 19.392967438893887D);
+        values.put("getTwoDaysTurnover", 20D);
+        values.put("getYesterdayTurnover", 20D);
+        values.put("getOneWordLimitUp", 2);
+        values.put("getLastSealAmount", 2_000L);
+        values.put("getAmplitude", 1D);
+        values.put("getOpenIncrease", 9D);
+        values.put("getAverageLimitUpHeight", 5);
 
         CapturedRule rule = new CapturedRule();
 
@@ -109,6 +209,25 @@ class FourToFiveSellStrategyTest {
         values.put("getSymbol", "600000");
         values.put("getInitialMarketValue", marketValue);
         values.put("getLbcs", lbcs);
+        return values;
+    }
+
+    private static Map<String, Object> xinjuNetworkBreakValues(int time, int status) {
+        Map<String, Object> values = baseValues(89_217, 4);
+        values.put("getTime", time);
+        values.put("getLastPrice", 3_000);
+        values.put("getStatus", status);
+        values.put("getOpenIncrease", 9D);
+        values.put("getTwoDaysTurnover", 20D);
+        values.put("getYesterdayTurnover", 20D);
+        values.put("getOneWordLimitUp", 2);
+        values.put("getTurnoverRate", 20D);
+        values.put("getAverageLimitUpHeight", 6);
+        values.put("getLastLimitUpBreakTime", 100_615_400);
+        values.put("getLastSealedChangePercent", -3.3D);
+        values.put("getLastSealedAmount", 2_000L);
+        values.put("getLastSealedAmplitude", 1D);
+        values.put("getLimitUpBreakDepth", 4.3D);
         return values;
     }
 

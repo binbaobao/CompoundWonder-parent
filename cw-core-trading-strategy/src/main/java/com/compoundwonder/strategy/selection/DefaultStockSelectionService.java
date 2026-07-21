@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.selection;
 import com.compoundwonder.common.mysqldata.selection.StockSelectionDataService;
 import com.compoundwonder.common.strategy.selection.StockSelectionService;
 import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
+import com.compoundwonder.common.strategy.trade.TradeMode;
 import com.compoundwonder.strategy.firstboard.selection.FirstBoardSelectionService;
 import com.compoundwonder.strategy.relay.selection.RelaySelectionService;
 import com.compoundwonder.strategy.smallcapfirstboard.selection.SmallCapFirstBoardSelectionService;
@@ -36,6 +37,21 @@ public class DefaultStockSelectionService implements StockSelectionService {
     }
 
     /**
+     * 本版单模式全量回测只开放小市值首板（Model 3）。
+     * Model 1、2 保留枚举和服务，但等各自策略完成后再接入同一回测框架。
+     */
+    @Override
+    public List<SelectionTaskData> select(LocalDate tradeDate, TradeMode tradeMode) {
+        if (tradeDate == null) {
+            throw new IllegalArgumentException("选股日期不能为空");
+        }
+        if (tradeMode != TradeMode.SMALL_CAP_FIRST_BOARD) {
+            throw new UnsupportedOperationException("本版单模式全量回测仅支持 Model 3");
+        }
+        return List.copyOf(smallCapFirstBoardSelectionService.select(tradeDate));
+    }
+
+    /**
      * 按固定模式顺序执行收盘后选股并聚合任务，不在模式之间回退候选。
      *
      * @param tradeDate 选股所依据的收盘交易日
@@ -49,7 +65,7 @@ public class DefaultStockSelectionService implements StockSelectionService {
 //        // 调用普通首板模式选股方法。
 //        tasks.addAll(firstBoardSelectionService.select(tradeDate));
 //        // 调用小市值首板模式选股方法。
-        tasks.addAll(smallCapFirstBoardSelectionService.select(tradeDate));
+        tasks.addAll(select(tradeDate, TradeMode.SMALL_CAP_FIRST_BOARD));
         return List.copyOf(tasks);
     }
 }

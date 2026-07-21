@@ -213,6 +213,18 @@ public class OrderBook implements TradeMarketState {
      */
     private int lastLimitUptime;
 
+    /** 最近一次炸板时间，格式为 HHmmssSSS */
+    private int lastLimitUpBreakTime;
+
+    /** 最近一次封板状态下的振幅，炸板时保留 */
+    private double lastSealedAmplitude;
+
+    /** 最近一次封板状态下的 EMA 变化率，炸板时保留 */
+    private double lastSealedChangePercent;
+
+    /** 最近一次封板状态下的封单金额，单位为万元，炸板时保留 */
+    private long lastSealedAmount;
+
     // 主索引：快速 orderId 删除
     @Getter(AccessLevel.NONE)
     @ToString.Exclude
@@ -684,6 +696,9 @@ public class OrderBook implements TradeMarketState {
                 this.lastEmaVolume = 0;
                 this.changePercent = 0;
                 this.emaCounter = 0;
+                this.lastSealedAmplitude = 0;
+                this.lastSealedChangePercent = 0;
+                this.lastSealedAmount = 0;
                 resetEmaSealTrend();
             }
         } else if (this.status % 2 == 1) {
@@ -692,6 +707,7 @@ public class OrderBook implements TradeMarketState {
             // 如果涨停封单金额小于 100万
             if (lastPrice != limitUpPrice || this.limitUpBuyAmount < 100) {
                 this.status++;
+                this.lastLimitUpBreakTime = time;
                 this.limitUpBuyAmount = 0;
                 this.lastEmaVolume = 0;
                 this.changePercent = 0;
@@ -731,6 +747,9 @@ public class OrderBook implements TradeMarketState {
                     // 记录本次计算使用的封单金额
                     lastSealAmount = currentSealAmount;
                 }
+                this.lastSealedAmplitude = amplitude;
+                this.lastSealedChangePercent = changePercent;
+                this.lastSealedAmount = lastSealAmount;
             }
         }
     }

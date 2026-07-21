@@ -4,12 +4,17 @@ package com.compoundwonder.backtest.controller;
 import com.compoundwonder.backtest.service.BacktestService;
 import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
+import com.compoundwonder.backtest.service.SingleModeBacktestService;
+import com.compoundwonder.backtest.service.model.SingleModeBacktestSummary;
+import com.compoundwonder.backtest.service.model.SingleModeBoardStat;
+import com.compoundwonder.backtest.service.model.SingleModeSamplePage;
 import com.compoundwonder.backtest.service.impl.BackTestTradeService;
 import com.compoundwonder.dto.*;
 import com.compoundwonder.trader.entity.BacktestDailyRecord;
 import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
 import com.compoundwonder.trader.entity.RuleExecuteRecord;
+import com.compoundwonder.trader.entity.SingleModeBacktestRun;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +23,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -36,6 +43,7 @@ public class BacktestController {
     private final BackTestTradeService backTestTradeService;
 
     private final HistoricalBacktestTradeService historicalBacktestTradeService;
+    private final SingleModeBacktestService singleModeBacktestService;
 
     /**
      * 创建回测接口控制器。
@@ -45,12 +53,14 @@ public class BacktestController {
                               Level2MinuteBarService level2MinuteBarService,
                               StockWatchingTaskService stockWatchingTaskService,
                               BackTestTradeService backTestTradeService,
-                              HistoricalBacktestTradeService historicalBacktestTradeService) {
+                              HistoricalBacktestTradeService historicalBacktestTradeService,
+                              SingleModeBacktestService singleModeBacktestService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
         this.stockWatchingTaskService = stockWatchingTaskService;
         this.backTestTradeService = backTestTradeService;
         this.historicalBacktestTradeService = historicalBacktestTradeService;
+        this.singleModeBacktestService = singleModeBacktestService;
     }
 
 
@@ -195,6 +205,63 @@ public class BacktestController {
     @GetMapping("trade-runs/{runId}/rules")
     public Result<List<RuleExecuteRecord>> historicalTradingBacktestRules(@PathVariable Long runId) {
         return new Result<List<RuleExecuteRecord>>().ok(historicalBacktestTradeService.findRules(runId));
+    }
+
+    /** 启动不受仓位约束的 Model 3 全样本回测。 */
+    @PostMapping("single-mode-runs")
+    public Result<SingleModeBacktestRun> runSingleModeBacktest(
+            @RequestParam LocalDate startDate,
+            @RequestParam LocalDate endDate,
+            @RequestParam(defaultValue = "3") Integer tradeMode) {
+        return new Result<SingleModeBacktestRun>().ok(
+                singleModeBacktestService.startRange(startDate, endDate, requireModel3(tradeMode)));
+    }
+
+    /** 查询最近的 Model 3 单模式任务。 */
+    @GetMapping("single-mode-runs")
+    public Result<List<SingleModeBacktestRun>> singleModeRuns(
+            @RequestParam(defaultValue = "3") Integer tradeMode,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return new Result<List<SingleModeBacktestRun>>().ok(
+                singleModeBacktestService.findRecentRuns(
+                        requireModel3(tradeMode), limit == null ? 20 : limit));
+    }
+
+    /** 查询单模式任务进度。 */
+    @GetMapping("single-mode-runs/{runId}")
+    public Result<SingleModeBacktestRun> singleModeRun(@PathVariable Long runId) {
+        return new Result<SingleModeBacktestRun>().ok(singleModeBacktestService.findRun(runId));
+    }
+
+    /** 查询样本胜率、收益和首板晋级摘要。 */
+    @GetMapping("single-mode-runs/{runId}/summary")
+    public Result<SingleModeBacktestSummary> singleModeSummary(@PathVariable Long runId) {
+        return new Result<SingleModeBacktestSummary>().ok(singleModeBacktestService.summarize(runId));
+    }
+
+    /** 查询每个板位的触板、封板和炸板率。 */
+    @GetMapping("single-mode-runs/{runId}/board-stats")
+    public Result<List<SingleModeBoardStat>> singleModeBoardStats(@PathVariable Long runId) {
+        return new Result<List<SingleModeBoardStat>>().ok(singleModeBacktestService.boardStats(runId));
+    }
+
+    /** 分页查询本轮所有独立买卖样本。 */
+    @GetMapping("single-mode-runs/{runId}/samples")
+    public Result<SingleModeSamplePage> singleModeSamples(
+            @PathVariable Long runId,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "50") Integer pageSize) {
+        return new Result<SingleModeSamplePage>().ok(
+                singleModeBacktestService.findSamples(
+                        runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize));
+    }
+
+    private int requireModel3(Integer tradeMode) {
+        if (!Integer.valueOf(3).equals(tradeMode)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "本版单模式全量回测仅支持 Model 3");
+        }
+        return tradeMode;
     }
 
 

@@ -34,7 +34,8 @@ class BacktestControllerTest {
                 return List.of(rule);
             }
         };
-        BacktestController controller = new BacktestController(null, null, null, tradeService, null);
+        BacktestController controller = new BacktestController(
+                null, null, null, tradeService, null, null);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(get("/backtest/order-book/replay")
@@ -91,7 +92,7 @@ class BacktestControllerTest {
             }
         };
         BacktestController controller = new BacktestController(
-                null, null, null, null, historicalService);
+                null, null, null, null, historicalService, null);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(post("/backtest/trade-runs")
@@ -101,5 +102,18 @@ class BacktestControllerTest {
                 .andExpect(jsonPath("$.data.id").value(12))
                 .andExpect(jsonPath("$.data.startDate").value("2026-03-01"))
                 .andExpect(jsonPath("$.data.endDate").value("2026-07-14"));
+    }
+
+    @Test
+    void rejectsModesOneAndTwoFromSingleModeBacktestEndpoint() throws Exception {
+        BacktestController controller = new BacktestController(
+                null, null, null, null, null, null);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/backtest/single-mode-runs")
+                        .param("startDate", "2026-01-01")
+                        .param("endDate", "2026-01-10")
+                        .param("tradeMode", "1"))
+                .andExpect(status().isBadRequest());
     }
 }
