@@ -32,6 +32,8 @@ final class ShenzhenAuctionBuyEvaluator {
     private static final int RULE_PRICE_CANCEL = 1;
     /** 快照价格仍为涨停价、但绝对强度不足时使用撤单规则编号 2。 */
     private static final int RULE_STRENGTH_CANCEL = 2;
+    /** 规则 7 至少要求竞价卖量达到涨停买量的 20%，避免无换手加速盘口。 */
+    private static final int MIN_ABSOLUTE_STRENGTH_SELL_RATIO_PERCENT = 20;
 
     private ShenzhenAuctionBuyEvaluator() {
     }
@@ -58,6 +60,8 @@ final class ShenzhenAuctionBuyEvaluator {
         long requiredBuyVolume = calculateRequiredBuyVolume(market);
         boolean absoluteStrength = hasAbsoluteStrength(
                 limitUpBuyVolume, totalSellVolume, requiredBuyVolume);
+        boolean sufficientAuctionDisagreement = hasSufficientAuctionDisagreement(
+                limitUpBuyVolume, totalSellVolume);
         boolean limitUpBuyOrder = event.getDataType() == 1
                 && event.getDirection() == 1 && event.getPrice() == limitUpPrice;
         int continuousLargeOrderRule = limitUpBuyOrder
@@ -65,7 +69,8 @@ final class ShenzhenAuctionBuyEvaluator {
                         market.getInitialMarketValue(), limitUpPrice, event.getQuantity())
                 : 0;
 
-        if (continuousLargeOrderRule == 0 && !absoluteStrength) {
+        if (continuousLargeOrderRule == 0
+                && (!absoluteStrength || !sufficientAuctionDisagreement)) {
             return false;
         }
 
@@ -84,7 +89,7 @@ final class ShenzhenAuctionBuyEvaluator {
             long estimatedRemainingBuyVolume = limitUpBuyVolume - estimatedMatchedVolume;
             long limitUpBuyAmountWan = limitUpBuyVolume / 100L * limitUpPrice / 10_000L;
             remark = StrUtil.format(
-                    "买入 - 深圳早盘竞价封单绝对强度，股票代码:{}，时间:{}，涨停买量:{}，最低要求:{}，全价位卖量:{}，预计撮合卖量:{}，预计剩余封单:{}，卖量占买量:{}%，涨停买金额:{}W",
+                    "买入 - 深圳早盘竞价封单绝对强度，股票代码:{}，时间:{}，涨停买量:{}，最低要求:{}，全价位卖量:{}，预计撮合卖量:{}，预计剩余封单:{}，卖量占买量:{}%，要求区间:[20%,40%)，涨停买金额:{}W",
                     market.getSymbol(), event.getTime(), limitUpBuyVolume,
                     requiredBuyVolume, totalSellVolume, estimatedMatchedVolume,
                     estimatedRemainingBuyVolume,
@@ -187,6 +192,14 @@ final class ShenzhenAuctionBuyEvaluator {
         return limitUpBuyVolume > totalSellVolume
                 && limitUpBuyVolume > requiredBuyVolume
                 && totalSellVolume * 100L < limitUpBuyVolume * 40L;
+    }
+
+    /** 只约束规则 7 的首次入场；规则 6 大单路径和买入后的强度撤单公式不变。 */
+    private static boolean hasSufficientAuctionDisagreement(long limitUpBuyVolume,
+                                                            long totalSellVolume) {
+        return limitUpBuyVolume > 0
+                && totalSellVolume * 100L
+                >= limitUpBuyVolume * MIN_ABSOLUTE_STRENGTH_SELL_RATIO_PERCENT;
     }
 
     private static double increase(int price, int closePrice) {

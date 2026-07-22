@@ -40,7 +40,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
     static final String STRATEGY_VERSION = "multi-model-009";
-    static final String RELAY_STRATEGY_VERSION = "relay-model-001";
+    static final String RELAY_STRATEGY_VERSION = "relay-model-002";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
