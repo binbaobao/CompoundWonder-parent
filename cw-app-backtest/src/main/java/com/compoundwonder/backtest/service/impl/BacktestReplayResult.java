@@ -19,7 +19,19 @@ public record BacktestReplayResult(LocalDate tradeDate,
                                    int lastOrderTime,
                                    int limitUpPrice,
                                    int lastPrice,
-                                   long tickCount) {
+                                   long tickCount,
+                                   boolean openingAuctionBuyAllowed,
+                                   int earliestContinuousBuyTime,
+                                   String openingAuctionBlockReason) {
+
+    /** 旧测试和旧调用方兼容构造器。 */
+    public BacktestReplayResult(LocalDate tradeDate, String symbol, String symbolName,
+                                BacktestReplayMode mode, List<RuleRecordDTO> records,
+                                int finalTransactionStatus, int lastOrderTime,
+                                int limitUpPrice, int lastPrice, long tickCount) {
+        this(tradeDate, symbol, symbolName, mode, records, finalTransactionStatus,
+                lastOrderTime, limitUpPrice, lastPrice, tickCount, true, 0, null);
+    }
 
     public BacktestReplayResult {
         records = List.copyOf(records);

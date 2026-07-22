@@ -21,6 +21,12 @@ public class RuleRecordDTO implements Serializable {
     // "规则编码")
     private Integer ruleCode;
 
+    private String strategySessionId;
+
+    private String strategyId;
+
+    private Integer tradeMode;
+
     // "证券代码")
     private String symbol;
 

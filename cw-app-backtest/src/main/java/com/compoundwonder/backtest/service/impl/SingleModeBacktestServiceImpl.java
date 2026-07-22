@@ -9,6 +9,7 @@ import com.compoundwonder.backtest.service.model.SingleModeSamplePage;
 import com.compoundwonder.common.strategy.selection.StockSelectionService;
 import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
 import com.compoundwonder.common.strategy.trade.TradeMode;
+import com.compoundwonder.common.strategy.trade.TradeExecutionProfile;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.dto.RuleRecordDTO;
@@ -483,7 +484,15 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                 buyTicks, sample.getSymbol(), overnight.limitUpPrice());
         RuleRecordDTO buyRule = null;
         RuleRecordDTO cancel = overnight.firstCancelRecord().orElse(null);
-        if (cancel != null) {
+        if (!overnight.openingAuctionBuyAllowed()) {
+            int allowedAfterTime = Math.max(ConstantUtil.TIME_930,
+                    overnight.earliestContinuousBuyTime() - 1);
+            buyRule = findIntradayBuy(sample, buyTicks, allowedAfterTime);
+            if (buyRule == null) {
+                sample.setNoBuyReason(overnight.openingAuctionBlockReason()
+                        + "；盘中允许时段未出现可成交买点");
+            }
+        } else if (cancel != null) {
             buyRule = findIntradayBuy(sample, buyTicks, cancel.getTime());
             if (buyRule == null) {
                 sample.setNoBuyReason("集合竞价撤单后未出现可成交买点");
@@ -822,13 +831,10 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     /** 二板当天出现一字、低振幅、低换手 T 字或整体低换手，视为二板加速。 */
     static boolean isAcceleratedSecondBoard(StockDailyEntity secondBoard) {
         if (secondBoard == null) return false;
-        Integer state = secondBoard.getKlineState();
-        Double amplitude = secondBoard.getAmplitude();
-        Double turnover = secondBoard.getTurnoverRate();
-        return Integer.valueOf(3).equals(state)
-                || amplitude != null && amplitude < 3D
-                || Integer.valueOf(2).equals(state) && turnover != null && turnover < 18D
-                || turnover != null && turnover < 15D;
+        return TradeExecutionProfile.isAcceleratedBoard(
+                secondBoard.getKlineState() == null ? 0 : secondBoard.getKlineState(),
+                secondBoard.getAmplitude() == null ? -1D : secondBoard.getAmplitude(),
+                secondBoard.getTurnoverRate() == null ? -1D : secondBoard.getTurnoverRate());
     }
 
     /** 二板加速后，三板一字或高开并在 09:35 前触发买点时递延到四板观察。 */

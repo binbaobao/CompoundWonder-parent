@@ -6,13 +6,12 @@ import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplateFactory;
+import com.compoundwonder.common.strategy.trade.TradeExecutionProfile;
 import com.compoundwonder.strategy.firstboard.trade.FirstBoardBuyStrategy;
 import com.compoundwonder.strategy.relay.trade.RelayBuyStrategy;
-import com.compoundwonder.strategy.sell.BoardSellStrategy;
 import com.compoundwonder.strategy.sell.ShanghaiClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.sell.SellStrategyDispatcher;
 import com.compoundwonder.strategy.sell.ShenzhenClosingAuctionSellEvaluator;
-import com.compoundwonder.strategy.sell.common.CommonSellStrategy;
 import com.compoundwonder.strategy.smallcapfirstboard.trade.SmallCapFirstBoardBuyStrategy;
 
 /** 默认交易模板编译器；模式与卖出场景只在 {@link #compile} 中解析一次。 */
@@ -22,7 +21,6 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
     private final BuyStrategy firstBoardBuy = new FirstBoardBuyStrategy();
     private final BuyStrategy smallCapFirstBoardBuy = new SmallCapFirstBoardBuyStrategy();
     private final SellStrategyDispatcher sellCatalog = new SellStrategyDispatcher();
-    private final BoardSellStrategy commonSell = new CommonSellStrategy();
 
     @Override
     public TradeExecutionTemplate compile(TradeStaticFacts facts) {
@@ -35,13 +33,12 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
             case 3 -> smallCapFirstBoardBuy;
             default -> throw new IllegalStateException("不支持的交易模式: " + facts.tradeMode());
         };
-        BoardSellStrategy sceneSell = sellCatalog.resolveStrategy(
-                facts.lbcs(), facts.initialMarketValue());
-        return new CompiledTradeExecutionTemplate(facts, buy, sceneSell, commonSell);
+        return compileTemplate(facts, buy, sellCatalog);
     }
 
     private record CompiledTradeExecutionTemplate(
             TradeStaticFacts facts,
+            TradeExecutionProfile executionProfile,
             ShanghaiOpeningAuctionBuyExecutor shanghaiOpeningAuctionBuy,
             ShenzhenOpeningAuctionBuyExecutor shenzhenOpeningAuctionBuy,
             ContinuousBuyExecutor continuousBuy,
@@ -50,29 +47,31 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
             ClosingAuctionSellExecutor closingAuctionSell)
             implements TradeExecutionTemplate {
 
-        private CompiledTradeExecutionTemplate(TradeStaticFacts facts,
-                                               BuyStrategy buy,
-                                               BoardSellStrategy sceneSell,
-                                               BoardSellStrategy commonSell) {
-            this(facts,
-                    shanghaiOpeningExecutor(buy),
-                    shenzhenOpeningExecutor(buy),
-                    continuousBuyExecutor(buy),
-                    continuousSellExecutor(sceneSell, commonSell),
-                    averagePriceSellExecutor(sceneSell, commonSell),
-                    closingAuctionSellExecutor());
-        }
+    }
+
+    private static TradeExecutionTemplate compileTemplate(
+            TradeStaticFacts facts, BuyStrategy buy, SellStrategyDispatcher sellRules) {
+        TradeExecutionProfile profile = TradeExecutionProfile.from(facts);
+        return new CompiledTradeExecutionTemplate(
+                facts, profile,
+                shanghaiOpeningExecutor(buy, profile),
+                shenzhenOpeningExecutor(buy, profile),
+                continuousBuyExecutor(buy, profile),
+                sellRules::evaluateOrderBook,
+                sellRules::evaluateAveragePrice,
+                closingAuctionSellExecutor());
     }
 
     private static TradeExecutionTemplate.ShanghaiOpeningAuctionBuyExecutor
-    shanghaiOpeningExecutor(BuyStrategy buy) {
+    shanghaiOpeningExecutor(BuyStrategy buy, TradeExecutionProfile profile) {
         return new TradeExecutionTemplate.ShanghaiOpeningAuctionBuyExecutor() {
             @Override
             public boolean evaluateBuy(TradeMarketState market,
                                        AuctionMarketEvent event,
                                        long previousBuyVolume, int recordTime,
                                        TradeRuleRecord record) {
-                return buy.evaluateShanghaiAuctionBuy(
+                return profile.openingAuctionBuyAllowed()
+                        && buy.evaluateShanghaiAuctionBuy(
                         market, event, previousBuyVolume, recordTime, record);
             }
 
@@ -87,7 +86,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
     }
 
     private static TradeExecutionTemplate.ShenzhenOpeningAuctionBuyExecutor
-    shenzhenOpeningExecutor(BuyStrategy buy) {
+    shenzhenOpeningExecutor(BuyStrategy buy, TradeExecutionProfile profile) {
         return new TradeExecutionTemplate.ShenzhenOpeningAuctionBuyExecutor() {
             @Override
             public boolean evaluateBuy(TradeMarketState market,
@@ -95,7 +94,8 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
                                        int recordTime, long limitUpBuyVolume,
                                        long totalSellVolume,
                                        TradeRuleRecord record) {
-                return buy.evaluateShenzhenAuctionBuy(market, event, recordTime,
+                return profile.openingAuctionBuyAllowed()
+                        && buy.evaluateShenzhenAuctionBuy(market, event, recordTime,
                         limitUpBuyVolume, totalSellVolume, record);
             }
 
@@ -122,7 +122,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
     }
 
     private static TradeExecutionTemplate.ContinuousBuyExecutor
-    continuousBuyExecutor(BuyStrategy buy) {
+    continuousBuyExecutor(BuyStrategy buy, TradeExecutionProfile profile) {
         return new TradeExecutionTemplate.ContinuousBuyExecutor() {
             @Override
             public boolean evaluate(TradeMarketState market,
@@ -144,24 +144,10 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
             @Override
             public boolean isTimeAllowed(
                     TradeMarketState market, int time) {
-                return buy.isContinuousBuyTimeAllowed(time);
+                return time >= profile.earliestContinuousBuyTime()
+                        && buy.isContinuousBuyTimeAllowed(time);
             }
         };
-    }
-
-    private static TradeExecutionTemplate.ContinuousSellExecutor continuousSellExecutor(
-            BoardSellStrategy scene, BoardSellStrategy common) {
-        return (market, record) -> scene != null
-                && (scene.evaluateOrderBook(market, record)
-                || common.evaluateOrderBook(market, record));
-    }
-
-    private static TradeExecutionTemplate.AveragePriceSellExecutor averagePriceSellExecutor(
-            BoardSellStrategy scene, BoardSellStrategy common) {
-        return (index, market, record) -> scene != null
-                && market.getStatus() % 2 == 0
-                && (scene.evaluateAveragePrice(index, market, record)
-                || common.evaluateAveragePrice(index, market, record));
     }
 
     private static TradeExecutionTemplate.ClosingAuctionSellExecutor closingAuctionSellExecutor() {

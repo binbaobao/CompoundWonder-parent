@@ -23,9 +23,8 @@ import com.compoundwonder.strategy.sell.two_to_three.TwoToThreeSmallCapSellStrat
 /**
  * 持仓卖出场景分发器。
  *
- * <p>卖出不读取买入 {@code tradeMode}，只按昨日板高 {@code lbcs} 和本轮启动流通市值
- * 选择 16 个独立场景之一。所有实例常驻，热路径只执行 {@code switch} 和市值边界判断，
- * 不使用 Map、反射、Spring Bean 查找，也不会为每条行情创建上下文对象。</p>
+ * <p>卖出不读取买入 {@code tradeMode}。所有已验证规则作为常驻规则目录注册，统一执行入口
+ * 直接读取模板携带的板高与启动市值事实；不再先选择某个几进几执行器。</p>
  *
  * <p>执行顺序固定为：场景专属规则 -> 公共规则。场景规则命中后立即返回，只有未命中时
  * 才继续执行周末、节假日等不属于单个场景的公共卖出规则。</p>
@@ -49,6 +48,24 @@ public final class SellStrategyDispatcher {
     private final BoardSellStrategy highBoardSmallCap = new HighBoardSmallCapSellStrategy();
     private final BoardSellStrategy highBoardNormalCap = new HighBoardNormalCapSellStrategy();
     private final BoardSellStrategy common = new CommonSellStrategy();
+    private final SellRuleBinding[] ruleCatalog = {
+            binding(2, false, twoToThreeSmallCap),
+            binding(2, true, twoToThreeNormalCap),
+            binding(3, false, threeToFourSmallCap),
+            binding(3, true, threeToFourNormalCap),
+            binding(4, false, fourToFiveSmallCap),
+            binding(4, true, fourToFiveNormalCap),
+            binding(5, false, fiveToSixSmallCap),
+            binding(5, true, fiveToSixNormalCap),
+            binding(6, false, sixToSevenSmallCap),
+            binding(6, true, sixToSevenNormalCap),
+            binding(7, false, sevenToEightSmallCap),
+            binding(7, true, sevenToEightNormalCap),
+            binding(8, false, eightToNineSmallCap),
+            binding(8, true, eightToNineNormalCap),
+            highBoardBinding(false, highBoardSmallCap),
+            highBoardBinding(true, highBoardNormalCap)
+    };
 
     /** 按昨日板高和启动流通市值评估逐笔与盘口卖出。 */
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
@@ -56,12 +73,11 @@ public final class SellStrategyDispatcher {
         if (yesterdayBoardHeight < 2) {
             return false;
         }
-        BoardSellStrategy strategy = resolveStrategy(yesterdayBoardHeight, market.getInitialMarketValue());
-        if (strategy == null) {
-            return false;
-        }
-        if (strategy.evaluateOrderBook(market, record)) {
-            return true;
+        for (SellRuleBinding binding : ruleCatalog) {
+            if (binding.matches(market)
+                    && binding.rules().evaluateOrderBook(market, record)) {
+                return true;
+            }
         }
         return common.evaluateOrderBook(market, record);
     }
@@ -72,16 +88,15 @@ public final class SellStrategyDispatcher {
         if (yesterdayBoardHeight < 2) {
             return false;
         }
-        BoardSellStrategy strategy = resolveStrategy(yesterdayBoardHeight, market.getInitialMarketValue());
-        if (strategy == null) {
-            return false;
-        }
         // 均线不参与涨停状态的卖出
         if (market.getStatus() % 2 == 1) {
             return false;
         }
-        if (strategy.evaluateAveragePrice(index, market, record)) {
-            return true;
+        for (SellRuleBinding binding : ruleCatalog) {
+            if (binding.matches(market)
+                    && binding.rules().evaluateAveragePrice(index, market, record)) {
+                return true;
+            }
         }
         return common.evaluateAveragePrice(index, market, record);
     }
@@ -119,5 +134,26 @@ public final class SellStrategyDispatcher {
                     ? (smallCap ? highBoardSmallCap : highBoardNormalCap)
                     : null;
         };
+    }
+
+    private static SellRuleBinding binding(int boardHeight, boolean normalCap,
+                                           BoardSellStrategy rules) {
+        return new SellRuleBinding(boardHeight, false, normalCap, rules);
+    }
+
+    private static SellRuleBinding highBoardBinding(boolean normalCap,
+                                                    BoardSellStrategy rules) {
+        return new SellRuleBinding(9, true, normalCap, rules);
+    }
+
+    private record SellRuleBinding(int boardHeight, boolean highBoard,
+                                   boolean normalCap, BoardSellStrategy rules) {
+        boolean matches(TradeMarketState market) {
+            boolean boardMatches = highBoard
+                    ? market.getLbcs() >= boardHeight : market.getLbcs() == boardHeight;
+            boolean isNormalCap = SellMarketCapBand.from(market.getInitialMarketValue())
+                    == SellMarketCapBand.NORMAL_CAP;
+            return boardMatches && normalCap == isNormalCap;
+        }
     }
 }

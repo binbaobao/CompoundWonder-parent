@@ -90,6 +90,14 @@ public final class RuleRecordBuffer {
         return record;
     }
 
+    /** 获取并绑定当前策略会话，保证多模式规则记录能够独立归属。 */
+    public RuleRecord nextRecord(StrategyExecutionSession session) {
+        RuleRecord record = nextRecord();
+        record.bindExecutionContext(session.key().sessionId(),
+                session.key().strategyId(), session.getTradeMode());
+        return record;
+    }
+
     /**
      * 提交当前对象。
      *

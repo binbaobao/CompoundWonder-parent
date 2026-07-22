@@ -4,7 +4,9 @@ import com.compoundwonder.core.service.CacheService;
 import com.compoundwonder.common.orderbook.OrderExecutionGateway;
 import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.orderbook.TradeMarketState;
+import com.compoundwonder.common.orderbook.TradeOrderIntent;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.util.SymbolUtil;
@@ -384,6 +386,45 @@ class DisruptorOrderBookEngineTest {
     }
 
     @Test
+    void dispatchesOneMarketEventToIndependentStrategySessions() {
+        CacheService repository = new CacheService();
+        int symbolId = SymbolUtil.fastSymbolToInt("600000");
+        MarketSessionSpec spec = MarketSessionSpec.fromPreviousClose(
+                "600000", "多策略样本", "2025-01-02", 1_000_000L, 10D);
+        OrderBook orderBook = new OrderBook(spec.limitUpPrice(), spec.limitDownPrice());
+        OrderBookSession marketSession = new OrderBookSession(spec, orderBook);
+        TradeStaticFacts modelOneFacts = facts(1, 2);
+        TradeStaticFacts modelTwoFacts = facts(2, 2);
+        marketSession.registerStrategy(new StrategyExecutionSession(
+                new StrategySessionKey("session-model-1", "MODEL_1", "600000", "2025-01-02"),
+                marketSession, modelOneFacts,
+                new LegacyTradeExecutionTemplate(modelOneFacts, DECISIONS),
+                new TradeExecutionState(-1)));
+        marketSession.registerStrategy(new StrategyExecutionSession(
+                new StrategySessionKey("session-model-2", "MODEL_2", "600000", "2025-01-02"),
+                marketSession, modelTwoFacts,
+                new LegacyTradeExecutionTemplate(modelTwoFacts, DECISIONS),
+                new TradeExecutionState(-1)));
+
+        RecordingOrderExecutionGateway gateway = new RecordingOrderExecutionGateway();
+        engine = new DisruptorOrderBookEngine(repository, gateway, 1024,
+                "test-order-book-", ProducerType.SINGLE, YieldingWaitStrategy::new);
+        engine.start();
+        engine.registerSession(symbolId, marketSession);
+
+        engine.publish(trade(symbolId, ConstantUtil.TIME_931, spec.limitUpPrice()));
+        engine.awaitProcessed(Duration.ofSeconds(1));
+
+        assertEquals(2, gateway.quickSellCount);
+        assertEquals(List.of("session-model-1", "session-model-2"),
+                gateway.strategySessionIds);
+        assertEquals(-2, marketSession.strategySessions().get(0)
+                .executionState().transactionStatus());
+        assertEquals(-2, marketSession.strategySessions().get(1)
+                .executionState().transactionStatus());
+    }
+
+    @Test
     void largeAuctionThresholdDoesNotOverflow() {
         CacheService repository = new CacheService();
         int symbolId = SymbolUtil.fastSymbolToInt("600000");
@@ -504,6 +545,11 @@ class DisruptorOrderBookEngineTest {
         return snapshot;
     }
 
+    private TradeStaticFacts facts(int tradeMode, int lbcs) {
+        return new TradeStaticFacts(tradeMode, lbcs, 500_000L, 50D, 120_000,
+                20D, 20D, 20D, 0, 6, 0, 1, 1);
+    }
+
     private TickData order(int symbolId, int orderId, int price, int quantity, byte direction) {
         TickData order = new TickData();
         order.symbolId = symbolId;
@@ -532,6 +578,13 @@ class DisruptorOrderBookEngineTest {
         private int sellCount;
         private int quickSellCount;
         private boolean failSell;
+        private final List<String> strategySessionIds = new ArrayList<>();
+
+        @Override
+        public void execute(TradeOrderIntent intent) {
+            strategySessionIds.add(intent.strategySessionId());
+            OrderExecutionGateway.super.execute(intent);
+        }
 
         @Override
         public void buy(String date, int symbol, int price, int time) {

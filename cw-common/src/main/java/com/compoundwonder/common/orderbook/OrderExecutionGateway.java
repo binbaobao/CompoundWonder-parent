@@ -7,6 +7,21 @@ package com.compoundwonder.common.orderbook;
 public interface OrderExecutionGateway {
 
     /**
+     * 执行带策略来源标识的订单意图。旧实现无需修改即可继续使用原有动作方法；
+     * 需要区分多策略会话的实现可覆盖本方法保存来源标识。
+     */
+    default void execute(TradeOrderIntent intent) {
+        switch (intent.action()) {
+            case BUY -> buy(intent.date(), intent.symbolId(), intent.price(), intent.time());
+            case SELL -> sell(intent.symbol(), intent.price(), intent.limitDownPrice());
+            case QUICK_SELL -> quickSell(
+                    intent.symbol(), intent.price(), intent.limitDownPrice());
+            case CANCEL -> cancel(intent.symbol());
+            case ENABLE_FIRST_LIMIT_UP_MODE -> enableFirstLimitUpTradingMode(intent.symbol());
+        }
+    }
+
+    /**
      * 提交买入动作；回测实现记录模拟成交，实盘实现发送柜台委托。
      *
      * @param date 交易日期，格式为 {@code yyyy-MM-dd}

@@ -1,6 +1,7 @@
 package com.compoundwonder.backtest.orderbook;
 
 import com.compoundwonder.common.orderbook.OrderExecutionGateway;
+import com.compoundwonder.common.orderbook.TradeOrderIntent;
 import com.compoundwonder.util.SymbolUtil;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +16,13 @@ import java.util.List;
 public class BacktestOrderExecutionGateway implements OrderExecutionGateway {
 
     private final List<Action> actions = Collections.synchronizedList(new ArrayList<>());
+
+    @Override
+    public void execute(TradeOrderIntent intent) {
+        actions.add(new Action(ActionType.valueOf(intent.action().name()), intent.date(),
+                intent.symbol(), intent.price(), intent.limitDownPrice(), intent.time(),
+                intent.strategySessionId(), intent.strategyId()));
+    }
 
     @Override
     public void buy(String date, int symbol, int price, int time) {
@@ -59,6 +67,12 @@ public class BacktestOrderExecutionGateway implements OrderExecutionGateway {
         ENABLE_FIRST_LIMIT_UP_MODE
     }
 
-    public record Action(ActionType type, String date, String symbol, int price, int limitDownPrice, int time) {
+    public record Action(ActionType type, String date, String symbol, int price,
+                         int limitDownPrice, int time,
+                         String strategySessionId, String strategyId) {
+        public Action(ActionType type, String date, String symbol, int price,
+                      int limitDownPrice, int time) {
+            this(type, date, symbol, price, limitDownPrice, time, null, null);
+        }
     }
 }

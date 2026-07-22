@@ -1,11 +1,12 @@
 package com.compoundwonder.core.processor;
 
-import com.compoundwonder.common.orderbook.OrderExecutionGateway;
 import com.compoundwonder.constant.ConstantUtil;
+import com.compoundwonder.common.strategy.trade.TradeTriggerType;
 import com.compoundwonder.core.engine.OrderBook;
 import com.compoundwonder.core.engine.OrderBookSession;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.RuleRecordBuffer;
+import com.compoundwonder.core.engine.StrategyExecutionSession;
 import com.compoundwonder.core.engine.TickData;
 
 /**
@@ -16,9 +17,9 @@ import com.compoundwonder.core.engine.TickData;
  */
 final class ShanghaiAuctionEventProcessor {
 
-    private final OrderExecutionGateway executionGateway;
-    ShanghaiAuctionEventProcessor(OrderExecutionGateway executionGateway) {
-        this.executionGateway = executionGateway;
+    private final UnifiedTradeExecutor tradeExecutor;
+    ShanghaiAuctionEventProcessor(UnifiedTradeExecutor tradeExecutor) {
+        this.tradeExecutor = tradeExecutor;
     }
 
     /**
@@ -34,79 +35,80 @@ final class ShanghaiAuctionEventProcessor {
      * @param ruleRecordBuffer Handler 私有预分配规则记录缓冲区
      * @return 处理后的交易状态
      */
-    int process(OrderBookSession session, TickData event, int recordTime,
-                int transactionStatus, RuleRecordBuffer ruleRecordBuffer) {
-        OrderBook orderBook = session.orderBook();
+    void process(OrderBookSession marketSession, TickData event, int recordTime,
+                 RuleRecordBuffer ruleRecordBuffer) {
+        OrderBook orderBook = marketSession.orderBook();
         if (event.time > ConstantUtil.TIME_920) {
-            orderBook.updateLowestPrice(event.price, session.spec());
+            orderBook.updateLowestPrice(event.price, marketSession.spec());
         }
 
-        if (event.time < ConstantUtil.TIME_930) {
-            return processMorningAuction(session, event, recordTime,
-                    transactionStatus, ruleRecordBuffer);
+        for (StrategyExecutionSession strategySession : marketSession.strategySessions()) {
+            TradeTriggerType triggerType = event.time < ConstantUtil.TIME_930
+                    ? TradeTriggerType.OPENING_AUCTION : TradeTriggerType.CLOSING_AUCTION;
+            if (!strategySession.template().supports(triggerType)) continue;
+            int transactionStatus = strategySession.executionState().transactionStatus();
+            if (event.time < ConstantUtil.TIME_930) {
+                processMorningAuction(strategySession, event, recordTime,
+                        transactionStatus, ruleRecordBuffer);
+            } else {
+                processClosingAuction(strategySession, event, recordTime,
+                        transactionStatus, ruleRecordBuffer);
+            }
         }
-        return processClosingAuction(session, event, recordTime,
-                transactionStatus, ruleRecordBuffer);
     }
 
     /** 处理上海早盘集合竞价买入和挂单后的撤单。 */
-    private int processMorningAuction(OrderBookSession session, TickData event, int recordTime,
+    private void processMorningAuction(StrategyExecutionSession session, TickData event, int recordTime,
                                       int transactionStatus,
                                       RuleRecordBuffer ruleRecordBuffer) {
         long previousBuyVolume = session.executionState().recordShanghaiAuctionBuyVolume(
                 event.buyerOrderId);
 
         if (transactionStatus == 1) {
-            RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
+            RuleRecord ruleRecord = ruleRecordBuffer.nextRecord(session);
             // 调用当前模式上海集合竞价买入规则。
             if (session.template().shanghaiOpeningAuctionBuy().evaluateBuy(
                     session, event, previousBuyVolume, recordTime, ruleRecord)) {
-                executionGateway.buy(session.getDate(), event.symbolId,
-                        session.getLimitUpPrice(), event.time);
+                tradeExecutor.submitBuy(session, event.symbolId, event.time);
                 session.executionState().transactionStatus(2);
                 ruleRecordBuffer.commit();
-                return 2;
             }
-            return transactionStatus;
+            return;
         }
 
         if (transactionStatus == 2
                 && event.time < ConstantUtil.TIME_920
                 && event.time > ConstantUtil.TIME_91530) {
-            RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
+            RuleRecord ruleRecord = ruleRecordBuffer.nextRecord(session);
             // 调用当前模式上海集合竞价撤单规则；价格规则优先于封单绝对强度规则。
             if (session.template().shanghaiOpeningAuctionBuy().evaluateCancel(
                     session, event, recordTime, ruleRecord)) {
-                executionGateway.cancel(session.getSymbol());
+                tradeExecutor.submitCancel(session);
                 session.executionState().transactionStatus(1);
                 ruleRecordBuffer.commit();
-                return 1;
             }
         }
-        return transactionStatus;
     }
 
     /** 处理上海尾盘集合竞价卖出；不改写早盘快照买量基准。 */
-    private int processClosingAuction(OrderBookSession session, TickData event, int recordTime,
+    private void processClosingAuction(StrategyExecutionSession session, TickData event, int recordTime,
                                       int transactionStatus,
                                       RuleRecordBuffer ruleRecordBuffer) {
         if (transactionStatus != -1
                 || event.time < ConstantUtil.TIME_1459
                 || event.time >= ConstantUtil.TIME_1500) {
-            return transactionStatus;
+            return;
         }
 
-        RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
+        RuleRecord ruleRecord = ruleRecordBuffer.nextRecord(session);
         // 调用上海尾盘集合竞价卖出规则。
         if (!session.template().closingAuctionSell().evaluateShanghai(
                 session, event, recordTime, ruleRecord)) {
-            return transactionStatus;
+            return;
         }
 
-        executionGateway.sell(session.getSymbol(),
-                session.getLimitDownPrice(), session.getLimitDownPrice());
+        tradeExecutor.submitSell(session, session.getLimitDownPrice());
         session.executionState().transactionStatus(-2);
         ruleRecordBuffer.commit();
-        return -2;
     }
 }

@@ -191,7 +191,10 @@ public class BackTestTradeService {
             BacktestReplayResult result = new BacktestReplayResult(
                     tradeDate, stockCode, session.getSecurityName(), mode, records,
                     session.executionState().transactionStatus(), orderBook.getLastPriceOrderTime(),
-                    session.getLimitUpPrice(), orderBook.getLastPrice(), tickCount);
+                    session.getLimitUpPrice(), orderBook.getLastPrice(), tickCount,
+                    session.template().executionProfile().openingAuctionBuyAllowed(),
+                    session.template().executionProfile().earliestContinuousBuyTime(),
+                    session.template().executionProfile().openingAuctionBlockReason());
             log.info("回测完成 date={}, stockCode={}, mode={}, tickCount={}, ruleCount={}, orderBook={}",
                     tradeDate, stockCode, mode, tickCount, records.size(), orderBook);
             return result;
@@ -368,7 +371,10 @@ public class BackTestTradeService {
                 sellHistory.oneWordLimitUp(), sellHistory.averageLimitUpHeight(),
                 sellHistory.nextTradingDay(),
                 valueOrZero(previousDaily.getKlineState()),
-                history.size() > 1 ? valueOrZero(history.get(1).getKlineState()) : 0);
+                history.size() > 1 ? valueOrZero(history.get(1).getKlineState()) : 0,
+                valueOrZero(previousDaily.getAmplitude()),
+                history.size() > 1 ? valueOrZero(history.get(1).getTurnoverRate()) : -1D,
+                history.size() > 1 ? valueOrZero(history.get(1).getAmplitude()) : -1D);
         MarketSessionSpec spec = MarketSessionSpec.fromPreviousClose(
                 stockCode, previousDaily.getStockName(), tradeDate.toString(),
                 circulation, currentDaily.getPrevClose());

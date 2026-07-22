@@ -5,6 +5,8 @@ import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.common.orderbook.TradeStaticFacts;
 
+import java.util.Set;
+
 /**
  * 单只股票、单个交易日的预编译交易规则模板。
  *
@@ -14,6 +16,25 @@ import com.compoundwonder.common.orderbook.TradeStaticFacts;
 public interface TradeExecutionTemplate {
 
     TradeStaticFacts facts();
+
+    /** 初始化时按静态事实预编译的板位、市值与允许执行时段。 */
+    default TradeExecutionProfile executionProfile() {
+        return TradeExecutionProfile.from(facts());
+    }
+
+    /**
+     * 当前模板需要接收的触发类型。以后低频模板可只声明日线或定时触发，避免逐笔分发。
+     */
+    default Set<TradeTriggerType> triggerTypes() {
+        return Set.of(TradeTriggerType.OPENING_AUCTION,
+                TradeTriggerType.CONTINUOUS_TICK,
+                TradeTriggerType.MINUTE_CLOSE,
+                TradeTriggerType.CLOSING_AUCTION);
+    }
+
+    default boolean supports(TradeTriggerType triggerType) {
+        return triggerTypes().contains(triggerType);
+    }
 
     ShanghaiOpeningAuctionBuyExecutor shanghaiOpeningAuctionBuy();
 

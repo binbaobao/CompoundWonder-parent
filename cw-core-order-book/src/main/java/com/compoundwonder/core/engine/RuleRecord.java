@@ -16,6 +16,12 @@ public final class RuleRecord implements TradeRuleRecord {
      */
     public int ruleCode;
 
+    public String strategySessionId;
+
+    public String strategyId;
+
+    public int tradeMode;
+
     /**
      * 证券代码
      */
@@ -46,6 +52,9 @@ public final class RuleRecord implements TradeRuleRecord {
     public void reset() {
         this.actionType = 0;
         this.ruleCode = 0;
+        strategySessionId = null;
+        strategyId = null;
+        tradeMode = 0;
         symbol = null;
         date = null;
         time = 0;
@@ -70,11 +79,21 @@ public final class RuleRecord implements TradeRuleRecord {
 
     }
 
+    @Override
+    public void bindExecutionContext(String strategySessionId, String strategyId, int tradeMode) {
+        this.strategySessionId = strategySessionId;
+        this.strategyId = strategyId;
+        this.tradeMode = tradeMode;
+    }
+
     public RuleRecordDTO toDTO() {
         RuleRecordDTO dto = new RuleRecordDTO();
 
         dto.setActionType(this.actionType);
         dto.setRuleCode(this.ruleCode);
+        dto.setStrategySessionId(this.strategySessionId);
+        dto.setStrategyId(this.strategyId);
+        dto.setTradeMode(this.tradeMode);
         dto.setSymbol(this.symbol);
         dto.setTime(this.time);
         dto.setIncrease(this.increase);
