@@ -62,8 +62,8 @@ final class UnifiedTradeExecutor {
     }
 
     void disableWeakFirstBoardSessions(OrderBookSession marketSession, int marketTime) {
-        if (marketTime < ConstantUtil.TIME_1000
-                || marketSession.orderBook().getStatus() % 2 != 0) {
+        if (!shouldDisableWeakFirstBoard(
+                marketTime, marketSession.orderBook().getStatus())) {
             return;
         }
         for (StrategyExecutionSession session : marketSession.strategySessions()) {
@@ -71,6 +71,14 @@ final class UnifiedTradeExecutor {
                 session.executionState().disable();
             }
         }
+    }
+
+    /**
+     * 只关闭 10 点仍从未触板的首板任务。偶数状态不等于弱势未触板：状态 2、4 等
+     * 表示已经炸过板，后续仍可能回封，必须继续监控。
+     */
+    static boolean shouldDisableWeakFirstBoard(int marketTime, int limitUpStatus) {
+        return marketTime >= ConstantUtil.TIME_1000 && limitUpStatus == 0;
     }
 
     void processContinuous(OrderBookSession marketSession, TickData event,
