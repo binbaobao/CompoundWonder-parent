@@ -15,6 +15,7 @@ final class BacktestExecutionPolicy {
 
     static final int OVERNIGHT_FILL_TIME = 91_501_000;
     static final int MODEL_TWO_OVERNIGHT_QUEUE_CUTOFF = 143_000_000;
+    private static final double RELAY_OVERNIGHT_TURNOVER_FALLBACK_WAN = 3_000D;
     private static final int SHANGHAI_DELAY_MILLIS = 450;
     private static final int SHENZHEN_DELAY_MILLIS = 80;
 
@@ -64,6 +65,16 @@ final class BacktestExecutionPolicy {
     static boolean isOvernightBuyFillable(int lastOrderTime, Double dailyTurnoverInTenThousands) {
         return isOvernightBuyFillable(lastOrderTime)
                 || dailyTurnoverInTenThousands != null && dailyTurnoverInTenThousands > 4_000D;
+    }
+
+    /**
+     * 连板接力优先保留可成交机会：满足真实队首时间，或当日成交额超过 3000 万元。
+     */
+    static boolean isRelayOvernightBuyFillable(int lastOrderTime,
+                                               Double dailyTurnoverInTenThousands) {
+        return isOvernightBuyFillable(lastOrderTime)
+                || dailyTurnoverInTenThousands != null
+                && dailyTurnoverInTenThousands > RELAY_OVERNIGHT_TURNOVER_FALLBACK_WAN;
     }
 
     /**

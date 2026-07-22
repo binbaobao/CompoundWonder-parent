@@ -40,7 +40,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
     static final String STRATEGY_VERSION = "multi-model-009";
-    static final String RELAY_STRATEGY_VERSION = "relay-model-003";
+    static final String RELAY_STRATEGY_VERSION = "relay-model-004";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -421,12 +421,17 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             }
         } else {
             Double turnover = buyDaily.getTurnover();
-            boolean overnightFillable = Integer.valueOf(TradeMode.FIRST_BOARD.code())
-                    .equals(sample.getTradeMode())
-                    ? BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(
-                    overnight.lastOrderTime())
-                    : BacktestExecutionPolicy.isOvernightBuyFillable(
-                    overnight.lastOrderTime(), turnover);
+            boolean overnightFillable;
+            if (Integer.valueOf(TradeMode.FIRST_BOARD.code()).equals(sample.getTradeMode())) {
+                overnightFillable = BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(
+                        overnight.lastOrderTime());
+            } else if (Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code()).equals(sample.getTradeMode())) {
+                overnightFillable = BacktestExecutionPolicy.isRelayOvernightBuyFillable(
+                        overnight.lastOrderTime(), turnover);
+            } else {
+                overnightFillable = BacktestExecutionPolicy.isOvernightBuyFillable(
+                        overnight.lastOrderTime(), turnover);
+            }
             if (!overnightFillable) {
                 sample.setNoBuyReason("隔夜涨停委托未满足成交条件；队首时间="
                         + overnight.lastOrderTime() + "，成交额=" + turnover + "万元");

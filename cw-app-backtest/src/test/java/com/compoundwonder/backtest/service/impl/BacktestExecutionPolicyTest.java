@@ -57,6 +57,13 @@ class BacktestExecutionPolicyTest {
     }
 
     @Test
+    void relayOvernightBuyUsesThirtyMillionYuanTurnoverFallback() {
+        assertFalse(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 3000D));
+        assertTrue(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 3000.01D));
+        assertTrue(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501001, 0D));
+    }
+
+    @Test
     void modelTwoOvernightBuyRequiresQueueHeadBeforeTwoThirty() {
         assertFalse(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(0));
         assertTrue(BacktestExecutionPolicy.isModelTwoOvernightBuyFillable(91500000));
