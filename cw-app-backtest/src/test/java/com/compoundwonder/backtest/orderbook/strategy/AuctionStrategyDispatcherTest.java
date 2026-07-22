@@ -56,19 +56,19 @@ class AuctionStrategyDispatcherTest {
             largeOrderBook.setInitialMarketValue(100_000);
             RuleRecord shenzhenLargeOrderBuy = new RuleRecord();
             TickData shenzhenLargeOrderEvent = event((byte) 1, 91_900_000,
-                    limitUpPrice, 900_001, 12_345, 15_000_000, 500);
+                    limitUpPrice, 900_001, 12_345, 15_000_000, 3_000_000);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     largeOrderBook, shenzhenLargeOrderEvent, 91_900_000,
-                    15_000_000, 500, shenzhenLargeOrderBuy));
+                    15_000_000, 3_000_000, shenzhenLargeOrderBuy));
             assertEquals(6, shenzhenLargeOrderBuy.ruleCode);
             assertTrue(shenzhenLargeOrderBuy.remark.contains("涨停大单"));
 
             RuleRecord shenzhenVolumeBuy = new RuleRecord();
             TickData shenzhenVolumeEvent = event((byte) 2, 91_900_000,
-                    limitUpPrice, 1, 12_346, 5_001, 500);
+                    limitUpPrice, 1, 12_346, 5_001, 1_001);
             assertTrue(dispatcher.evaluateShenzhenAuctionBuy(
                     orderBook, shenzhenVolumeEvent, 91_900_000,
-                    5_001, 500, shenzhenVolumeBuy));
+                    5_001, 1_001, shenzhenVolumeBuy));
             assertEquals(7, shenzhenVolumeBuy.ruleCode);
             assertTrue(shenzhenVolumeBuy.remark.contains("封单绝对强度"));
 

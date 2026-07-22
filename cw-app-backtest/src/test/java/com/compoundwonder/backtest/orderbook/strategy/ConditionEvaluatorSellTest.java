@@ -53,8 +53,8 @@ class ConditionEvaluatorSellTest {
     }
 
     @Test
-    void latePeakDrawdownUsesPreviousPriceIncreaseInsteadOfRawPrice() {
-        OrderBook orderBook = averageStrategyOrderBook(1);
+    void threeToFourPeakDrawdownKeepsRuleTwoHundredFive() {
+        OrderBook orderBook = averageStrategyOrderBook(3);
         orderBook.updatePrice(0, 0, 1_060, 93_000_000);
         orderBook.updatePrice(0, 0, 1_090, 100_000_000);
         orderBook.updatePrice(0, 0, 940, 140_000_000);
