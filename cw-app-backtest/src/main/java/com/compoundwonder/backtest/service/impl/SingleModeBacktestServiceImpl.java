@@ -27,7 +27,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -38,6 +40,7 @@ import java.util.concurrent.RejectedExecutionException;
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
     static final String STRATEGY_VERSION = "multi-model-009";
+    static final String RELAY_STRATEGY_VERSION = "relay-model-001";
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -71,7 +74,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     public SingleModeBacktestRun startRange(LocalDate startDate, LocalDate endDate, int tradeMode) {
         validate(startDate, endDate, tradeMode);
         SingleModeBacktestRun run = persistenceService.createRun(
-                startDate, endDate, tradeMode, null, STRATEGY_VERSION);
+                startDate, endDate, tradeMode, null, strategyVersion(tradeMode));
         try {
             executor.execute(() -> executeRun(run));
             return run;
@@ -85,7 +88,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     public SingleModeBacktestRun runRange(LocalDate startDate, LocalDate endDate, int tradeMode) {
         validate(startDate, endDate, tradeMode);
         SingleModeBacktestRun run = persistenceService.createRun(
-                startDate, endDate, tradeMode, null, STRATEGY_VERSION);
+                startDate, endDate, tradeMode, null, strategyVersion(tradeMode));
         executeRun(run);
         return findRun(run.getId());
     }
@@ -95,7 +98,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         SingleModeBacktestRun source = requireReplaySource(sourceRunId);
         SingleModeBacktestRun run = persistenceService.createRun(
                 source.getStartDate(), source.getEndDate(), source.getTradeMode(),
-                source.getId(), STRATEGY_VERSION);
+                source.getId(), strategyVersion(source.getTradeMode()));
         try {
             executor.execute(() -> executeReplayRun(run));
             return run;
@@ -110,7 +113,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         SingleModeBacktestRun source = requireReplaySource(sourceRunId);
         SingleModeBacktestRun run = persistenceService.createRun(
                 source.getStartDate(), source.getEndDate(), source.getTradeMode(),
-                source.getId(), STRATEGY_VERSION);
+                source.getId(), strategyVersion(source.getTradeMode()));
         executeReplayRun(run);
         return findRun(run.getId());
     }
@@ -120,7 +123,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         SingleModeBacktestRun source = requireReplaySource(sourceRunId);
         SingleModeBacktestRun run = persistenceService.createRun(
                 source.getStartDate(), source.getEndDate(), source.getTradeMode(),
-                source.getId(), STRATEGY_VERSION);
+                source.getId(), strategyVersion(source.getTradeMode()));
         try {
             executor.execute(() -> executeCandidateReplayRun(run));
             return run;
@@ -135,7 +138,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         SingleModeBacktestRun source = requireReplaySource(sourceRunId);
         SingleModeBacktestRun run = persistenceService.createRun(
                 source.getStartDate(), source.getEndDate(), source.getTradeMode(),
-                source.getId(), STRATEGY_VERSION);
+                source.getId(), strategyVersion(source.getTradeMode()));
         executeCandidateReplayRun(run);
         return findRun(run.getId());
     }
@@ -155,14 +158,23 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             }
             List<LocalDate> recommendDays = recommendationDays(
                     executionDays, findPreviousTradeDate(executionDays.get(0)));
+            ConsecutiveRelaySelectionDeduplicator relayDeduplicator =
+                    Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code()).equals(run.getTradeMode())
+                            ? new ConsecutiveRelaySelectionDeduplicator() : null;
             for (LocalDate recommendDate : recommendDays) {
                 TradeMode tradeMode = TradeMode.fromCode(run.getTradeMode());
-                List<SelectionTaskData> tasks = selectionService.select(recommendDate, tradeMode);
+                List<SelectionTaskData> selectedTasks = selectionService.select(recommendDate, tradeMode);
+                List<SelectionTaskData> eligibleTasks = selectedTasks.stream()
+                        .filter(task -> task.getTradeDate() != null
+                                && !task.getTradeDate().isAfter(run.getEndDate()))
+                        .toList();
+                List<SelectionTaskData> tasks = relayDeduplicator == null
+                        ? eligibleTasks : relayDeduplicator.keepFirst(eligibleTasks);
+                if (tasks.size() < eligibleTasks.size()) {
+                    log.info("Model 1 连续交易日重复候选只保留首笔 runId={}, recommendDate={}, selected={}, kept={}",
+                            run.getId(), recommendDate, eligibleTasks.size(), tasks.size());
+                }
                 for (SelectionTaskData task : tasks) {
-                    // 推荐日之后尚未发生的买入日不计入本轮已完成样本。
-                    if (task.getTradeDate() == null || task.getTradeDate().isAfter(run.getEndDate())) {
-                        continue;
-                    }
                     SingleModeBacktestSample sample = createSample(run, task);
                     persistenceService.insertSample(sample);
                     total++;
@@ -687,6 +699,36 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         dates.add(previousTradeDate);
         dates.addAll(executionDays);
         return List.copyOf(dates);
+    }
+
+    static String strategyVersion(int tradeMode) {
+        return tradeMode == TradeMode.RELAY_LIMIT_UP.code()
+                ? RELAY_STRATEGY_VERSION : STRATEGY_VERSION;
+    }
+
+    /** Model 1 同一股票连续多个推荐日重复出现时，整条连续链只保留第一笔。 */
+    static final class ConsecutiveRelaySelectionDeduplicator {
+        private Set<String> previousDaySymbols = Set.of();
+
+        List<SelectionTaskData> keepFirst(List<SelectionTaskData> tasks) {
+            if (tasks == null || tasks.isEmpty()) {
+                previousDaySymbols = Set.of();
+                return List.of();
+            }
+            Set<String> currentDaySymbols = new LinkedHashSet<>();
+            List<SelectionTaskData> kept = new ArrayList<>();
+            for (SelectionTaskData task : tasks) {
+                String symbol = task == null ? null : task.getStockCode();
+                if (symbol == null || !currentDaySymbols.add(symbol)) {
+                    continue;
+                }
+                if (!previousDaySymbols.contains(symbol)) {
+                    kept.add(task);
+                }
+            }
+            previousDaySymbols = Set.copyOf(currentDaySymbols);
+            return List.copyOf(kept);
+        }
     }
 
     static int selectionBoard(SelectionTaskData task) {

@@ -36,4 +36,36 @@ class SingleModeBacktestDateRangeTest {
         assertEquals(3, SingleModeBacktestServiceImpl.selectionBoard(relay));
         assertEquals(1, SingleModeBacktestServiceImpl.selectionBoard(firstBoard));
     }
+
+    @Test
+    void keepsOnlyTheFirstSelectionInEachConsecutiveRelayChain() {
+        SingleModeBacktestServiceImpl.ConsecutiveRelaySelectionDeduplicator deduplicator =
+                new SingleModeBacktestServiceImpl.ConsecutiveRelaySelectionDeduplicator();
+
+        assertEquals(List.of("600001", "600002"), symbols(deduplicator.keepFirst(List.of(
+                task("600001"), task("600002")))));
+        assertEquals(List.of("600003"), symbols(deduplicator.keepFirst(List.of(
+                task("600001"), task("600003")))));
+        assertEquals(List.of(), symbols(deduplicator.keepFirst(List.of(task("600001")))));
+
+        assertEquals(List.of(), symbols(deduplicator.keepFirst(List.of())));
+        assertEquals(List.of("600001"), symbols(deduplicator.keepFirst(List.of(task("600001")))));
+    }
+
+    @Test
+    void usesAnIndependentVersionForRelayBacktestIterations() {
+        assertEquals("relay-model-001", SingleModeBacktestServiceImpl.strategyVersion(1));
+        assertEquals("multi-model-009", SingleModeBacktestServiceImpl.strategyVersion(2));
+        assertEquals("multi-model-009", SingleModeBacktestServiceImpl.strategyVersion(3));
+    }
+
+    private SelectionTaskData task(String symbol) {
+        SelectionTaskData task = new SelectionTaskData();
+        task.setStockCode(symbol);
+        return task;
+    }
+
+    private List<String> symbols(List<SelectionTaskData> tasks) {
+        return tasks.stream().map(SelectionTaskData::getStockCode).toList();
+    }
 }
