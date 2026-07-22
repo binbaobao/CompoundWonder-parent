@@ -57,9 +57,9 @@ class BacktestExecutionPolicyTest {
     }
 
     @Test
-    void relayOvernightBuyUsesThirtyMillionYuanTurnoverFallback() {
-        assertFalse(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 3000D));
-        assertTrue(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 3000.01D));
+    void relayOvernightBuyUsesTwentyFiveMillionYuanTurnoverFallback() {
+        assertFalse(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 2500D));
+        assertTrue(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501000, 2500.01D));
         assertTrue(BacktestExecutionPolicy.isRelayOvernightBuyFillable(91501001, 0D));
     }
 
