@@ -29,6 +29,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,7 +41,9 @@ import java.util.concurrent.RejectedExecutionException;
 @Service
 public class SingleModeBacktestServiceImpl implements SingleModeBacktestService {
     static final String STRATEGY_VERSION = "multi-model-009";
-    static final String RELAY_STRATEGY_VERSION = "relay-model-005";
+    static final String RELAY_STRATEGY_VERSION = "relay-model-006";
+    static final String DEFERRED_RELAY_TRIGGER = "DEFERRED_3_TO_4";
+    private static final double RELAY_HIGH_OPEN_FAST_MIN_EXCLUSIVE = 4.5D;
     private static final int SELECTED = 1;
     private static final int NO_BUY = 2;
     private static final int OPEN = 3;
@@ -161,6 +164,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             ConsecutiveRelaySelectionDeduplicator relayDeduplicator =
                     Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code()).equals(run.getTradeMode())
                             ? new ConsecutiveRelaySelectionDeduplicator() : null;
+            Set<String> scheduledSampleKeys = new HashSet<>();
             for (LocalDate recommendDate : recommendDays) {
                 TradeMode tradeMode = TradeMode.fromCode(run.getTradeMode());
                 List<SelectionTaskData> selectedTasks = selectionService.select(recommendDate, tradeMode);
@@ -176,23 +180,20 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                 }
                 for (SelectionTaskData task : tasks) {
                     SingleModeBacktestSample sample = createSample(run, task);
-                    persistenceService.insertSample(sample);
-                    total++;
-                    try {
-                        executeSample(sample, run.getEndDate());
-                    } catch (RuntimeException exception) {
-                        sample.setStatus(DATA_ERROR);
-                        sample.setNoBuyReason(abbreviate(exception.getMessage(), 1000));
-                        sample.setSampleEndDate(sample.getTradeDate());
-                        log.warn("单模式样本回测失败 runId={}, recommendDate={}, symbol={}, reason={}",
-                                run.getId(), recommendDate, sample.getSymbol(), exception.getMessage());
+                    if (!scheduledSampleKeys.add(sampleKey(sample))) {
+                        continue;
                     }
-                    persistenceService.updateSample(sample);
-                    processed++;
-                    if (Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
-                            .equals(sample.getPositionType())) {
-                        bought++;
-                        if (Integer.valueOf(CLOSED).equals(sample.getStatus())) closed++;
+                    List<SingleModeBacktestSample> completedSamples =
+                            executeCandidateWithDeferredOpportunity(
+                                    run, sample, run.getEndDate(), scheduledSampleKeys);
+                    total += completedSamples.size();
+                    processed += completedSamples.size();
+                    for (SingleModeBacktestSample completedSample : completedSamples) {
+                        if (Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
+                                .equals(completedSample.getPositionType())) {
+                            bought++;
+                            if (Integer.valueOf(CLOSED).equals(completedSample.getStatus())) closed++;
+                        }
                     }
                 }
                 persistenceService.updateProgress(run.getId(), recommendDate,
@@ -232,16 +233,39 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                     persistenceService.findAllSamples(run.getSourceRunId());
             List<SingleModeBacktestSample> candidates = replayBuys
                     ? sourceSamples : replayCandidates(sourceSamples);
+            Set<String> scheduledSampleKeys = new HashSet<>();
+            if (replayBuys) {
+                candidates.stream().map(source -> createReplaySample(run, source))
+                        .map(SingleModeBacktestServiceImpl::sampleKey)
+                        .forEach(scheduledSampleKeys::add);
+            }
             for (SingleModeBacktestSample source : candidates) {
                 SingleModeBacktestSample sample = createReplaySample(run, source);
+                if (replayBuys) {
+                    List<SingleModeBacktestSample> completedSamples =
+                            executeCandidateWithDeferredOpportunity(
+                                    run, sample, run.getEndDate(), scheduledSampleKeys);
+                    total += completedSamples.size();
+                    processed += completedSamples.size();
+                    for (SingleModeBacktestSample completedSample : completedSamples) {
+                        if (Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
+                                .equals(completedSample.getPositionType())) {
+                            bought++;
+                            if (Integer.valueOf(CLOSED).equals(completedSample.getStatus())) closed++;
+                        }
+                        if (lastCompletedDate == null
+                                || completedSample.getRecommendDate().isAfter(lastCompletedDate)) {
+                            lastCompletedDate = completedSample.getRecommendDate();
+                        }
+                    }
+                    persistenceService.updateProgress(run.getId(), lastCompletedDate,
+                            total, processed, bought, closed);
+                    continue;
+                }
                 persistenceService.insertSample(sample);
                 total++;
                 try {
-                    if (replayBuys) {
-                        executeSample(sample, run.getEndDate());
-                    } else {
-                        executeReplaySample(sample, source, run.getEndDate());
-                    }
+                    executeReplaySample(sample, source, run.getEndDate());
                 } catch (RuntimeException exception) {
                     sample.setStatus(DATA_ERROR);
                     sample.setNoBuyReason(abbreviate(exception.getMessage(), 1000));
@@ -268,6 +292,45 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
             log.error("固定候选回放失败 runId={}, replayBuys={}, tradeMode={}, sourceRunId={}",
                     run.getId(), replayBuys, run.getTradeMode(), run.getSourceRunId(), exception);
         }
+    }
+
+    /** 执行一个固定候选；若命中递延规则，则在同一任务中追加并执行下一交易日 3 进 4。 */
+    private List<SingleModeBacktestSample> executeCandidateWithDeferredOpportunity(
+            SingleModeBacktestRun run, SingleModeBacktestSample initial,
+            LocalDate dataEndDate, Set<String> scheduledSampleKeys) {
+        List<SingleModeBacktestSample> pending = new ArrayList<>();
+        List<SingleModeBacktestSample> completed = new ArrayList<>();
+        pending.add(initial);
+        for (int index = 0; index < pending.size(); index++) {
+            SingleModeBacktestSample sample = pending.get(index);
+            persistenceService.insertSample(sample);
+            boolean createDeferred = false;
+            try {
+                createDeferred = executeSample(sample, dataEndDate);
+            } catch (RuntimeException exception) {
+                sample.setStatus(DATA_ERROR);
+                sample.setNoBuyReason(abbreviate(exception.getMessage(), 1000));
+                sample.setSampleEndDate(sample.getTradeDate());
+                log.warn("单模式候选回放失败 runId={}, sourceSampleId={}, symbol={}, tradeDate={}, reason={}",
+                        run.getId(), sample.getSourceSampleId(), sample.getSymbol(),
+                        sample.getTradeDate(), exception.getMessage());
+            }
+            persistenceService.updateSample(sample);
+            completed.add(sample);
+
+            if (!createDeferred) continue;
+            LocalDate nextTradeDate = calendarService.findNextTradeDay(sample.getTradeDate());
+            if (nextTradeDate == null || nextTradeDate.isAfter(dataEndDate)) continue;
+            SingleModeBacktestSample deferred = createDeferredRelaySample(
+                    run, sample, nextTradeDate);
+            if (scheduledSampleKeys.add(sampleKey(deferred))) {
+                pending.add(deferred);
+                log.info("Model 1 二板加速样本递延到 3 进 4 runId={}, sourceSampleId={}, symbol={}, thirdBoardDate={}, fourthBoardDate={}",
+                        run.getId(), deferred.getSourceSampleId(), deferred.getSymbol(),
+                        deferred.getRecommendDate(), deferred.getTradeDate());
+            }
+        }
+        return List.copyOf(completed);
     }
 
     private SingleModeBacktestSample createSample(SingleModeBacktestRun run,
@@ -390,28 +453,34 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         return sample;
     }
 
-    private void executeSample(SingleModeBacktestSample sample, LocalDate dataEndDate) {
+    private boolean executeSample(SingleModeBacktestSample sample, LocalDate dataEndDate) {
         StockDailyEntity buyDaily = findDailyOrNull(sample.getSymbol(), sample.getTradeDate());
         if (buyDaily == null) {
             sample.setStatus(NO_BUY);
             sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
             sample.setNoBuyReason("买入日无日 K（停牌或数据缺失）");
             sample.setSampleEndDate(sample.getTradeDate());
-            return;
+            return false;
         }
         calculateBoardPotential(sample, buyDaily, dataEndDate);
         if (buyDaily.getKlineState() == null || buyDaily.getKlineState() <= 0) {
             sample.setStatus(NO_BUY);
             sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
             sample.setNoBuyReason("买入日未触板，klineState=" + buyDaily.getKlineState());
-            return;
+            return false;
         }
+
+        StockDailyEntity secondBoard = Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code())
+                .equals(sample.getTradeMode()) && Integer.valueOf(2).equals(sample.getSelectionBoard())
+                ? findDailyOrNull(sample.getSymbol(), sample.getRecommendDate()) : null;
 
         BacktestDailyTickBatch buyTicks = replayService.loadDailyTicks(
                 sample.getTradeDate(), Set.of(sample.getSymbol()));
         BacktestReplayResult overnight = replayService.replay(
                 sample.getTradeDate(), sample.getSymbol(), BacktestReplayMode.OVERNIGHT_BUY,
                 null, buyTicks, sample.getTradeMode());
+        int firstLimitUpTime = secondBoard == null ? 0 : firstLimitUpTradeTime(
+                buyTicks, sample.getSymbol(), overnight.limitUpPrice());
         RuleRecordDTO buyRule = null;
         RuleRecordDTO cancel = overnight.firstCancelRecord().orElse(null);
         if (cancel != null) {
@@ -439,11 +508,19 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
                 buyRule = overnightBuyRule(overnight, turnover);
             }
         }
+        if (shouldDeferRelayThirdBoardBuy(
+                sample, secondBoard, buyDaily, firstLimitUpTime)) {
+            String reason = Integer.valueOf(3).equals(buyDaily.getKlineState())
+                    ? "二板加速后不接三板一字板，递延观察 3 进 4"
+                    : "二板加速后不接三板高开秒板，递延观察 3 进 4";
+            sample.setNoBuyReason(reason);
+            buyRule = null;
+        }
         if (buyRule == null) {
             prepareVirtualPosition(sample, buyDaily, overnight);
             calculateBoardPotential(sample, buyDaily, dataEndDate);
             calculateSellLifecycle(sample, dataEndDate);
-            return;
+            return shouldCreateDeferredRelayOpportunity(sample, secondBoard, buyDaily);
         }
 
         sample.setPositionType(SingleModeBacktestSample.POSITION_ACTUAL);
@@ -458,6 +535,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         // 买入价确定后重新按真实成交价计算本轮理论最高收益。
         calculateBoardPotential(sample, buyDaily, dataEndDate);
         calculateSellLifecycle(sample, dataEndDate);
+        return false;
     }
 
     /** 为触板但未实际成交的样本建立只用于卖出场景统计的虚拟持仓。 */
@@ -739,6 +817,104 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
     static int selectionBoard(SelectionTaskData task) {
         if (task == null || task.getConsecutiveLimitUpDays() == null) return 1;
         return Math.max(1, task.getConsecutiveLimitUpDays());
+    }
+
+    /** 二板当天出现一字、低振幅、低换手 T 字或整体低换手，视为二板加速。 */
+    static boolean isAcceleratedSecondBoard(StockDailyEntity secondBoard) {
+        if (secondBoard == null) return false;
+        Integer state = secondBoard.getKlineState();
+        Double amplitude = secondBoard.getAmplitude();
+        Double turnover = secondBoard.getTurnoverRate();
+        return Integer.valueOf(3).equals(state)
+                || amplitude != null && amplitude < 3D
+                || Integer.valueOf(2).equals(state) && turnover != null && turnover < 18D
+                || turnover != null && turnover < 15D;
+    }
+
+    /** 二板加速后，三板一字或高开并在 09:35 前触发买点时递延到四板观察。 */
+    static boolean shouldDeferRelayThirdBoardBuy(SingleModeBacktestSample sample,
+                                                  StockDailyEntity secondBoard,
+                                                  StockDailyEntity thirdBoard,
+                                                  int firstLimitUpTime) {
+        if (sample == null || thirdBoard == null
+                || !Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code()).equals(sample.getTradeMode())
+                || !Integer.valueOf(2).equals(sample.getSelectionBoard())
+                || !isAcceleratedSecondBoard(secondBoard)) {
+            return false;
+        }
+        if (Integer.valueOf(3).equals(thirdBoard.getKlineState())) {
+            return true;
+        }
+        if (firstLimitUpTime <= 0 || firstLimitUpTime >= ConstantUtil.TIME_935
+                || thirdBoard.getOpenPrice() == null || thirdBoard.getPrevClose() == null
+                || thirdBoard.getPrevClose() <= 0) {
+            return false;
+        }
+        double openIncrease = (thirdBoard.getOpenPrice() - thirdBoard.getPrevClose())
+                * 100D / thirdBoard.getPrevClose();
+        return openIncrease > RELAY_HIGH_OPEN_FAST_MIN_EXCLUSIVE;
+    }
+
+    /** 从当日 Level2 成交中读取第一次触及涨停价的真实时间，隔夜下单时间不参与判断。 */
+    static int firstLimitUpTradeTime(BacktestDailyTickBatch dailyTicks,
+                                     String symbol, int limitUpPrice) {
+        if (dailyTicks == null || symbol == null || limitUpPrice <= 0) return 0;
+        int[] firstTime = {0};
+        dailyTicks.replay(symbol, tick -> {
+            if (firstTime[0] == 0 && tick.dataType == 2
+                    && tick.time >= ConstantUtil.TIME_930
+                    && tick.price == limitUpPrice) {
+                firstTime[0] = tick.time;
+            }
+        });
+        return firstTime[0];
+    }
+
+    /** 二板加速样本三板未买到但收盘封住时，允许下一交易日重新尝试 3 进 4。 */
+    static boolean shouldCreateDeferredRelayOpportunity(
+            SingleModeBacktestSample sample, StockDailyEntity secondBoard,
+            StockDailyEntity thirdBoard) {
+        return sample != null && thirdBoard != null
+                && Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code()).equals(sample.getTradeMode())
+                && Integer.valueOf(2).equals(sample.getSelectionBoard())
+                && !Integer.valueOf(SingleModeBacktestSample.POSITION_ACTUAL)
+                        .equals(sample.getPositionType())
+                && isAcceleratedSecondBoard(secondBoard)
+                && thirdBoard.getKlineState() != null
+                && thirdBoard.getKlineState() >= 1
+                && thirdBoard.getKlineState() <= 5;
+    }
+
+    /** 使用已确认封住的三板日作为新推荐日，生成下一交易日独立执行的 3 进 4 样本。 */
+    static SingleModeBacktestSample createDeferredRelaySample(
+            SingleModeBacktestRun run, SingleModeBacktestSample source, LocalDate nextTradeDate) {
+        SingleModeBacktestSample sample = new SingleModeBacktestSample();
+        sample.setRunId(run.getId());
+        sample.setSourceSampleId(source.getSourceSampleId() == null
+                ? source.getId() : source.getSourceSampleId());
+        sample.setSymbol(source.getSymbol());
+        sample.setSymbolName(source.getSymbolName());
+        sample.setTradeMode(run.getTradeMode());
+        sample.setLimitUpScore(source.getLimitUpScore());
+        sample.setRecommendDate(source.getTradeDate());
+        sample.setTradeDate(nextTradeDate);
+        sample.setSelectionBoard(3);
+        sample.setSelectionTrigger(DEFERRED_RELAY_TRIGGER);
+        sample.setSelectionStrength(source.getSelectionStrength());
+        sample.setStrategyVersion(run.getStrategyVersion());
+        sample.setSelectionRunId(source.getSelectionRunId());
+        sample.setRelayCandidateRecordId(source.getRelayCandidateRecordId());
+        sample.setStatus(SELECTED);
+        sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
+        sample.setHoldingTradeDays(0);
+        sample.setMaxSealedBoards(3);
+        sample.setMaxTouchedBoards(3);
+        sample.setCreatedTime(LocalDateTime.now());
+        return sample;
+    }
+
+    private static String sampleKey(SingleModeBacktestSample sample) {
+        return sample.getSymbol() + "|" + sample.getTradeDate();
     }
 
     /** 固定复用源任务选股结果，仅保留触板或已经真实成交的样本。 */

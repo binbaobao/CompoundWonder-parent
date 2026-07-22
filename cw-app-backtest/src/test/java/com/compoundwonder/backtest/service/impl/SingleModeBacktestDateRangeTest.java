@@ -54,7 +54,7 @@ class SingleModeBacktestDateRangeTest {
 
     @Test
     void usesAnIndependentVersionForRelayBacktestIterations() {
-        assertEquals("relay-model-005", SingleModeBacktestServiceImpl.strategyVersion(1));
+        assertEquals("relay-model-006", SingleModeBacktestServiceImpl.strategyVersion(1));
         assertEquals("multi-model-009", SingleModeBacktestServiceImpl.strategyVersion(2));
         assertEquals("multi-model-009", SingleModeBacktestServiceImpl.strategyVersion(3));
     }
