@@ -1,6 +1,7 @@
 package com.compoundwonder.strategy.relay.selection;
 
 import com.compoundwonder.strategy.relay.selection.WeakFiveBoardFallbackPolicy;
+import com.compoundwonder.common.mysqldata.selection.model.MarketEmotionData;
 import com.compoundwonder.common.mysqldata.selection.model.StockDailyData;
 import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,38 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RelaySelectionServiceTest {
+
+    @Test
+    void previousTenDayAverageHeightExcludesSelectionDay() {
+        List<MarketEmotionData> descendingEmotions = new ArrayList<>();
+        descendingEmotions.add(emotion("2026-07-21", 5));
+        for (int height = 1; height <= 10; height++) {
+            descendingEmotions.add(emotion(
+                    LocalDate.of(2026, 7, 21).minusDays(height).toString(), height));
+        }
+
+        Double average = RelaySelectionService
+                .calculatePreviousTenDayAverageHeight(descendingEmotions);
+
+        assertEquals(5.5D, average, 0.000001D);
+    }
+
+    @Test
+    void previousTenDayAverageHeightRequiresTenCompletePreviousTradingDays() {
+        assertEquals(null, RelaySelectionService.calculatePreviousTenDayAverageHeight(List.of(
+                emotion("2026-07-21", 5),
+                emotion("2026-07-18", 4))));
+
+        List<MarketEmotionData> incomplete = new ArrayList<>();
+        incomplete.add(emotion("2026-07-21", 5));
+        for (int index = 1; index <= 10; index++) {
+            incomplete.add(emotion(
+                    LocalDate.of(2026, 7, 21).minusDays(index).toString(),
+                    index == 5 ? null : 4));
+        }
+        assertEquals(null, RelaySelectionService
+                .calculatePreviousTenDayAverageHeight(incomplete));
+    }
 
     @Test
     void relayBoardCalculatesFiveDayAmplitudeIncludingCurrentDay() {
@@ -196,6 +229,10 @@ class RelaySelectionServiceTest {
         daily.setAdjustLowPrice(adjustedLow);
         daily.setAdjustClosePrice(adjustedClose);
         return daily;
+    }
+
+    private MarketEmotionData emotion(String tradeDate, Integer height) {
+        return new MarketEmotionData(LocalDate.parse(tradeDate), height, null);
     }
 
     private StockDailyData daily(String tradeDate, int klineState) {

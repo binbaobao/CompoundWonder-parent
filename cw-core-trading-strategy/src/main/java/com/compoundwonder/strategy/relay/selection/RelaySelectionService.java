@@ -33,6 +33,9 @@ public class RelaySelectionService {
     /** 所有连板触发点最终最多保留 3 只。 */
     static final int NORMAL_RELAY_TASK_LIMIT = 3;
 
+    /** 当日加上之前 10 个交易日，供弱 5 板计算前 10 日平均高度。 */
+    static final int WEAK_FIVE_BOARD_EMOTION_LOOKBACK = 11;
+
     /**
      * 唯一弱 5 板属于主观卡位预判，只允许严格过滤后的 2 板候选保留前 3 只。
      */
@@ -64,7 +67,8 @@ public class RelaySelectionService {
             throw new IllegalArgumentException("选股日期不能为空");
         }
         List<StockDailyData> allDaily = selectionDataService.listDailyByTradeDate(tradeDate);
-        List<MarketEmotionData> emotions = selectionDataService.listLatestMarketEmotion(tradeDate, 3);
+        List<MarketEmotionData> emotions = selectionDataService.listLatestMarketEmotion(
+                tradeDate, WEAK_FIVE_BOARD_EMOTION_LOOKBACK);
         if (emotions.size() < 3) {
             RelaySelectionPlan none = RelaySelectionPlan.none("缺少连续三个交易日的市场情绪数据");
             return new RelaySelectionResult(tradeDate, none, none, List.of(), List.of(), null);
@@ -91,14 +95,21 @@ public class RelaySelectionService {
         int todayHeight = Objects.requireNonNullElse(today.highestConsecutiveLimitUpDays(), 0);
         String fallbackDetail = null;
         if (todayHeight == 5) {
-            List<StockDailyData> fiveBoardDailyList = allDaily.stream()
-                    .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                    .filter(daily -> Integer.valueOf(5).equals(daily.getConsecutiveLimitUpDays()))
-                    .toList();
-            List<WeakFiveBoardFallbackPolicy.FiveBoardQuality> fiveBoardQualities =
-                    buildFiveBoardQualities(fiveBoardDailyList);
+            Double previousTenDayAverageHeight =
+                    calculatePreviousTenDayAverageHeight(emotions);
+            List<WeakFiveBoardFallbackPolicy.FiveBoardQuality> fiveBoardQualities = List.of();
+            if (WeakFiveBoardFallbackPolicy.isAverageHeightAllowed(
+                    previousTenDayAverageHeight)) {
+                List<StockDailyData> fiveBoardDailyList = allDaily.stream()
+                        .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
+                        .filter(daily -> Integer.valueOf(5)
+                                .equals(daily.getConsecutiveLimitUpDays()))
+                        .toList();
+                fiveBoardQualities = buildFiveBoardQualities(fiveBoardDailyList);
+            }
             WeakFiveBoardFallbackPolicy.Decision fallbackDecision =
-                    WeakFiveBoardFallbackPolicy.evaluate(todayHeight, false, fiveBoardQualities);
+                    WeakFiveBoardFallbackPolicy.evaluate(
+                            todayHeight, false, previousTenDayAverageHeight, fiveBoardQualities);
             fallbackDetail = fallbackDecision.layer() + ": " + fallbackDecision.detail();
             if (fallbackDecision.triggered()) {
                 RelaySelectionPlan fallbackPlan = new RelaySelectionPlan(
@@ -115,6 +126,28 @@ public class RelaySelectionService {
 
         return new RelaySelectionResult(tradeDate, primaryPlan, primaryPlan,
                 primary.evaluations(), List.of(), fallbackDetail);
+    }
+
+    /**
+     * 计算触发日前 10 个交易日的市场最高板算术平均值，不包含触发日。
+     * 情绪数据按交易日倒序排列；不足 10 日或任一高度缺失时返回 {@code null}，
+     * 由弱 5 板策略按不执行处理。
+     */
+    static Double calculatePreviousTenDayAverageHeight(
+            List<MarketEmotionData> descendingEmotions) {
+        if (descendingEmotions == null
+                || descendingEmotions.size() < WEAK_FIVE_BOARD_EMOTION_LOOKBACK) {
+            return null;
+        }
+        int totalHeight = 0;
+        for (int index = 1; index < WEAK_FIVE_BOARD_EMOTION_LOOKBACK; index++) {
+            MarketEmotionData emotion = descendingEmotions.get(index);
+            if (emotion == null || emotion.highestConsecutiveLimitUpDays() == null) {
+                return null;
+            }
+            totalHeight += emotion.highestConsecutiveLimitUpDays();
+        }
+        return totalHeight / 10D;
     }
 
     private PlanEvaluation evaluatePlan(LocalDate tradeDate,

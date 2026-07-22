@@ -5,14 +5,18 @@ import java.util.List;
 /**
  * 唯一弱 5 板的严格 2 板兜底策略。
  *
- * <p>该策略是一种主观卡位预判：当市场只有一只 5 板、常规连板选股没有产生任何内存候选，
- * 且这只 5 板暴露出明显的持续性风险时，才允许重新观察当天的 2 板股票。</p>
+ * <p>该策略是一种主观卡位预判：当触发日前 10 个交易日的市场平均高度低于 6 板、
+ * 市场只有一只 5 板、常规连板选股没有产生任何内存候选，且这只 5 板暴露出明显的
+ * 持续性风险时，才允许重新观察当天的 2 板股票。</p>
  *
  * <p>这里不能把市场高度伪装成 4 板，也不能复用宽松强度。原因是弱 5 板次日仍可能继续涨停，
  * 此时低位 2 板仍然受到高位股压制；如果再放宽 2 板质地要求，很容易在竞争中炸板。
  * 因此本策略只负责判断是否启动兜底，具体候选必须继续执行完整的正常严格过滤。</p>
  */
 public final class WeakFiveBoardFallbackPolicy {
+
+    /** 前 10 个交易日平均高度必须严格低于 6 板。 */
+    private static final double MAX_PREVIOUS_TEN_DAY_AVERAGE_HEIGHT = 6D;
 
     /** 触发兜底的当日流通市值下限，单位：万元，即超过 45 亿元视为体量过大。 */
     private static final double MAX_CURRENT_MARKET_CAP = 450_000D;
@@ -26,22 +30,37 @@ public final class WeakFiveBoardFallbackPolicy {
     private WeakFiveBoardFallbackPolicy() {
     }
 
+    /** 平均高度数据完整且严格低于 6 时，才继续读取和判断唯一 5 板质量。 */
+    static boolean isAverageHeightAllowed(Double previousTenDayAverageHeight) {
+        return previousTenDayAverageHeight != null
+                && previousTenDayAverageHeight < MAX_PREVIOUS_TEN_DAY_AVERAGE_HEIGHT;
+    }
+
     /**
      * 判断是否启动唯一弱 5 板的严格 2 板兜底。
      *
      * @param todayHighestLimitUp      当日市场最高连板数
      * @param hasNormalRecommendations 主触发流程是否已产生内存候选
+     * @param previousTenDayAverageHeight 不含当日的前 10 个交易日市场最高板平均值
      * @param fiveBoardQualities       当天过滤 ST 后的 5 板质量快照
      * @return 是否启动严格 2 板兜底以及对应判断层级和明细
      */
     public static Decision evaluate(int todayHighestLimitUp,
                              boolean hasNormalRecommendations,
+                             Double previousTenDayAverageHeight,
                              List<FiveBoardQuality> fiveBoardQualities) {
         if (todayHighestLimitUp != 5) {
             return Decision.notTriggered("市场最高板", "actual=" + todayHighestLimitUp + ", required=5");
         }
         if (hasNormalRecommendations) {
             return Decision.notTriggered("常规连板已有推荐", "内存候选不为空，不启动弱5板兜底");
+        }
+        if (previousTenDayAverageHeight == null) {
+            return Decision.notTriggered("前10日平均高度", "缺少前10个交易日完整市场最高板数据");
+        }
+        if (!isAverageHeightAllowed(previousTenDayAverageHeight)) {
+            return Decision.notTriggered("前10日平均高度",
+                    "actual=" + previousTenDayAverageHeight + ", required<6");
         }
         if (fiveBoardQualities == null || fiveBoardQualities.size() != 1) {
             int actualCount = fiveBoardQualities == null ? 0 : fiveBoardQualities.size();
