@@ -28,6 +28,11 @@ public class SingleModeBacktestSample {
     private LocalDate recommendDate;
     private LocalDate tradeDate;
     private Integer selectionBoard;
+    private String selectionTrigger;
+    private String selectionStrength;
+    private String strategyVersion;
+    private Long selectionRunId;
+    private Long relayCandidateRecordId;
     /** 1 已选出，2 未买入，3 持仓至数据末尾，4 已卖出，5 数据异常。 */
     private Integer status;
     /** 0 无持仓，1 实际成交，2 为积累卖出场景建立的虚拟持仓。 */

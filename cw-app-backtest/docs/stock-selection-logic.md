@@ -5,6 +5,8 @@
 > 整理依据：当前工作区实际源码，不以历史讨论或旧注释代替代码行为  
 > 主入口：`StockWatchingTaskServiceImpl.createPostCloseWatchingTasks(LocalDate)`
 
+> 2026-07-22 更新：本文中普通首板和小市值首板部分仍按原口径使用；连板接力的旧“严格/冰点”章节已经被三级强度和分触发 V1 替代。连板规则必须以 [`relay-selection-mode-v1.md`](relay-selection-mode-v1.md) 和当前 `relay/selection` 源码为准，不再使用本文第 7、8 节及其旧 Top4/冰点描述。
+
 ## 1. 文档范围
 
 本文说明收盘后推荐盯盘任务的完整生成过程，包括：

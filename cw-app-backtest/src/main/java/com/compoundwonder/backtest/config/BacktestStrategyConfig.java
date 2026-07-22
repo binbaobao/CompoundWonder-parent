@@ -5,6 +5,7 @@ import com.compoundwonder.common.strategy.selection.StockSelectionService;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.strategy.TradeStrategyDispatcher;
 import com.compoundwonder.strategy.selection.DefaultStockSelectionService;
+import com.compoundwonder.strategy.relay.selection.RelaySelectionService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,5 +24,12 @@ public class BacktestStrategyConfig {
     public StockSelectionService stockSelectionService(
             StockSelectionDataService stockSelectionDataService) {
         return new DefaultStockSelectionService(stockSelectionDataService);
+    }
+
+    /** 研究任务需要读取全量候选轨迹，因此单独暴露连板详细选股服务。 */
+    @Bean
+    public RelaySelectionService relaySelectionService(
+            StockSelectionDataService stockSelectionDataService) {
+        return new RelaySelectionService(stockSelectionDataService);
     }
 }

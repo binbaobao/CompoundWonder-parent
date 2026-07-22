@@ -42,22 +42,56 @@ class WeakFiveBoardFallbackPolicyTest {
     void anyWeakQualitySignalTriggersStrictTwoBoardFallback() {
         assertTriggered(450_000.01D, 30D, 8D, 10D, "当日流通市值");
         assertTriggered(300_000D, 45.01D, 8D, 10D, "当日换手率");
-        assertTriggered(300_000D, 30D, 2.49D, 10D, "当日振幅过小");
         assertTriggered(300_000D, 30D, 13.01D, 10D, "当日振幅过大");
-        assertTriggered(300_000D, 30D, 8D, 2.49D, "启动价格过低");
-        assertTriggered(300_000D, 30D, 8D, 30.01D, "启动价格过高");
+    }
+
+    @Test
+    void oneWordOrLowAmplitudeFiveBoardIsNotWeakByItself() {
+        WeakFiveBoardFallbackPolicy.Decision decision =
+                WeakFiveBoardFallbackPolicy.evaluate(
+                        5, false, List.of(quality(300_000D, 30D, 0D, 10D)));
+
+        assertFalse(decision.triggered());
+        assertEquals("唯一5板质量合格", decision.layer());
+    }
+
+    @Test
+    void startPriceDoesNotMakeTheUniqueFiveBoardWeak() {
+        WeakFiveBoardFallbackPolicy.Decision lowPrice =
+                WeakFiveBoardFallbackPolicy.evaluate(
+                        5, false, List.of(quality(300_000D, 30D, 8D, 2D)));
+        WeakFiveBoardFallbackPolicy.Decision highPrice =
+                WeakFiveBoardFallbackPolicy.evaluate(
+                        5, false, List.of(quality(300_000D, 30D, 8D, 35D)));
+
+        assertFalse(lowPrice.triggered());
+        assertFalse(highPrice.triggered());
+        assertEquals("唯一5板质量合格", lowPrice.layer());
+        assertEquals("唯一5板质量合格", highPrice.layer());
     }
 
     @Test
     void missingFiveBoardQualityDataDoesNotStartSubjectiveFallback() {
         WeakFiveBoardFallbackPolicy.FiveBoardQuality fiveBoard =
-                new WeakFiveBoardFallbackPolicy.FiveBoardQuality("600001", 300_000D, 30D, 8D, null);
+                new WeakFiveBoardFallbackPolicy.FiveBoardQuality("600001", 300_000D, 30D, null, 10D);
 
         WeakFiveBoardFallbackPolicy.Decision decision =
                 WeakFiveBoardFallbackPolicy.evaluate(5, false, List.of(fiveBoard));
 
         assertFalse(decision.triggered());
         assertEquals("数据完整性", decision.layer());
+    }
+
+    @Test
+    void missingStartPriceDoesNotBlockOtherWeakSignals() {
+        WeakFiveBoardFallbackPolicy.FiveBoardQuality fiveBoard =
+                new WeakFiveBoardFallbackPolicy.FiveBoardQuality("600001", 460_000D, 30D, 8D, null);
+
+        WeakFiveBoardFallbackPolicy.Decision decision =
+                WeakFiveBoardFallbackPolicy.evaluate(5, false, List.of(fiveBoard));
+
+        assertTrue(decision.triggered());
+        assertEquals("当日流通市值", decision.layer());
     }
 
     private void assertTriggered(double currentMarketCap,

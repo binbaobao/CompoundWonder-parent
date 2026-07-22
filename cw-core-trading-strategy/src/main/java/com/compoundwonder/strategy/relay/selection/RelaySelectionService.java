@@ -1,6 +1,5 @@
 package com.compoundwonder.strategy.relay.selection;
 
-import cn.hutool.core.util.StrUtil;
 import com.compoundwonder.common.mysqldata.selection.StockSelectionDataService;
 import com.compoundwonder.common.mysqldata.selection.model.MarketEmotionData;
 import com.compoundwonder.common.mysqldata.selection.model.StockCurrentStatusData;
@@ -23,16 +22,16 @@ import java.util.Set;
 /**
  * 连板接力模式独立选股服务。
  *
- * <p>负责 2/3 板基础池、专用辅助指标、严格通道、冰点 3/4 板通道、
- * 唯一弱 5 板兜底和最终数量截断；不与两种首板模式共享候选或回退结果。</p>
+ * <p>负责触发解析、2/3 板原始池、三级强度过滤、弱唯一 5 板卡位和 Top3；
+ * 不与两种首板模式共享候选或回退结果。</p>
  */
 @Slf4j
 public class RelaySelectionService {
 
-    /**
-     * 常规连板推荐最多保留 4 只，避免回测调参时再次把业务上限误改成 5 只。
-     */
-    static final int NORMAL_RELAY_TASK_LIMIT = 4;
+    public static final String STRATEGY_VERSION = "relay-v1";
+
+    /** 所有连板触发点最终最多保留 3 只。 */
+    static final int NORMAL_RELAY_TASK_LIMIT = 3;
 
     /**
      * 唯一弱 5 板属于主观卡位预判，只允许严格过滤后的 2 板候选保留前 3 只。
@@ -53,193 +52,193 @@ public class RelaySelectionService {
      * @return {@code tradeMode=1} 的下一交易日盯盘任务
      */
     public List<SelectionTaskData> select(LocalDate tradeDate) {
-        // 调用可转债正股查询方法。
-        Set<String> convertibleBondStockCodes = listConvertibleBondStockCodes(tradeDate);
-        // 调用连板选股方法。
-        return createRelayLimitUpTasks(tradeDate, convertibleBondStockCodes);
+        return selectDetailed(tradeDate).tasks();
     }
 
     /**
-     * 创建连板接力推荐任务。
-     * 实现逻辑：先按照正常情绪周期处理当天非 ST 的 2/3 连板候选；
-     * 正常内存候选为空时，再判断是否需要启动唯一弱 5 板的严格 2 板兜底。
+     * 执行触发解析并保留触发板数内全部原始候选的过滤轨迹。
+     * 原始池在 ST、可转债、市值、价格、筹码等过滤之前建立。
      */
-    private List<SelectionTaskData> createRelayLimitUpTasks(LocalDate tradeDate,
-                                                            Set<String> convertibleBondStockCodes) {
-        List<StockDailyData> stockDailyEntities = selectionDataService.listDailyByTradeDate(tradeDate).stream()
-                .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                .filter(daily -> lessThan(daily.getChangeRate(), 11D))
-                .filter(daily -> lessThan(daily.getFloatMarketCap(), 500_000D))
-                .filter(daily -> lessThan(daily.getClosePrice(), 45D))
-                .filter(daily -> between(daily.getConsecutiveLimitUpDays(), 2, 3))
-                .toList();
-        // 调用连板可转债过滤方法。
-        stockDailyEntities = filterConvertibleBondStocks("连板", stockDailyEntities, convertibleBondStockCodes);
-
-        // 先查出 今天 昨天 前天 的最高板
-        List<MarketEmotionData> entityList = selectionDataService.listLatestMarketEmotion(tradeDate, 3);
-        if (entityList.size() < 3) {
-            return List.of();
+    public RelaySelectionResult selectDetailed(LocalDate tradeDate) {
+        if (tradeDate == null) {
+            throw new IllegalArgumentException("选股日期不能为空");
+        }
+        List<StockDailyData> allDaily = selectionDataService.listDailyByTradeDate(tradeDate);
+        List<MarketEmotionData> emotions = selectionDataService.listLatestMarketEmotion(tradeDate, 3);
+        if (emotions.size() < 3) {
+            RelaySelectionPlan none = RelaySelectionPlan.none("缺少连续三个交易日的市场情绪数据");
+            return new RelaySelectionResult(tradeDate, none, none, List.of(), List.of(), null);
         }
 
-        // 今天 昨天 前天 的最高板
-        int todayMaxLbc = Objects.requireNonNullElse(entityList.get(0).highestConsecutiveLimitUpDays(), 0);
-        MarketEmotionData yesterdayMaxLbc = entityList.get(1);
-        MarketEmotionData yesterdayMaxLbc2 = entityList.get(2);
-        int yesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc.highestConsecutiveLimitUpDays(), 0);
-        int dayBeforeYesterdayHighestLimitUp = Objects.requireNonNullElse(yesterdayMaxLbc2.highestConsecutiveLimitUpDays(), 0);
+        MarketEmotionData today = emotions.get(0);
+        MarketEmotionData yesterday = emotions.get(1);
+        MarketEmotionData dayBefore = emotions.get(2);
+        RelayTriggerContext context = new RelayTriggerContext(today, yesterday, dayBefore,
+                findHighestLimitUp(allDailyFor(yesterday.tradeDate()),
+                        yesterday.highestConsecutiveLimitUpDays()),
+                findHighestLimitUp(allDailyFor(dayBefore.tradeDate()),
+                        dayBefore.highestConsecutiveLimitUpDays()));
+        RelaySelectionPlan primaryPlan = RelayTriggerResolver.resolve(context);
+        Set<String> convertibleBondStockCodes = listConvertibleBondStockCodes(tradeDate);
 
-        Integer minConsecutiveLimitUpDays = null;
-        Integer maxConsecutiveLimitUpDays = null;
-        // 高度压制到 3 板以下就推荐
-        //2.高度压制 2板，推荐2板股票
-        //3.高度压制 3板，推荐2/3板股票
-        if (todayMaxLbc <= 4) {
-            minConsecutiveLimitUpDays = 2;
-            maxConsecutiveLimitUpDays = 3;
-        } else if (yesterdayHighestLimitUp <= dayBeforeYesterdayHighestLimitUp) {
-            //5.连板高度 >=5 板，判断是否是龙头断板第二天，推荐昨天的2板票
-            String yesterdayMaxLbc2Code = findHighestLimitUp(yesterdayMaxLbc2.tradeDate(), dayBeforeYesterdayHighestLimitUp);
-            // 如果前天发生大退潮而且高度大于5板，推荐 3 板
-            // 判断前天大退潮的时候高度有没有超过7板
-            if (dayBeforeYesterdayHighestLimitUp < 7) {
-                // 没有超过7板直接推荐三板
-                minConsecutiveLimitUpDays = 3;
-                maxConsecutiveLimitUpDays = 3;
-            }
-            if (StrUtil.isNotEmpty(yesterdayMaxLbc2.dominantCycleStockCode()) && Objects.equals(yesterdayMaxLbc2Code, yesterdayMaxLbc2.dominantCycleStockCode())) {
-                // 超过7板，判断断板的股票是否是占领情绪周期的股票，如果是推荐三板
-                minConsecutiveLimitUpDays = 3;
-                maxConsecutiveLimitUpDays = 3;
-            }
-        } else if (todayMaxLbc <= yesterdayHighestLimitUp) {
-            String yesterdayMaxLbcCode = findHighestLimitUp(yesterdayMaxLbc.tradeDate(), yesterdayHighestLimitUp);
-            // 6.连板高度 >=5 板，判断是否是龙头断板，推荐今天的3,2板票
-            // 如果今天发生退潮而且高度大于5板，推荐 2,3 班
-            // 今日高度降低，判断昨日高度是否超过 7 板
-            if (yesterdayHighestLimitUp < 7) {
-                // 如果昨日高度没有超过7板直接推荐 2,3 板
-                minConsecutiveLimitUpDays = 2;
-                maxConsecutiveLimitUpDays = 3;
-            } else if (StrUtil.isNotEmpty(yesterdayMaxLbc.dominantCycleStockCode()) && Objects.equals(yesterdayMaxLbcCode, yesterdayMaxLbc.dominantCycleStockCode())) {
-                // 如果昨日高度超过7板，判断是否占领情绪周期，如果占领情绪周期才推荐，为了避免一些高度较高的中位票
-                minConsecutiveLimitUpDays = 2;
-                maxConsecutiveLimitUpDays = 3;
-            }
+        PlanEvaluation primary = evaluatePlan(tradeDate, allDaily,
+                convertibleBondStockCodes, primaryPlan);
+        if (!primary.tasks().isEmpty()) {
+            return new RelaySelectionResult(tradeDate, primaryPlan, primaryPlan,
+                    primary.evaluations(), primary.tasks(), null);
         }
 
-        int minLimitUpDays = Objects.requireNonNullElse(minConsecutiveLimitUpDays, 0);
-        int maxLimitUpDays = Objects.requireNonNullElse(maxConsecutiveLimitUpDays, 0);
-
-        log.info("连板选股 {} 最高板:{},昨日最高板:{} 前日最高板:{} 今日选股区间:{}-{}", tradeDate, todayMaxLbc, yesterdayHighestLimitUp, dayBeforeYesterdayHighestLimitUp, minLimitUpDays, maxLimitUpDays);
-        if (minLimitUpDays == 0 || maxLimitUpDays == 0) {
-            return List.of();
-        }
-
-        List<StockDailyData> selectedStockDailyList = new ArrayList<>();
-        for (StockDailyData stockDaily : stockDailyEntities) {
-            int consecutiveLimitUpDays = Objects.requireNonNullElse(stockDaily.getConsecutiveLimitUpDays(), 0);
-            if (minConsecutiveLimitUpDays == null
-                    || consecutiveLimitUpDays < minLimitUpDays
-                    || consecutiveLimitUpDays > maxLimitUpDays) {
-                log.info("连板选股过滤 tradeDate={} stockCode={} stockName={} step=情绪周期板数范围 detail=actual={}, required=[{},{}]",
-                        tradeDate, stockDaily.getStockCode(), stockDaily.getStockName(), consecutiveLimitUpDays,
-                        minConsecutiveLimitUpDays, maxConsecutiveLimitUpDays);
-                continue;
-            }
-            if (!isIcePointThreeFourBoardCandidate(todayMaxLbc, consecutiveLimitUpDays)
-                    && Objects.requireNonNullElse(stockDaily.getClosePrice(), 0D) >= 40D) {
-                log.info("连板选股过滤 tradeDate={} stockCode={} stockName={} step=当日价格 detail=actual={}, required<40",
-                        tradeDate, stockDaily.getStockCode(), stockDaily.getStockName(), stockDaily.getClosePrice());
-                continue;
-            }
-            selectedStockDailyList.add(stockDaily);
-        }
-        // 调用连板辅助对象构建方法。
-        List<RelaySelectionAssist> assistList = buildSelectionAssistList(selectedStockDailyList);
-
-        // 调用连板共同过滤与评分方法。
-        List<SelectionTaskData> eligibleTasks = selectEligibleRelayTasks(
-                assistList, todayMaxLbc, true, "连板");
-        int taskLimit = NORMAL_RELAY_TASK_LIMIT;
-        String selectionMode = "连板";
-        List<RelaySelectionAssist> rankingAssistList = assistList;
-
-        /*
-         * 唯一弱 5 板是常规选股完全没有内存候选后的兜底，不能在常规流程之前抢跑。
-         * 老项目先把任务插库再查询数量；现在策略模块只返回内存候选，
-         * 因此直接使用 eligibleTasks.isEmpty() 判断，避免历史旧记录影响当天重跑结果。
-         */
-        if (eligibleTasks.isEmpty() && todayMaxLbc == 5) {
-            // 调用当日非 ST 五板查询方法。
-            List<StockDailyData> fiveBoardDailyList = listNonStFiveBoardDaily(tradeDate);
-            // 调用五板质量快照构建方法。
+        int todayHeight = Objects.requireNonNullElse(today.highestConsecutiveLimitUpDays(), 0);
+        String fallbackDetail = null;
+        if (todayHeight == 5) {
+            List<StockDailyData> fiveBoardDailyList = allDaily.stream()
+                    .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
+                    .filter(daily -> Integer.valueOf(5).equals(daily.getConsecutiveLimitUpDays()))
+                    .toList();
             List<WeakFiveBoardFallbackPolicy.FiveBoardQuality> fiveBoardQualities =
                     buildFiveBoardQualities(fiveBoardDailyList);
-            // 调用弱五板兜底判断方法。
             WeakFiveBoardFallbackPolicy.Decision fallbackDecision =
-                    WeakFiveBoardFallbackPolicy.evaluate(todayMaxLbc, false, fiveBoardQualities);
-
-            log.info("弱5板严格2板兜底判断 tradeDate={} triggered={} layer={} detail={}",
-                    tradeDate, fallbackDecision.triggered(), fallbackDecision.layer(), fallbackDecision.detail());
-
+                    WeakFiveBoardFallbackPolicy.evaluate(todayHeight, false, fiveBoardQualities);
+            fallbackDetail = fallbackDecision.layer() + ": " + fallbackDecision.detail();
             if (fallbackDecision.triggered()) {
-                /*
-                 * 只选择 2 板做低位卡位预判，不包含 3 板。
-                 * 这里必须保留真实市场高度 5，并显式关闭冰点通道：弱 5 板次日仍可能继续涨停，
-                 * 如果把它当作 4 板并放宽候选质地，低位票很容易在高位压制下炸板。
-                 */
-                // 调用弱五板严格二板候选筛选方法。
-                List<StockDailyData> fallbackDailyList =
-                        selectWeakFiveBoardFallbackDailyCandidates(stockDailyEntities);
-                // 调用弱五板辅助对象复用构建方法。
-                List<RelaySelectionAssist> fallbackAssistList =
-                        buildSelectionAssistListReusing(fallbackDailyList, assistList);
-                // 调用弱五板严格通道过滤与评分方法。
-                eligibleTasks = selectEligibleRelayTasks(
-                        fallbackAssistList, todayMaxLbc, false, "弱5板严格2板");
-                taskLimit = WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT;
-                selectionMode = "弱5板严格2板";
-                rankingAssistList = fallbackAssistList;
+                RelaySelectionPlan fallbackPlan = new RelaySelectionPlan(
+                        RelaySelectionTrigger.WEAK_FIVE_CARD,
+                        List.of(new RelayBoardPlan(2, RelaySelectionStrength.STRICT)),
+                        WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT,
+                        fallbackDetail);
+                PlanEvaluation fallback = evaluatePlan(tradeDate, allDaily,
+                        convertibleBondStockCodes, fallbackPlan);
+                return new RelaySelectionResult(tradeDate, primaryPlan, fallbackPlan,
+                        fallback.evaluations(), fallback.tasks(), fallbackDetail);
             }
         }
 
-        // 调用连板价格索引构建方法。
-        Map<String, Double> currentPriceByStockCode = indexCurrentPrices(rankingAssistList);
-        // 调用连板候选排序方法。
-        sortSelectionTasks(eligibleTasks, currentPriceByStockCode);
-        // 调用连板 TopN 截取方法。
-        List<SelectionTaskData> tasks = takeTopTasks(selectionMode, eligibleTasks, taskLimit);
-        return tasks;
+        return new RelaySelectionResult(tradeDate, primaryPlan, primaryPlan,
+                primary.evaluations(), List.of(), fallbackDetail);
     }
 
-    /**
-     * 执行连板候选共同过滤，并按开关决定是否允许冰点 3/4 板宽松通道。
-     *
-     * <p>弱 5 板兜底传入 {@code allowIcePoint=false}，其 2 板候选会完整经过
-     * 前 20 日异常、一字板、历史换手、近期形态、启动价格、最低评分和筹码过滤，
-     * 与正常严格通道保持一致。</p>
-     */
-    private List<SelectionTaskData> selectEligibleRelayTasks(List<RelaySelectionAssist> assistList,
-                                                             int todayMaxLbc,
-                                                             boolean allowIcePoint,
-                                                             String selectionMode) {
+    private PlanEvaluation evaluatePlan(LocalDate tradeDate,
+                                        List<StockDailyData> allDaily,
+                                        Set<String> convertibleBondStockCodes,
+                                        RelaySelectionPlan plan) {
+        if (plan == null || plan.trigger() == RelaySelectionTrigger.NONE) {
+            return new PlanEvaluation(List.of(), List.of());
+        }
+        Map<Integer, RelaySelectionStrength> strengthByBoard = new HashMap<>();
+        for (RelayBoardPlan boardPlan : plan.boardPlans()) {
+            strengthByBoard.put(boardPlan.board(), boardPlan.strength());
+        }
+
+        List<RelayCandidateEvaluation> evaluations = new ArrayList<>();
         List<SelectionTaskData> eligibleTasks = new ArrayList<>();
-        for (RelaySelectionAssist dto : assistList) {
-            RelaySelectionCandidate candidate = toSelectionCandidate(dto);
-            log.info("{}------:{}:{}", selectionMode,
-                    RelaySelectionPolicy.calculateSelectionScore(candidate), dto);
-            // 调用连板核心选股方法。
-            RelaySelectionPolicy.Decision decision =
-                    RelaySelectionPolicy.evaluate(candidate, todayMaxLbc, allowIcePoint);
-            if (!decision.passed()) {
-                logSelectionFiltered(selectionMode, dto, decision.layer(), decision.detail());
+        Map<String, Double> currentPriceByStockCode = new HashMap<>();
+        for (StockDailyData daily : allDaily) {
+            RelaySelectionStrength strength = strengthByBoard.get(daily.getConsecutiveLimitUpDays());
+            if (strength == null) {
                 continue;
             }
-            // 调用连板任务构建方法。
-            eligibleTasks.add(buildWatchingTask(dto, decision.score()));
+            boolean hasConvertibleBond = convertibleBondStockCodes.contains(daily.getStockCode());
+            RelaySelectionAssist assist;
+            try {
+                assist = buildSelectionAssist(daily);
+            } catch (RuntimeException exception) {
+                String detail = exception.getMessage() == null
+                        ? exception.getClass().getSimpleName() : exception.getMessage();
+                evaluations.add(new RelayCandidateEvaluation(plan.trigger(), strength,
+                        daily, null, hasConvertibleBond, false, null, false, null,
+                        "指标准备异常", detail));
+                continue;
+            }
+            int selectionScore = RelaySelectionPolicy.calculateSelectionScore(
+                    toSelectionCandidate(assist));
+            BaseFilterDecision baseDecision = evaluateBaseFilters(
+                    daily, hasConvertibleBond);
+            if (!baseDecision.passed()) {
+                evaluations.add(new RelayCandidateEvaluation(plan.trigger(), strength,
+                        daily, assist, hasConvertibleBond, false, selectionScore, false, null,
+                        baseDecision.layer(), baseDecision.detail()));
+                continue;
+            }
+            RelaySelectionPolicy.Decision decision = RelaySelectionPolicy.evaluate(
+                    toSelectionCandidate(assist), strength);
+            if (!decision.passed()) {
+                logSelectionFiltered(plan.trigger().name(), assist,
+                        decision.layer(), decision.detail());
+                evaluations.add(new RelayCandidateEvaluation(plan.trigger(), strength,
+                        daily, assist, hasConvertibleBond, false, selectionScore, false, null,
+                        decision.layer(), decision.detail()));
+                continue;
+            }
+            SelectionTaskData task = buildWatchingTask(assist, selectionScore,
+                    plan.trigger(), strength);
+            eligibleTasks.add(task);
+            currentPriceByStockCode.put(task.getStockCode(), assist.getCurrentPrice());
+            evaluations.add(new RelayCandidateEvaluation(plan.trigger(), strength,
+                    daily, assist, hasConvertibleBond, true, selectionScore, false, null,
+                    decision.layer(), decision.detail()));
         }
-        return eligibleTasks;
+
+        sortSelectionTasks(eligibleTasks, currentPriceByStockCode);
+        List<SelectionTaskData> selectedTasks = takeTopTasks(
+                plan.trigger().name(), eligibleTasks, plan.taskLimit());
+        Map<String, Integer> selectedRankByCode = new HashMap<>();
+        for (int i = 0; i < selectedTasks.size(); i++) {
+            selectedRankByCode.put(selectedTasks.get(i).getStockCode(), i + 1);
+        }
+        List<RelayCandidateEvaluation> ranked = evaluations.stream()
+                .map(evaluation -> {
+                    Integer rank = selectedRankByCode.get(evaluation.daily().getStockCode());
+                    return rank == null ? evaluation : evaluation.selectedAt(rank);
+                })
+                .toList();
+        return new PlanEvaluation(ranked, selectedTasks);
+    }
+
+    private BaseFilterDecision evaluateBaseFilters(StockDailyData daily,
+                                                   boolean hasConvertibleBond) {
+        if (Boolean.TRUE.equals(daily.getIsSt())) {
+            return BaseFilterDecision.rejected("ST过滤", "选股日为ST");
+        }
+        if (!lessThan(daily.getChangeRate(), 11D)) {
+            return BaseFilterDecision.rejected("涨幅范围",
+                    "actual=" + daily.getChangeRate() + ", required<11%");
+        }
+        if (!lessThan(daily.getClosePrice(), 40D)) {
+            return BaseFilterDecision.rejected("当日价格",
+                    "actual=" + daily.getClosePrice() + ", required<40元");
+        }
+        if (hasConvertibleBond) {
+            return BaseFilterDecision.rejected("可转债", "当天存在有效可转债");
+        }
+        return BaseFilterDecision.allowed();
+    }
+
+    private record BaseFilterDecision(boolean passed, String layer, String detail) {
+        private static BaseFilterDecision allowed() {
+            return new BaseFilterDecision(true, null, null);
+        }
+
+        private static BaseFilterDecision rejected(String layer, String detail) {
+            return new BaseFilterDecision(false, layer, detail);
+        }
+    }
+
+    private List<StockDailyData> allDailyFor(LocalDate tradeDate) {
+        return tradeDate == null ? List.of() : selectionDataService.listDailyByTradeDate(tradeDate);
+    }
+
+    private String findHighestLimitUp(List<StockDailyData> dailyList, Integer highestLimitUp) {
+        return dailyList.stream()
+                .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
+                .filter(daily -> Objects.equals(daily.getConsecutiveLimitUpDays(), highestLimitUp))
+                .max(Comparator.comparing(StockDailyData::getChangeRate,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(StockDailyData::getStockCode)
+                .orElse(null);
+    }
+
+    private record PlanEvaluation(List<RelayCandidateEvaluation> evaluations,
+                                  List<SelectionTaskData> tasks) {
     }
 
     /** 将可变辅助对象压缩为核心策略只读候选。 */
@@ -255,17 +254,6 @@ public class RelaySelectionService {
                 dto.getMaxVolumeDayTurnoverRate(), dto.getMaxVolumeDayTurnover(),
                 dto.getAbnormalKlineStateCount(), dto.getPriorTwentyDayAbnormalKlineStateCount(),
                 dto.getFiveDayAmplitude(), dto.getTenDayChangeRate());
-    }
-
-    /**
-     * 查询当天过滤 ST 后的全部 5 板股票，不添加涨幅范围条件。
-     * 这里统计的是市场 5 板数量，不受可转债候选过滤影响；is_st 为空仍按非 ST 处理。
-     */
-    private List<StockDailyData> listNonStFiveBoardDaily(LocalDate tradeDate) {
-        return selectionDataService.listDailyByTradeDate(tradeDate).stream()
-                .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                .filter(daily -> Integer.valueOf(5).equals(daily.getConsecutiveLimitUpDays()))
-                .toList();
     }
 
     /**
@@ -290,7 +278,7 @@ public class RelaySelectionService {
 
     /**
      * 组合 5 板质量数据：当日市值、换手和振幅取当天日 K；
-     * 启动价格必须取选股辅助对象中的本轮首板前一交易日收盘价，不能再用收盘价除以 1.6 估算。
+     * 启动价格仅作研究观察，仍取选股辅助对象中的本轮首板前一交易日收盘价。
      */
     static WeakFiveBoardFallbackPolicy.FiveBoardQuality toFiveBoardQuality(
             StockDailyData fiveBoardDaily,
@@ -303,76 +291,18 @@ public class RelaySelectionService {
                 fiveBoardAssist == null ? null : fiveBoardAssist.getStartPrice());
     }
 
-    /**
-     * 弱 5 板兜底只允许 2 板股票，并继续使用正常严格通道的收盘价上限 40 元。
-     * 传入列表已经完成非 ST、可转债、基础市值和基础价格查询过滤。
-     */
-    static List<StockDailyData> selectWeakFiveBoardFallbackDailyCandidates(
-            List<StockDailyData> stockDailyEntities) {
-        if (stockDailyEntities == null || stockDailyEntities.isEmpty()) {
-            return List.of();
-        }
-        return stockDailyEntities.stream()
-                .filter(daily -> Integer.valueOf(2).equals(daily.getConsecutiveLimitUpDays()))
-                .filter(daily -> Objects.requireNonNullElse(daily.getClosePrice(), 0D) < 40D)
-                .toList();
-    }
-
-    /**
-     * 弱 5 板兜底是少数场景：优先复用常规流程已经构建的辅助对象，
-     * 只为尚未参与常规板数范围的 2 板补充查询，避免多年回测中重复计算历史指标。
-     */
-    private List<RelaySelectionAssist> buildSelectionAssistListReusing(
-            List<StockDailyData> stockDailyList,
-            List<RelaySelectionAssist> reusableAssistList) {
-        Map<String, RelaySelectionAssist> reusableAssistByCode = new HashMap<>();
-        for (RelaySelectionAssist assist : reusableAssistList) {
-            reusableAssistByCode.put(assist.getStockCode(), assist);
-        }
-
-        List<RelaySelectionAssist> result = new ArrayList<>();
-        for (StockDailyData stockDaily : stockDailyList) {
-            RelaySelectionAssist assist = reusableAssistByCode.get(stockDaily.getStockCode());
-            result.add(assist == null ? buildSelectionAssist(stockDaily) : assist);
-        }
-        return result;
-    }
-
-    /**
-     * 市场当日最高板为 3 板或 4 板时，所有 2、3 连板候选启用冰点宽松通道。
-     */
-    static boolean isIcePointThreeFourBoardCandidate(int todayHighestLimitUp,
-                                                     Integer consecutiveLimitUpDays) {
-        boolean icePointMarket = todayHighestLimitUp == 3 || todayHighestLimitUp == 4;
-        boolean relayCandidate = Integer.valueOf(2).equals(consecutiveLimitUpDays)
-                || Integer.valueOf(3).equals(consecutiveLimitUpDays);
-        return icePointMarket && relayCandidate;
-    }
-
-    /**
-     * 候选任务排序：优先按分数降序；分数相同时按选股当日收盘价升序；
-     * 分数和价格都相同时按股票代码升序，保证截断结果稳定。
-     */
+    /** 按板数降序、同板分数降序、价格升序、代码升序稳定排序。 */
     static void sortSelectionTasks(List<SelectionTaskData> tasks,
                                    Map<String, Double> currentPriceByStockCode) {
         tasks.sort(Comparator
-                .comparing(SelectionTaskData::getLimitUpScore,
+                .comparing(SelectionTaskData::getConsecutiveLimitUpDays,
+                        Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(SelectionTaskData::getLimitUpScore,
                         Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(task -> currentPriceByStockCode.get(task.getStockCode()),
                         Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(SelectionTaskData::getStockCode,
                         Comparator.nullsLast(Comparator.naturalOrder())));
-    }
-
-    /**
-     * 建立股票代码到选股当日收盘价的索引，供候选任务同分排序使用。
-     */
-    private Map<String, Double> indexCurrentPrices(List<RelaySelectionAssist> assistList) {
-        Map<String, Double> currentPriceByStockCode = new HashMap<>();
-        for (RelaySelectionAssist assist : assistList) {
-            currentPriceByStockCode.put(assist.getStockCode(), assist.getCurrentPrice());
-        }
-        return currentPriceByStockCode;
     }
 
     /**
@@ -396,24 +326,6 @@ public class RelaySelectionService {
     }
 
     /**
-     * 使用循环排除有可转债的股票，并记录过滤原因。
-     */
-    private List<StockDailyData> filterConvertibleBondStocks(String selectionMode,
-                                                             List<StockDailyData> stockDailyList,
-                                                             Set<String> convertibleBondStockCodes) {
-        List<StockDailyData> selectedStockDailyList = new ArrayList<>();
-        for (StockDailyData stockDaily : stockDailyList) {
-            if (convertibleBondStockCodes.contains(stockDaily.getStockCode())) {
-                log.info("{}选股过滤 tradeDate={} stockCode={} stockName={} step=可转债 detail=当天存在有效可转债",
-                        selectionMode, stockDaily.getTradeDate(), stockDaily.getStockCode(), stockDaily.getStockName());
-                continue;
-            }
-            selectedStockDailyList.add(stockDaily);
-        }
-        return selectedStockDailyList;
-    }
-
-    /**
      * 记录辅助对象在选股流程中被过滤的具体步骤和指标值。
      */
     private void logSelectionFiltered(String selectionMode,
@@ -422,20 +334,6 @@ public class RelaySelectionService {
                                       String detail) {
         log.info("{}选股过滤 tradeDate={} stockCode={} stockName={} step={} detail={}",
                 selectionMode, dto.getTradeDate(), dto.getStockCode(), dto.getStockName(), step, detail);
-    }
-
-    /**
-     * 查询指定日期指定最高板的非 ST 股票代码，用于判断情绪周期龙头是否断板。
-     * is_st 为空表示历史 ST 状态未记录，按非 ST 候选处理，与选股主查询保持一致。
-     */
-    private String findHighestLimitUp(LocalDate tradeDate, Integer highestLimitUp) {
-        return selectionDataService.listDailyByTradeDate(tradeDate).stream()
-                .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))
-                .filter(daily -> Objects.equals(daily.getConsecutiveLimitUpDays(), highestLimitUp))
-                .max(Comparator.comparing(StockDailyData::getChangeRate,
-                        Comparator.nullsFirst(Comparator.naturalOrder())))
-                .map(StockDailyData::getStockCode)
-                .orElse(null);
     }
 
     /**
@@ -448,7 +346,10 @@ public class RelaySelectionService {
     /**
      * 根据选股辅助对象构建盯盘任务。
      */
-    private SelectionTaskData buildWatchingTask(RelaySelectionAssist assist, Integer limitUpScore) {
+    private SelectionTaskData buildWatchingTask(RelaySelectionAssist assist,
+                                                Integer limitUpScore,
+                                                RelaySelectionTrigger trigger,
+                                                RelaySelectionStrength strength) {
         SelectionTaskData task = new SelectionTaskData();
         task.setStockCode(assist.getStockCode());
         task.setStockName(assist.getStockName());
@@ -457,6 +358,9 @@ public class RelaySelectionService {
         task.setRecommendDate(assist.getTradeDate());
         task.setTradeDate(findNextTradeDate(assist.getTradeDate()));
         task.setTradeMode(TradeMode.RELAY_LIMIT_UP.code());
+        task.setSelectionTrigger(trigger.name());
+        task.setSelectionStrength(strength.name());
+        task.setStrategyVersion(STRATEGY_VERSION);
         task.setCreatedTime(LocalDateTime.now());
         return task;
     }
@@ -466,15 +370,6 @@ public class RelaySelectionService {
      */
     private LocalDate findNextTradeDate(LocalDate recommendDate) {
         return selectionDataService.findNextTradeDate(recommendDate);
-    }
-
-    /**
-     * 把涨停日 K 候选股填充为选股辅助对象，后续过滤和打分都基于该对象扩展。
-     */
-    private List<RelaySelectionAssist> buildSelectionAssistList(List<StockDailyData> stockDailyList) {
-        return stockDailyList.stream()
-                .map(this::buildSelectionAssist)
-                .toList();
     }
 
     /**
@@ -734,8 +629,4 @@ public class RelaySelectionService {
         return value != null && value < upperBound;
     }
 
-    /** 空值不通过的闭区间整数比较。 */
-    private static boolean between(Integer value, int lowerBound, int upperBound) {
-        return value != null && value >= lowerBound && value <= upperBound;
-    }
 }

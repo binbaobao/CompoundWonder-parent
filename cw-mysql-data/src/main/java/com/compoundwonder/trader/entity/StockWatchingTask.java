@@ -57,6 +57,21 @@ public class StockWatchingTask {
      */
     private Integer tradeMode;
 
+    /** 连板接力触发点。 */
+    private String selectionTrigger;
+
+    /** 连板接力过滤强度。 */
+    private String selectionStrength;
+
+    /** 选股规则版本。 */
+    private String strategyVersion;
+
+    /** 连板研究运行 ID。 */
+    private Long selectionRunId;
+
+    /** 连板候选审计记录 ID。 */
+    private Long relayCandidateRecordId;
+
     /**
      * 创建时间。
      */

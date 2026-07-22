@@ -104,4 +104,9 @@ public interface StockSelectionDataService {
      * @return 下一个交易日；交易日历缺失时由实现按约定回退
      */
     LocalDate findNextTradeDate(LocalDate recommendDate);
+
+    /** 查询闭区间内去重后的交易日并按日期升序返回。 */
+    default List<LocalDate> listTradeDates(LocalDate startDate, LocalDate endDate) {
+        return List.of();
+    }
 }

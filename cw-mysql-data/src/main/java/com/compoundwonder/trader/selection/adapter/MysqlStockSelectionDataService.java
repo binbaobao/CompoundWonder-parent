@@ -141,6 +141,14 @@ public class MysqlStockSelectionDataService implements StockSelectionDataService
         return recommendDate.plusDays(1);
     }
 
+    @Override
+    public List<LocalDate> listTradeDates(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null || startDate.isAfter(endDate)) {
+            return List.of();
+        }
+        return stockTradeCalendarService.findTradeDays(startDate, endDate);
+    }
+
     private List<StockDailyData> mapDaily(List<StockDailyEntity> entities) {
         return entities.stream().map(this::mapDaily).toList();
     }

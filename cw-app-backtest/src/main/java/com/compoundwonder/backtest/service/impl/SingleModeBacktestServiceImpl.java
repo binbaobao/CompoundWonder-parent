@@ -270,6 +270,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setTradeDate(task.getTradeDate());
         int selectionBoard = selectionBoard(task);
         sample.setSelectionBoard(selectionBoard);
+        sample.setSelectionTrigger(task.getSelectionTrigger());
+        sample.setSelectionStrength(task.getSelectionStrength());
+        sample.setStrategyVersion(task.getStrategyVersion());
+        sample.setSelectionRunId(task.getSelectionRunId());
+        sample.setRelayCandidateRecordId(task.getRelayCandidateRecordId());
         sample.setStatus(SELECTED);
         sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
         sample.setHoldingTradeDays(0);
@@ -358,6 +363,11 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         sample.setRecommendDate(source.getRecommendDate());
         sample.setTradeDate(source.getTradeDate());
         sample.setSelectionBoard(source.getSelectionBoard() == null ? 1 : source.getSelectionBoard());
+        sample.setSelectionTrigger(source.getSelectionTrigger());
+        sample.setSelectionStrength(source.getSelectionStrength());
+        sample.setStrategyVersion(source.getStrategyVersion());
+        sample.setSelectionRunId(source.getSelectionRunId());
+        sample.setRelayCandidateRecordId(source.getRelayCandidateRecordId());
         sample.setStatus(SELECTED);
         sample.setPositionType(SingleModeBacktestSample.POSITION_NONE);
         sample.setHoldingTradeDays(0);

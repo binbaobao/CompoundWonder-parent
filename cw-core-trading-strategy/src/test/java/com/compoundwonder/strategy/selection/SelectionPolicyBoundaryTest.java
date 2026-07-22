@@ -4,6 +4,7 @@ import com.compoundwonder.strategy.firstboard.selection.FirstBoardSelectionCandi
 import com.compoundwonder.strategy.firstboard.selection.FirstBoardSelectionPolicy;
 import com.compoundwonder.strategy.relay.selection.RelaySelectionCandidate;
 import com.compoundwonder.strategy.relay.selection.RelaySelectionPolicy;
+import com.compoundwonder.strategy.relay.selection.RelaySelectionStrength;
 import com.compoundwonder.strategy.smallcapfirstboard.selection.SmallCapFirstBoardSelectionCandidate;
 import com.compoundwonder.strategy.smallcapfirstboard.selection.SmallCapFirstBoardSelectionPolicy;
 import org.junit.jupiter.api.Test;
@@ -41,9 +42,10 @@ class SelectionPolicyBoundaryTest {
     }
 
     @Test
-    void icePointStillCannotBypassFiftyFivePercentHardLimit() {
-        RelaySelectionCandidate candidate = relayCandidate(55.01D);
-        assertFalse(RelaySelectionPolicy.evaluate(candidate, 3, true).passed());
+    void relaxedRelayStillCannotBypassFiftyPercentStrengthLimit() {
+        RelaySelectionCandidate candidate = relayCandidate(50.01D);
+        assertFalse(RelaySelectionPolicy.evaluate(
+                candidate, RelaySelectionStrength.RELAXED).passed());
     }
 
     private FirstBoardSelectionCandidate firstBoardCandidate(double cap) {

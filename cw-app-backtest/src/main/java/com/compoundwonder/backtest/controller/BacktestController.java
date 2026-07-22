@@ -5,6 +5,7 @@ import com.compoundwonder.backtest.service.BacktestService;
 import com.compoundwonder.backtest.service.HistoricalBacktestTradeService;
 import com.compoundwonder.backtest.service.Level2MinuteBarService;
 import com.compoundwonder.backtest.service.SingleModeBacktestService;
+import com.compoundwonder.backtest.service.RelaySelectionResearchService;
 import com.compoundwonder.backtest.service.model.SingleModeBacktestSummary;
 import com.compoundwonder.backtest.service.model.SingleModeBoardStat;
 import com.compoundwonder.backtest.service.model.SingleModeSamplePage;
@@ -16,6 +17,9 @@ import com.compoundwonder.trader.entity.BacktestPosition;
 import com.compoundwonder.trader.entity.BacktestRun;
 import com.compoundwonder.trader.entity.RuleExecuteRecord;
 import com.compoundwonder.trader.entity.SingleModeBacktestRun;
+import com.compoundwonder.trader.entity.RelaySelectionCandidateRecord;
+import com.compoundwonder.trader.entity.RelaySelectionRun;
+import com.compoundwonder.trader.entity.RelaySelectionTriggerRecord;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import com.compoundwonder.util.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -45,23 +50,39 @@ public class BacktestController {
 
     private final HistoricalBacktestTradeService historicalBacktestTradeService;
     private final SingleModeBacktestService singleModeBacktestService;
+    private final RelaySelectionResearchService relaySelectionResearchService;
 
     /**
      * 创建回测接口控制器。
      * 作用：注入回测查询服务和 Level2 分时查询服务。
      */
+    @Autowired
     public BacktestController(BacktestService backtestService,
                               Level2MinuteBarService level2MinuteBarService,
                               StockWatchingTaskService stockWatchingTaskService,
                               BackTestTradeService backTestTradeService,
                               HistoricalBacktestTradeService historicalBacktestTradeService,
-                              SingleModeBacktestService singleModeBacktestService) {
+                              SingleModeBacktestService singleModeBacktestService,
+                              RelaySelectionResearchService relaySelectionResearchService) {
         this.backtestService = backtestService;
         this.level2MinuteBarService = level2MinuteBarService;
         this.stockWatchingTaskService = stockWatchingTaskService;
         this.backTestTradeService = backTestTradeService;
         this.historicalBacktestTradeService = historicalBacktestTradeService;
         this.singleModeBacktestService = singleModeBacktestService;
+        this.relaySelectionResearchService = relaySelectionResearchService;
+    }
+
+    /** 保留现有控制器单元测试与外部手工组装使用的兼容构造器。 */
+    public BacktestController(BacktestService backtestService,
+                              Level2MinuteBarService level2MinuteBarService,
+                              StockWatchingTaskService stockWatchingTaskService,
+                              BackTestTradeService backTestTradeService,
+                              HistoricalBacktestTradeService historicalBacktestTradeService,
+                              SingleModeBacktestService singleModeBacktestService) {
+        this(backtestService, level2MinuteBarService, stockWatchingTaskService,
+                backTestTradeService, historicalBacktestTradeService,
+                singleModeBacktestService, null);
     }
 
 
@@ -272,8 +293,52 @@ public class BacktestController {
             @RequestParam(required = false) Integer positionType) {
         return new Result<SingleModeSamplePage>().ok(
                 singleModeBacktestService.findSamples(
-                        runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize,
+                runId, page == null ? 1 : page, pageSize == null ? 50 : pageSize,
                         requireSamplePositionType(positionType)));
+    }
+
+    /** 启动连板触发全候选日 K 理论结果研究；默认执行首轮确认区间。 */
+    @PostMapping("relay-selection-runs")
+    public Result<RelaySelectionRun> runRelaySelectionResearch(
+            @RequestParam(defaultValue = "2025-01-01") LocalDate startDate,
+            @RequestParam(defaultValue = "2026-07-21") LocalDate endDate) {
+        return new Result<RelaySelectionRun>().ok(
+                relaySelectionResearchService.startRange(startDate, endDate));
+    }
+
+    /** 查询最近的连板研究任务。 */
+    @GetMapping("relay-selection-runs")
+    public Result<List<RelaySelectionRun>> relaySelectionRuns(
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return new Result<List<RelaySelectionRun>>().ok(
+                relaySelectionResearchService.findRecentRuns(limit == null ? 20 : limit));
+    }
+
+    /** 查询连板研究任务进度与汇总指标。 */
+    @GetMapping("relay-selection-runs/{runId}")
+    public Result<RelaySelectionRun> relaySelectionRun(@PathVariable Long runId) {
+        return new Result<RelaySelectionRun>().ok(
+                relaySelectionResearchService.findRun(runId));
+    }
+
+    /** 查询一轮研究的逐日触发事实。 */
+    @GetMapping("relay-selection-runs/{runId}/triggers")
+    public Result<List<RelaySelectionTriggerRecord>> relaySelectionTriggers(
+            @PathVariable Long runId) {
+        return new Result<List<RelaySelectionTriggerRecord>>().ok(
+                relaySelectionResearchService.findTriggers(runId));
+    }
+
+    /** 查询一轮研究的全候选记录，可按触发记录缩小范围。 */
+    @GetMapping("relay-selection-runs/{runId}/candidates")
+    public Result<List<RelaySelectionCandidateRecord>> relaySelectionCandidates(
+            @PathVariable Long runId,
+            @RequestParam(required = false) Long triggerRecordId,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "100") Integer pageSize) {
+        return new Result<List<RelaySelectionCandidateRecord>>().ok(
+                relaySelectionResearchService.findCandidates(runId, triggerRecordId,
+                        page == null ? 1 : page, pageSize == null ? 100 : pageSize));
     }
 
     private Integer requireSamplePositionType(Integer positionType) {

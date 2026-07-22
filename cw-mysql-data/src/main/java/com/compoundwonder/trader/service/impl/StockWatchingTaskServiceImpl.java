@@ -71,6 +71,11 @@ public class StockWatchingTaskServiceImpl
         entity.setRecommendDate(data.getRecommendDate());
         entity.setTradeDate(data.getTradeDate());
         entity.setTradeMode(data.getTradeMode());
+        entity.setSelectionTrigger(data.getSelectionTrigger());
+        entity.setSelectionStrength(data.getSelectionStrength());
+        entity.setStrategyVersion(data.getStrategyVersion());
+        entity.setSelectionRunId(data.getSelectionRunId());
+        entity.setRelayCandidateRecordId(data.getRelayCandidateRecordId());
         entity.setCreatedTime(data.getCreatedTime());
         return entity;
     }

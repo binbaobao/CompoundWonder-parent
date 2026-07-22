@@ -15,5 +15,15 @@ public class SelectionTaskData {
     private LocalDate recommendDate;
     private LocalDate tradeDate;
     private Integer tradeMode;
+    /** 连板接力触发点；其他模式为空。 */
+    private String selectionTrigger;
+    /** 连板接力过滤强度；其他模式为空。 */
+    private String selectionStrength;
+    /** 生成该任务的选股规则版本。 */
+    private String strategyVersion;
+    /** 对应的研究运行 ID；正式选股可为空。 */
+    private Long selectionRunId;
+    /** 对应的连板候选审计记录 ID；未落审计表时为空。 */
+    private Long relayCandidateRecordId;
     private LocalDateTime createdTime;
 }

@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * 连板接力独立核心选股规则。
  *
- * <p>严格通道与冰点 3/4 板通道共用同一入口；数据库模块只准备指标并根据本类结果落库。</p>
+ * <p>严谨、一般、宽松三级强度共用同一入口；数据库模块只准备指标并根据本类结果落库。</p>
  */
 public final class RelaySelectionPolicy {
 
@@ -14,25 +14,32 @@ public final class RelaySelectionPolicy {
     }
 
     /**
-     * 执行连板接力过滤，并按市场高度选择严格通道或冰点 3/4 板通道。
-     *
-     * @param candidate 已完成数据准备的 2 板或 3 板候选
-     * @param todayMaxLbc 选股日全市场最高连板数
-     * @param allowIcePoint 是否允许在最高 3/4 板时进入宽松通道；弱 5 板兜底必须传 {@code false}
-     * @return 是否通过、最终分数以及首个拒绝层或通过层的明细
+     * 按 V1 三级强度执行共同过滤、强度阈值、评分与完整筹码判断。
+     * 评分只用于同板排序，不再设置最低分门槛。
      */
     public static Decision evaluate(RelaySelectionCandidate candidate,
-                                    int todayMaxLbc, boolean allowIcePoint) {
+                                    RelaySelectionStrength strength) {
         if (candidate == null) return Decision.rejected("数据完整性", "候选为空");
+        if (strength == null) return Decision.rejected("选股强度", "强度为空");
+
         int priorTwenty = Objects.requireNonNullElse(
                 candidate.priorTwentyDayAbnormalKlineStateCount(), 0);
         if (priorTwenty >= 4) {
             return Decision.rejected("前20日非正常K线次数",
                     "actual=" + priorTwenty + ", required<4");
         }
+        int board = Objects.requireNonNullElse(candidate.consecutiveLimitUpDays(), 0);
         if (candidate.twoAcceleratedShrinkVolumeLimitUps()) {
-            return Decision.rejected("加速缩量板",
-                    "本轮至少2根加速缩量板：首板判断一字板或振幅<3%，后续板增加换手率<15%");
+            if (board >= 3) {
+                return Decision.rejected("3连板加速缩量板",
+                        "3板本轮至少2根加速缩量板：首板判断一字板或振幅<3%，后续板增加换手率<15%");
+            }
+            if (board == 2 && Objects.requireNonNullElse(
+                    candidate.maxTurnoverRate(), Double.POSITIVE_INFINITY) >= 20) {
+                return Decision.rejected("2连板加速缩量板",
+                        "2板本轮至少2根加速缩量板，要求历史最大换手率<20%，actual="
+                                + candidate.maxTurnoverRate() + "%");
+            }
         }
         if (candidate.priorNinetyDayMaxTurnoverRate() == null) {
             return Decision.rejected("连板筹码过滤-数据完整性", "缺少90日历史最大换手率");
@@ -51,25 +58,51 @@ public final class RelaySelectionPolicy {
         Decision recent = evaluateRecentPattern(candidate);
         if (!recent.passed()) return recent;
 
-        int lbc = Objects.requireNonNullElse(candidate.consecutiveLimitUpDays(), 0);
-        if (allowIcePoint && (todayMaxLbc == 3 || todayMaxLbc == 4)
-                && (lbc == 2 || lbc == 3)) {
-            Decision ice = evaluateIcePoint(candidate);
-            return ice.passed()
-                    ? Decision.passed(calculateSelectionScore(candidate), "冰点3/4板", ice.detail())
-                    : ice;
-        }
+        Decision strengthDecision = evaluateStrengthLimits(candidate, strength);
+        if (!strengthDecision.passed()) return strengthDecision;
 
-        double startPrice = Objects.requireNonNullElse(candidate.startPrice(), 0D);
-        if (startPrice <= 3 && Objects.requireNonNullElse(candidate.startMarketCap(), 0D) < 250_000) {
-            return Decision.rejected("启动价格", "actual=" + startPrice + ", required>3");
-        }
         int score = calculateSelectionScore(candidate);
-        if (score < 15) {
-            return Decision.rejected("选股评分", "actual=" + score + ", required>=15");
-        }
         Decision chip = evaluateChip(candidate);
-        return chip.passed() ? Decision.passed(score, chip.layer(), chip.detail()) : chip;
+        return chip.passed()
+                ? Decision.passed(score, strength.name() + "-" + chip.layer(), chip.detail())
+                : chip;
+    }
+
+    private static Decision evaluateStrengthLimits(RelaySelectionCandidate candidate,
+                                                   RelaySelectionStrength strength) {
+        if (candidate.startMarketCap() == null || candidate.maxTurnoverRate() == null) {
+            return Decision.rejected("强度数据完整性", "缺少启动流通市值或历史最大换手率");
+        }
+        double capLimit = switch (strength) {
+            case STRICT -> 200_000D;
+            case NORMAL -> 350_000D;
+            case RELAXED -> 500_000D;
+        };
+        double turnoverLimit = switch (strength) {
+            case STRICT -> 40D;
+            case NORMAL -> 45D;
+            case RELAXED -> 50D;
+        };
+        if (candidate.startMarketCap() >= capLimit) {
+            return Decision.rejected("启动流通市值",
+                    "strength=" + strength + ", actual=" + candidate.startMarketCap()
+                            + "万元, required<" + capLimit + "万元");
+        }
+        if (candidate.maxTurnoverRate() > turnoverLimit) {
+            return Decision.rejected("历史最大换手",
+                    "strength=" + strength + ", actual=" + candidate.maxTurnoverRate()
+                            + "%, required<=" + turnoverLimit + "%");
+        }
+        if (strength == RelaySelectionStrength.STRICT) {
+            if (candidate.startPrice() == null) {
+                return Decision.rejected("启动价格", "严谨强度缺少启动价格");
+            }
+            if (candidate.startPrice() <= 3D) {
+                return Decision.rejected("启动价格",
+                        "strength=STRICT, actual=" + candidate.startPrice() + ", required>3");
+            }
+        }
+        return Decision.passed(0, "强度阈值", "strength=" + strength);
     }
 
     private static Decision evaluateRecentPattern(RelaySelectionCandidate candidate) {
@@ -88,8 +121,8 @@ public final class RelaySelectionPolicy {
             return Decision.passed(0, "近期形态", "candidateLbc=3");
         }
         if (lbc == 2) {// 三江购物,2025-02-13
-            if (amplitude >= 31) return Decision.rejected("2连板近期形态-5日振幅",
-                    "actual=" + amplitude + "%, required<34%");
+            if (amplitude >= 35) return Decision.rejected("2连板近期形态-5日振幅",
+                    "actual=" + amplitude + "%, required<35%");
             if (change >= 35) return Decision.rejected("2连板近期形态-10日涨跌幅",
                     "actual=" + change + "%, required<35%");
             if (change <= 11.5) return Decision.rejected("2连板近期形态-10日涨跌幅",
@@ -120,42 +153,6 @@ public final class RelaySelectionPolicy {
         return Decision.passed(0, "历史筹码硬规则", "passed");
     }
 
-    private static Decision evaluateIcePoint(RelaySelectionCandidate candidate) {
-        Decision hard = evaluateHistoricalHardLimits(candidate);
-        if (!hard.passed()) return Decision.rejected("冰点3/4板-" + hard.layer(), hard.detail());
-        if (candidate.startMarketCap() == null || candidate.currentPrice() == null
-                || candidate.currentAmplitude() == null
-                || candidate.maxVolumeDayTurnoverRate() == null) {
-            return Decision.rejected("冰点3/4板数据完整性",
-                    "缺少启动市值、价格、当日振幅或最大成交量日换手率");
-        }
-        if (candidate.startMarketCap() >= 440_000) return Decision.rejected("冰点3/4板-启动流通市值",
-                "actual=" + candidate.startMarketCap() + "万元, required<440000万元");
-        if (candidate.currentPrice() >= 45) return Decision.rejected("冰点3/4板-当日价格",
-                "actual=" + candidate.currentPrice() + "元, required<45元");
-        if (candidate.maxVolumeDayTurnoverRate() >= 50) return Decision.rejected(
-                "冰点3/4板-最大成交量日换手率",
-                "actual=" + candidate.maxVolumeDayTurnoverRate() + "%, required<50%");
-        if (candidate.currentAmplitude() >= 15 && candidate.startMarketCap() > 99_999) return Decision.rejected("冰点3/4板-当日振幅",// 美邦股份 2025-01-07
-                "actual=" + candidate.currentAmplitude() + "%, required<15%");
-        if (candidate.startMarketCap() < 130_000) {
-            return Decision.passed(0, "13亿以下冰点3/4板", "passed");
-        }
-        if (candidate.currentTurnoverRate() == null || candidate.currentTurnover() == null
-                || candidate.maxVolumeDayTurnover() == null) {
-            return Decision.rejected("冰点3/4板数据完整性",
-                    "13至44亿档缺少当日换手率、当日成交额或最大成交量日成交额");
-        }
-        if (candidate.currentTurnoverRate() >= 50) return Decision.rejected("冰点3/4板-当日换手率",
-                "actual=" + candidate.currentTurnoverRate() + "%, required<50%");
-        if (candidate.currentTurnover() >= 250_000) return Decision.rejected("冰点3/4板-当日成交额",
-                "actual=" + candidate.currentTurnover() + "万元, required<250000万元");
-        if (candidate.maxVolumeDayTurnover() >= 300_000) return Decision.rejected(
-                "冰点3/4板-最大成交量日成交额",
-                "actual=" + candidate.maxVolumeDayTurnover() + "万元, required<300000万元");
-        return Decision.passed(0, "13至44亿冰点3/4板", "passed");
-    }
-
     private static Decision evaluateChip(RelaySelectionCandidate candidate) {
         Decision hard = evaluateHistoricalHardLimits(candidate);
         if (!hard.passed()) return Decision.rejected("筹码过滤-" + hard.layer(), hard.detail());
@@ -182,6 +179,8 @@ public final class RelaySelectionPolicy {
     }
 
     private static boolean matchesMarketCapTurnoverPriceBand(double cap, double turnover, double price) {
+        if (cap > 200_000 && cap <= 300_000
+                && turnover >= 40 && turnover < 46 && price < 10) return true;
         if (cap <= 93_000) return turnover < 55;
         if (cap <= 106_000) return turnover < 50;
         if (cap <= 120_000) return turnover < 46;
@@ -193,6 +192,9 @@ public final class RelaySelectionPolicy {
         if (cap <= 208_000) return turnover < 27 && price < 18.5;
         if (cap <= 220_000) return turnover < 25 && price < 17;
         if (cap <= 250_000) return turnover < 25 && price < 16;
+        if (cap <= 300_000) {
+            return turnover >= 25 && turnover < 30 && price >= 16 && price < 25;
+        }
         return false;
     }
 

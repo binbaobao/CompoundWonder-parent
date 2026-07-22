@@ -92,6 +92,16 @@ public class SingleModeBacktestSchemaService {
                 "ALTER TABLE single_mode_backtest_sample ADD COLUMN source_sample_id BIGINT NULL AFTER run_id");
         ensureColumn("single_mode_backtest_sample", "position_type",
                 "ALTER TABLE single_mode_backtest_sample ADD COLUMN position_type INT NOT NULL DEFAULT 0 AFTER status");
+        ensureColumn("single_mode_backtest_sample", "selection_trigger",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN selection_trigger VARCHAR(40) NULL AFTER selection_board");
+        ensureColumn("single_mode_backtest_sample", "selection_strength",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN selection_strength VARCHAR(20) NULL AFTER selection_trigger");
+        ensureColumn("single_mode_backtest_sample", "strategy_version",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN strategy_version VARCHAR(64) NULL AFTER selection_strength");
+        ensureColumn("single_mode_backtest_sample", "selection_run_id",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN selection_run_id BIGINT NULL AFTER strategy_version");
+        ensureColumn("single_mode_backtest_sample", "relay_candidate_record_id",
+                "ALTER TABLE single_mode_backtest_sample ADD COLUMN relay_candidate_record_id BIGINT NULL AFTER selection_run_id");
         // 新列首次加入旧表时默认值为 0；按既有买入记录回填实际成交，保持历史汇总口径不变。
         jdbcTemplate.update("""
                 UPDATE single_mode_backtest_sample

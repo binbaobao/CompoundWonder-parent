@@ -147,21 +147,24 @@ class RelaySelectionServiceTest {
     }
 
     @Test
-    void icePointThreeFourBoardMarketRelaxesAllRelayCandidates() {
-        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 2));
-        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 3));
-        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 2));
-        assertTrue(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 3));
-        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(2, 2));
-        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(5, 3));
-        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(3, 1));
-        assertFalse(RelaySelectionService.isIcePointThreeFourBoardCandidate(4, 4));
+    void everyRelayTriggerKeepsAtMostThreeTasks() {
+        assertEquals(3, RelaySelectionService.NORMAL_RELAY_TASK_LIMIT);
+        assertEquals(3, RelaySelectionService.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
     }
 
     @Test
-    void normalRelayKeepsFourTasksAndWeakFiveBoardFallbackKeepsThree() {
-        assertEquals(4, RelaySelectionService.NORMAL_RELAY_TASK_LIMIT);
-        assertEquals(3, RelaySelectionService.WEAK_FIVE_BOARD_FALLBACK_TASK_LIMIT);
+    void higherBoardRanksBeforeScoreInsideMixedBoardPool() {
+        SelectionTaskData twoBoard = watchingTask("600001", 99);
+        twoBoard.setConsecutiveLimitUpDays(2);
+        SelectionTaskData threeBoard = watchingTask("600002", 1);
+        threeBoard.setConsecutiveLimitUpDays(3);
+        List<SelectionTaskData> tasks = new ArrayList<>(List.of(twoBoard, threeBoard));
+
+        RelaySelectionService.sortSelectionTasks(tasks, Map.of(
+                "600001", 5D, "600002", 50D));
+
+        assertEquals(List.of("600002", "600001"),
+                tasks.stream().map(SelectionTaskData::getStockCode).toList());
     }
 
 
@@ -187,20 +190,6 @@ class RelaySelectionServiceTest {
         assertEquals(8D, quality.startPrice());
     }
 
-    @Test
-    void weakFiveBoardFallbackOnlyKeepsStrictPriceTwoBoardCandidates() {
-        StockDailyData eligibleTwoBoard = relayDaily("600001", 2, 39.99D);
-        StockDailyData highPriceTwoBoard = relayDaily("600002", 2, 40D);
-        StockDailyData threeBoard = relayDaily("600003", 3, 20D);
-
-        List<StockDailyData> candidates = RelaySelectionService
-                .selectWeakFiveBoardFallbackDailyCandidates(
-                        List.of(eligibleTwoBoard, highPriceTwoBoard, threeBoard));
-
-        assertEquals(List.of("600001"),
-                candidates.stream().map(StockDailyData::getStockCode).toList());
-    }
-
     private StockDailyData daily(String tradeDate, double adjustedLow, double adjustedClose) {
         StockDailyData daily = new StockDailyData();
         daily.setTradeDate(LocalDate.parse(tradeDate));
@@ -213,16 +202,6 @@ class RelaySelectionServiceTest {
         StockDailyData daily = new StockDailyData();
         daily.setTradeDate(LocalDate.parse(tradeDate));
         daily.setKlineState(klineState);
-        return daily;
-    }
-
-    private StockDailyData relayDaily(String stockCode,
-                                        int consecutiveLimitUpDays,
-                                        double closePrice) {
-        StockDailyData daily = new StockDailyData();
-        daily.setStockCode(stockCode);
-        daily.setConsecutiveLimitUpDays(consecutiveLimitUpDays);
-        daily.setClosePrice(closePrice);
         return daily;
     }
 
