@@ -119,22 +119,40 @@ class NormalCapSellStrategyBaselineTest {
     }
 
     @Test
-    void clearsNormalCapScenesWithoutRun32Samples() {
-        assertCleared(new FourToFiveNormalCapSellStrategy(), values(4));
+    void fourToFiveUsesConfirmedAverageHeightFallbackInsteadOfRemainingEmpty() {
+        Map<String, Object> fourToFive = values(4);
+        fourToFive.put("getAverageLimitUpHeight", 4);
+        fourToFive.put("getLastLimitUptime", 93_100_000);
+        fourToFive.put("getLastSealAmount", 2_000L);
+        fourToFive.put("getTurnoverRate", 20D);
+        fourToFive.put("getChangePercent", -2D);
 
+        assertRule(new FourToFiveNormalCapSellStrategy(), fourToFive,
+                RuleConstant.SELL_LIMIT_UP_AVERAGE_HEIGHT_FAST_SEAL);
+    }
+
+    @Test
+    void eightToNineUsesConfirmedHighBoardGapFallbackInsteadOfRemainingEmpty() {
         Map<String, Object> eightToNine = values(8);
         eightToNine.put("getOpenIncrease", 8D);
         eightToNine.put("getTurnoverRate", 5D);
         eightToNine.put("getYesterdayTurnover", 20D);
         eightToNine.put("getChangePercent", -6D);
-        assertCleared(new EightToNineNormalCapSellStrategy(), eightToNine);
 
+        assertRule(new EightToNineNormalCapSellStrategy(), eightToNine,
+                RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING);
+    }
+
+    @Test
+    void highBoardUsesConfirmedAfternoonShrinkingFallbackInsteadOfRemainingEmpty() {
         Map<String, Object> highBoard = values(9);
         highBoard.put("getTime", 140_000_000);
-        highBoard.put("getTurnoverRate", 10D);
-        highBoard.put("getTwoDaysTurnover", 10D);
+        highBoard.put("getTurnoverRate", 20D);
+        highBoard.put("getTwoDaysTurnover", 20D);
         highBoard.put("getChangePercent", -4D);
-        assertCleared(new HighBoardNormalCapSellStrategy(), highBoard);
+
+        assertRule(new HighBoardNormalCapSellStrategy(), highBoard,
+                RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD);
     }
 
     private static Map<String, Object> consecutiveHighTurnoverValues(int lbcs) {
@@ -169,12 +187,6 @@ class NormalCapSellStrategyBaselineTest {
 
     private static void assertNoRule(BoardSellStrategy strategy, Map<String, Object> values) {
         assertFalse(strategy.evaluateOrderBook(market(values), new CapturedRule()));
-    }
-
-    private static void assertCleared(BoardSellStrategy strategy, Map<String, Object> values) {
-        TradeMarketState market = market(values);
-        assertFalse(strategy.evaluateOrderBook(market, new CapturedRule()));
-        assertFalse(strategy.evaluateAveragePrice(20, market, new CapturedRule()));
     }
 
     private static TradeMarketState market(Map<String, Object> values) {
