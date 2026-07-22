@@ -1,9 +1,9 @@
 package com.compoundwonder.core.processor;
 
 import com.compoundwonder.common.orderbook.OrderExecutionGateway;
-import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.core.engine.OrderBook;
+import com.compoundwonder.core.engine.OrderBookSession;
 import com.compoundwonder.core.engine.RuleRecord;
 import com.compoundwonder.core.engine.RuleRecordBuffer;
 import com.compoundwonder.core.engine.TickData;
@@ -17,12 +17,8 @@ import com.compoundwonder.core.engine.TickData;
 final class ShanghaiAuctionEventProcessor {
 
     private final OrderExecutionGateway executionGateway;
-    private final TradeDecisionService tradeDecisionService;
-
-    ShanghaiAuctionEventProcessor(OrderExecutionGateway executionGateway,
-                                  TradeDecisionService tradeDecisionService) {
+    ShanghaiAuctionEventProcessor(OrderExecutionGateway executionGateway) {
         this.executionGateway = executionGateway;
-        this.tradeDecisionService = tradeDecisionService;
     }
 
     /**
@@ -38,35 +34,36 @@ final class ShanghaiAuctionEventProcessor {
      * @param ruleRecordBuffer Handler 私有预分配规则记录缓冲区
      * @return 处理后的交易状态
      */
-    int process(OrderBook orderBook, TickData event, int recordTime,
+    int process(OrderBookSession session, TickData event, int recordTime,
                 int transactionStatus, RuleRecordBuffer ruleRecordBuffer) {
+        OrderBook orderBook = session.orderBook();
         if (event.time > ConstantUtil.TIME_920) {
-            orderBook.updateLowestPrice(event.price);
+            orderBook.updateLowestPrice(event.price, session.spec());
         }
 
         if (event.time < ConstantUtil.TIME_930) {
-            return processMorningAuction(orderBook, event, recordTime,
+            return processMorningAuction(session, event, recordTime,
                     transactionStatus, ruleRecordBuffer);
         }
-        return processClosingAuction(orderBook, event, recordTime,
+        return processClosingAuction(session, event, recordTime,
                 transactionStatus, ruleRecordBuffer);
     }
 
     /** 处理上海早盘集合竞价买入和挂单后的撤单。 */
-    private int processMorningAuction(OrderBook orderBook, TickData event, int recordTime,
+    private int processMorningAuction(OrderBookSession session, TickData event, int recordTime,
                                       int transactionStatus,
                                       RuleRecordBuffer ruleRecordBuffer) {
-        long previousBuyVolume = orderBook.recordShanghaiAuctionBuyVolume(
+        long previousBuyVolume = session.executionState().recordShanghaiAuctionBuyVolume(
                 event.buyerOrderId);
 
         if (transactionStatus == 1) {
             RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
             // 调用当前模式上海集合竞价买入规则。
-            if (tradeDecisionService.evaluateShanghaiAuctionBuy(
-                    orderBook, event, previousBuyVolume, recordTime, ruleRecord)) {
-                executionGateway.buy(orderBook.getDate(), event.symbolId,
-                        orderBook.getLimitUpPrice(), event.time);
-                orderBook.setTransactionStatus(2);
+            if (session.template().shanghaiOpeningAuctionBuy().evaluateBuy(
+                    session, event, previousBuyVolume, recordTime, ruleRecord)) {
+                executionGateway.buy(session.getDate(), event.symbolId,
+                        session.getLimitUpPrice(), event.time);
+                session.executionState().transactionStatus(2);
                 ruleRecordBuffer.commit();
                 return 2;
             }
@@ -78,10 +75,10 @@ final class ShanghaiAuctionEventProcessor {
                 && event.time > ConstantUtil.TIME_91530) {
             RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
             // 调用当前模式上海集合竞价撤单规则；价格规则优先于封单绝对强度规则。
-            if (tradeDecisionService.evaluateShanghaiAuctionCancel(
-                    orderBook, event, recordTime, ruleRecord)) {
-                executionGateway.cancel(orderBook.getSymbol());
-                orderBook.setTransactionStatus(1);
+            if (session.template().shanghaiOpeningAuctionBuy().evaluateCancel(
+                    session, event, recordTime, ruleRecord)) {
+                executionGateway.cancel(session.getSymbol());
+                session.executionState().transactionStatus(1);
                 ruleRecordBuffer.commit();
                 return 1;
             }
@@ -90,7 +87,7 @@ final class ShanghaiAuctionEventProcessor {
     }
 
     /** 处理上海尾盘集合竞价卖出；不改写早盘快照买量基准。 */
-    private int processClosingAuction(OrderBook orderBook, TickData event, int recordTime,
+    private int processClosingAuction(OrderBookSession session, TickData event, int recordTime,
                                       int transactionStatus,
                                       RuleRecordBuffer ruleRecordBuffer) {
         if (transactionStatus != -1
@@ -101,14 +98,14 @@ final class ShanghaiAuctionEventProcessor {
 
         RuleRecord ruleRecord = ruleRecordBuffer.nextRecord();
         // 调用上海尾盘集合竞价卖出规则。
-        if (!tradeDecisionService.evaluateShanghaiClosingAuctionSell(
-                orderBook, event, recordTime, ruleRecord)) {
+        if (!session.template().closingAuctionSell().evaluateShanghai(
+                session, event, recordTime, ruleRecord)) {
             return transactionStatus;
         }
 
-        executionGateway.sell(orderBook.getSymbol(),
-                orderBook.getLimitDownPrice(), orderBook.getLimitDownPrice());
-        orderBook.setTransactionStatus(-2);
+        executionGateway.sell(session.getSymbol(),
+                session.getLimitDownPrice(), session.getLimitDownPrice());
+        session.executionState().transactionStatus(-2);
         ruleRecordBuffer.commit();
         return -2;
     }

@@ -7,6 +7,9 @@ import com.compoundwonder.backtest.orderbook.data.BacktestTickDataSource;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.core.engine.DisruptorOrderBookEngine;
 import com.compoundwonder.core.engine.OrderBook;
+import com.compoundwonder.core.engine.OrderBookSession;
+import com.compoundwonder.core.engine.MarketSessionSpec;
+import com.compoundwonder.core.engine.TradeExecutionState;
 import com.compoundwonder.core.engine.PriceLevel;
 import com.compoundwonder.core.engine.TickData;
 import com.compoundwonder.core.engine.TickNode;
@@ -15,10 +18,15 @@ import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.common.strategy.trade.TradeMode;
+import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
+import com.compoundwonder.common.strategy.trade.TradeExecutionTemplateFactory;
+import com.compoundwonder.common.orderbook.TradeStaticFacts;
+import com.compoundwonder.strategy.DefaultTradeExecutionTemplateFactory;
 import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
 import com.compoundwonder.util.SymbolUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -45,14 +53,17 @@ public class BackTestTradeService {
     private final StockTradeCalendarService stockTradeCalendarService;
     private final StockEmotionCycleDailyService stockEmotionCycleDailyService;
     private final BacktestOrderExecutionGateway executionGateway;
+    private final TradeExecutionTemplateFactory templateFactory;
     private final Duration replayTimeout;
 
+    @Autowired
     public BackTestTradeService(DisruptorOrderBookEngine orderBookEngine,
                                 BacktestTickDataSource tickDataSource,
                                 StockDailyService stockDailyService,
                                 StockTradeCalendarService stockTradeCalendarService,
                                 StockEmotionCycleDailyService stockEmotionCycleDailyService,
                                 BacktestOrderExecutionGateway executionGateway,
+                                TradeExecutionTemplateFactory templateFactory,
                                 @Value("${backtest.replay-timeout-seconds:120}") long replayTimeoutSeconds) {
         this.orderBookEngine = orderBookEngine;
         this.tickDataSource = tickDataSource;
@@ -60,7 +71,22 @@ public class BackTestTradeService {
         this.stockTradeCalendarService = stockTradeCalendarService;
         this.stockEmotionCycleDailyService = stockEmotionCycleDailyService;
         this.executionGateway = executionGateway;
+        this.templateFactory = templateFactory;
         this.replayTimeout = Duration.ofSeconds(replayTimeoutSeconds);
+    }
+
+    /** 保留控制器和既有单元测试的手工组装入口。 */
+    public BackTestTradeService(DisruptorOrderBookEngine orderBookEngine,
+                                BacktestTickDataSource tickDataSource,
+                                StockDailyService stockDailyService,
+                                StockTradeCalendarService stockTradeCalendarService,
+                                StockEmotionCycleDailyService stockEmotionCycleDailyService,
+                                BacktestOrderExecutionGateway executionGateway,
+                                long replayTimeoutSeconds) {
+        this(orderBookEngine, tickDataSource, stockDailyService,
+                stockTradeCalendarService, stockEmotionCycleDailyService,
+                executionGateway, new DefaultTradeExecutionTemplateFactory(),
+                replayTimeoutSeconds);
     }
 
     /**
@@ -137,11 +163,12 @@ public class BackTestTradeService {
         validateStockCode(stockCode);
         validateReplayMode(mode, allowedAfterTime);
         int symbolId = SymbolUtil.fastSymbolToInt(stockCode);
-        OrderBook orderBook = buildOrderBook(tradeDate, stockCode, mode, tradeMode);
+        OrderBookSession session = buildSession(tradeDate, stockCode, mode, tradeMode);
+        OrderBook orderBook = session.orderBook();
 
         orderBookEngine.reset();
         executionGateway.clear();
-        orderBookEngine.registerOrderBook(symbolId, orderBook);
+        orderBookEngine.registerSession(symbolId, session);
 
         boolean replayStarted = false;
         boolean processed = false;
@@ -155,16 +182,16 @@ public class BackTestTradeService {
 
             orderBookEngine.awaitProcessed(replayTimeout);
             processed = true;
-            logLimitUpBuyQueue(orderBook);
+            logLimitUpBuyQueue(session);
             List<RuleRecordDTO> records = orderBookEngine.drainRuleRecords();
             fillLastOrderTime(records.stream()
                     .filter(record -> Integer.valueOf(RuleConstant.TRADING_MODE_BUY)
                             .equals(record.getActionType()))
                     .toList(), orderBook);
             BacktestReplayResult result = new BacktestReplayResult(
-                    tradeDate, stockCode, orderBook.getSecurityName(), mode, records,
-                    orderBook.getTransactionStatus(), orderBook.getLastPriceOrderTime(),
-                    orderBook.getLimitUpPrice(), orderBook.getLastPrice(), tickCount);
+                    tradeDate, stockCode, session.getSecurityName(), mode, records,
+                    session.executionState().transactionStatus(), orderBook.getLastPriceOrderTime(),
+                    session.getLimitUpPrice(), orderBook.getLastPrice(), tickCount);
             log.info("回测完成 date={}, stockCode={}, mode={}, tickCount={}, ruleCount={}, orderBook={}",
                     tradeDate, stockCode, mode, tickCount, records.size(), orderBook);
             return result;
@@ -218,15 +245,16 @@ public class BackTestTradeService {
     /**
      * 回放完成后打印一次涨停价买方委托队列，便于与旧 List 订单簿结果核对。
      */
-    private void logLimitUpBuyQueue(OrderBook orderBook) {
+    private void logLimitUpBuyQueue(OrderBookSession session) {
+        OrderBook orderBook = session.orderBook();
         if (orderBook.getStatus() % 2 != 1) {
             return;
         }
 
-        PriceLevel limitUpLevel = orderBook.getPriceLevel(orderBook.getLimitUpPrice());
+        PriceLevel limitUpLevel = orderBook.getPriceLevel(session.getLimitUpPrice());
         if (limitUpLevel == null || limitUpLevel.getBuyHead() == null) {
             log.warn("股票 {} 状态为涨停，但涨停价 {} 没有买方委托队列",
-                    orderBook.getSymbol(), orderBook.getLimitUpPrice());
+                    session.getSymbol(), session.getLimitUpPrice());
             return;
         }
 
@@ -248,11 +276,11 @@ public class BackTestTradeService {
         log.info("股票 {} 涨停封单共计：{} 单，共计：{} 股，"
                         + "队首委托(剩余数量:{},时间:{},订单号:{})，"
                         + "队尾委托(剩余数量:{},时间:{},订单号:{})",
-                orderBook.getSymbol(), limitUpLevel.getBuyOrderCount(), limitUpLevel.getBuyQuantity(),
+                session.getSymbol(), limitUpLevel.getBuyOrderCount(), limitUpLevel.getBuyQuantity(),
                 head.getQuantity(), head.getTime(), head.getOrderId(),
                 tail.getQuantity(), tail.getTime(), tail.getOrderId());
         log.info("股票 {} 涨停封单前 {} 单（队首到队尾）：{}{}",
-                orderBook.getSymbol(), printedCount, System.lineSeparator(), quantities);
+                session.getSymbol(), printedCount, System.lineSeparator(), quantities);
     }
 
     /**
@@ -272,6 +300,28 @@ public class BackTestTradeService {
 
     private OrderBook buildOrderBook(LocalDate tradeDate, String stockCode,
                                      BacktestReplayMode mode, Integer requestedTradeMode) {
+        OrderBookSession session = buildSession(tradeDate, stockCode, mode, requestedTradeMode);
+        TradeStaticFacts facts = session.facts();
+        OrderBook legacy = new OrderBook(stockCode, session.getCirculation(),
+                session.getClosePrice() / 100D, facts.maxVolume());
+        legacy.setSecurityName(session.getSecurityName());
+        legacy.setDate(session.getDate());
+        legacy.setTradeMode(facts.tradeMode());
+        legacy.setLbcs(facts.lbcs());
+        legacy.setMaxHs(facts.maxHs());
+        legacy.setInitialMarketValue(facts.initialMarketValue());
+        legacy.setThreeDaysTurnover(facts.threeDaysTurnover());
+        legacy.setTwoDaysTurnover(facts.twoDaysTurnover());
+        legacy.setYesterdayTurnover(facts.yesterdayTurnover());
+        legacy.setOneWordLimitUp(facts.oneWordLimitUp());
+        legacy.setAverageLimitUpHeight(facts.averageLimitUpHeight());
+        legacy.setNextTradingDay(facts.nextTradingDay());
+        legacy.setTransactionStatus(session.executionState().transactionStatus());
+        return legacy;
+    }
+
+    private OrderBookSession buildSession(LocalDate tradeDate, String stockCode,
+                                          BacktestReplayMode mode, Integer requestedTradeMode) {
         List<StockDailyEntity> dailyRows = stockDailyService.list(
                 Wrappers.<StockDailyEntity>lambdaQuery()
                         .eq(StockDailyEntity::getStockCode, stockCode)
@@ -305,31 +355,38 @@ public class BackTestTradeService {
                 .max()
                 .orElse(0L);
 
-        OrderBook orderBook = new OrderBook(
-                stockCode, circulation, currentDaily.getPrevClose(), maxVolume);
-        orderBook.setSecurityName(previousDaily.getStockName());
-        orderBook.setDate(tradeDate.toString());
-        orderBook.setLbcs(Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays())));
-        orderBook.setYesterdayTurnover(valueOrZero(previousDaily.getTurnoverRate()));
-        orderBook.setInitialMarketValue(calculateInitialMarketValue(previousDaily, orderBook.getLbcs()));
-        // 调用交易模式解析方法：全量回测优先使用任务/持仓模式，单票调试按连板数和市值推断。
-        orderBook.setTradeMode(resolveTradeMode(requestedTradeMode, orderBook));
-        orderBook.setMaxHs(maxVolume * 100.0 / circulation);
-        orderBook.setTransactionStatus(initialTransactionStatus(mode));
-        if (mode == BacktestReplayMode.SELL) {
-            initializeSellHistory(orderBook, history, tradeDate, stockCode);
-        }
-        return orderBook;
+        int lbcs = Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays()));
+        int initialMarketValue = calculateInitialMarketValue(previousDaily, lbcs);
+        int tradeMode = resolveTradeMode(requestedTradeMode, lbcs, initialMarketValue);
+        SellHistoryFacts sellHistory = mode == BacktestReplayMode.SELL
+                ? loadSellHistory(history, tradeDate, stockCode)
+                : SellHistoryFacts.EMPTY;
+        TradeStaticFacts facts = new TradeStaticFacts(
+                tradeMode, lbcs, maxVolume, maxVolume * 100.0 / circulation,
+                initialMarketValue, sellHistory.threeDaysTurnover(),
+                sellHistory.twoDaysTurnover(), valueOrZero(previousDaily.getTurnoverRate()),
+                sellHistory.oneWordLimitUp(), sellHistory.averageLimitUpHeight(),
+                sellHistory.nextTradingDay(),
+                valueOrZero(previousDaily.getKlineState()),
+                history.size() > 1 ? valueOrZero(history.get(1).getKlineState()) : 0);
+        MarketSessionSpec spec = MarketSessionSpec.fromPreviousClose(
+                stockCode, previousDaily.getStockName(), tradeDate.toString(),
+                circulation, currentDaily.getPrevClose());
+        OrderBook orderBook = new OrderBook(spec.limitUpPrice(), spec.limitDownPrice());
+        TradeExecutionTemplate template = templateFactory.compile(facts);
+        return new OrderBookSession(spec, facts, orderBook, template,
+                new TradeExecutionState(initialTransactionStatus(mode)));
     }
 
-    private int resolveTradeMode(Integer requestedTradeMode, OrderBook orderBook) {
+    private int resolveTradeMode(Integer requestedTradeMode, int lbcs,
+                                 int initialMarketValue) {
         if (requestedTradeMode != null) {
             return TradeMode.fromCode(requestedTradeMode).code();
         }
-        if (orderBook.getLbcs() >= 2) {
+        if (lbcs >= 2) {
             return TradeMode.RELAY_LIMIT_UP.code();
         }
-        return orderBook.getInitialMarketValue() < 119_999
+        return initialMarketValue < 119_999
                 ? TradeMode.SMALL_CAP_FIRST_BOARD.code()
                 : TradeMode.FIRST_BOARD.code();
     }
@@ -346,8 +403,8 @@ public class BackTestTradeService {
     /**
      * 按旧实盘持仓初始化口径补充卖出规则依赖的最近三日日 K 统计。
      */
-    private void initializeSellHistory(OrderBook orderBook, List<StockDailyEntity> history,
-                                       LocalDate tradeDate, String stockCode) {
+    private SellHistoryFacts loadSellHistory(List<StockDailyEntity> history,
+                                             LocalDate tradeDate, String stockCode) {
         if (history.size() < 3) {
             throw new IllegalArgumentException(tradeDate + " 之前股票 " + stockCode
                     + " 的日 K 不足 3 个交易日，无法初始化卖出订单簿");
@@ -360,24 +417,34 @@ public class BackTestTradeService {
         double twoDaysAgoTurnover = valueOrZero(twoDaysAgo.getTurnoverRate());
         double threeDaysAgoTurnover = valueOrZero(threeDaysAgo.getTurnoverRate());
 
-        orderBook.setTwoDaysTurnover((yesterdayTurnover + twoDaysAgoTurnover) / 2);
-        orderBook.setThreeDaysTurnover(
-                (yesterdayTurnover + twoDaysAgoTurnover + threeDaysAgoTurnover) / 3);
-        orderBook.setOneWordLimitUp(countConsecutiveOneWordLimitUps(
-                yesterday, twoDaysAgo, threeDaysAgo));
+        double twoDaysTurnover = (yesterdayTurnover + twoDaysAgoTurnover) / 2;
+        double threeDaysTurnover =
+                (yesterdayTurnover + twoDaysAgoTurnover + threeDaysAgoTurnover) / 3;
+        int oneWordLimitUp = countConsecutiveOneWordLimitUps(
+                yesterday, twoDaysAgo, threeDaysAgo);
 
         Integer averageLimitUpHeight = stockEmotionCycleDailyService
                 .queryRecentAverageLimitUpHeight(tradeDate.minusDays(15), tradeDate);
         if (averageLimitUpHeight == null) {
             throw new IllegalStateException(tradeDate + " 之前 15 日没有市场最高连板数据");
         }
-        orderBook.setAverageLimitUpHeight(averageLimitUpHeight);
 
         LocalDate nextTradeDay = stockTradeCalendarService.findNextTradeDay(tradeDate);
         if (nextTradeDay == null) {
             throw new IllegalStateException(tradeDate + " 之后没有交易日历数据");
         }
-        orderBook.setNextTradingDay((int) ChronoUnit.DAYS.between(tradeDate, nextTradeDay) - 1);
+        int nextTradingDay = (int) ChronoUnit.DAYS.between(tradeDate, nextTradeDay) - 1;
+        return new SellHistoryFacts(threeDaysTurnover, twoDaysTurnover,
+                oneWordLimitUp, averageLimitUpHeight, nextTradingDay);
+    }
+
+    private record SellHistoryFacts(double threeDaysTurnover,
+                                    double twoDaysTurnover,
+                                    int oneWordLimitUp,
+                                    int averageLimitUpHeight,
+                                    int nextTradingDay) {
+        private static final SellHistoryFacts EMPTY =
+                new SellHistoryFacts(0D, 0D, 0, 0, 0);
     }
 
     private int countConsecutiveOneWordLimitUps(StockDailyEntity... dailyRows) {

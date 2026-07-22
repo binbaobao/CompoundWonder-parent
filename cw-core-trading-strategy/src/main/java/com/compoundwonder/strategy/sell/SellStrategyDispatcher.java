@@ -105,7 +105,7 @@ public final class SellStrategyDispatcher {
      *
      * <p>包级可见用于锁定 16 个场景的分发测试；返回的都是构造期创建的常驻实例。</p>
      */
-    BoardSellStrategy resolveStrategy(int yesterdayBoardHeight, long initialMarketValue) {
+    public BoardSellStrategy resolveStrategy(int yesterdayBoardHeight, long initialMarketValue) {
         boolean smallCap = SellMarketCapBand.from(initialMarketValue) == SellMarketCapBand.SMALL_CAP;
         return switch (yesterdayBoardHeight) {
             case 2 -> smallCap ? twoToThreeSmallCap : twoToThreeNormalCap;

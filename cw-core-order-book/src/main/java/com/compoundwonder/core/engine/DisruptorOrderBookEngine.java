@@ -5,6 +5,7 @@ import com.compoundwonder.core.processor.TickEventShenZhenHandler;
 import com.compoundwonder.core.service.OrderBookRepository;
 import com.compoundwonder.common.orderbook.OrderExecutionGateway;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
+import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.util.SymbolUtil;
 import com.lmax.disruptor.RingBuffer;
@@ -40,7 +41,7 @@ import java.util.function.Supplier;
  * <p>一次回测的推荐调用顺序：</p>
  * <pre>
  * start()
- * registerOrderBook(...)
+ * registerSession(...)
  * publish(...) // 重复发布 Tick
  * awaitProcessed(...)
  * 读取订单簿和规则结果
@@ -73,6 +74,9 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      */
     private final long[] lastPublishedSequences = {-1L, -1L};
 
+    /** 只供旧单元测试 registerOrderBook 入口生成兼容模板；正式链路为 null。 */
+    private final TradeDecisionService legacyTradeDecisionService;
+
     /** 防止重复启动或重复关闭 Disruptor。 */
     private boolean started;
 
@@ -81,13 +85,23 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      *
      * @param repository 回测编排和结果查询使用的订单簿仓库
      * @param executionGateway 策略触发后的交易动作出口，回测与实盘提供不同实现
-     * @param tradeDecisionService 交易规则公共接口，由 app 组装根注入策略实现
      * @param ringBufferSize RingBuffer 容量，必须是 2 的幂
      * @param threadNamePrefix 消费线程名称前缀，便于日志和性能诊断
      * @param producerType 生产者模式；回测通常为 SINGLE，实盘可按行情线程模型配置
      * @param waitStrategyFactory 等待策略工厂；沪深 Disruptor 各创建一个独立实例
      * @throws IllegalArgumentException 当 RingBuffer 容量不是 2 的幂时抛出
      */
+    @SuppressWarnings("unchecked")
+    public DisruptorOrderBookEngine(OrderBookRepository repository,
+                                    OrderExecutionGateway executionGateway,
+                                    int ringBufferSize,
+                                    String threadNamePrefix,
+                                    ProducerType producerType,
+                                    Supplier<WaitStrategy> waitStrategyFactory) {
+        this(repository, executionGateway, null, ringBufferSize, threadNamePrefix,
+                producerType, waitStrategyFactory);
+    }
+
     @SuppressWarnings("unchecked")
     public DisruptorOrderBookEngine(OrderBookRepository repository,
                                     OrderExecutionGateway executionGateway,
@@ -100,10 +114,11 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
             throw new IllegalArgumentException("ringBufferSize must be a power of two");
         }
         this.repository = repository;
+        this.legacyTradeDecisionService = tradeDecisionService;
         this.disruptors = new Disruptor[2];
         this.handlers = new EventHandlerIdentity[]{
-                new TickEventShangHaiHandler(executionGateway, tradeDecisionService),
-                new TickEventShenZhenHandler(executionGateway, tradeDecisionService)
+                new TickEventShangHaiHandler(executionGateway),
+                new TickEventShenZhenHandler(executionGateway)
         };
         disruptors[SHANGHAI_HANDLER] = createDisruptor(
                 ringBufferSize, threadNamePrefix + "sh-", producerType, waitStrategyFactory.get());
@@ -193,14 +208,37 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      * @param orderBook 已完成当日参考昨收价、流通股本等基础数据初始化的订单簿
      * @throws IllegalArgumentException 当证券不属于沪深主板时抛出
      */
-    public void registerOrderBook(int symbolId, OrderBook orderBook) {
+    public void registerSession(int symbolId, OrderBookSession session) {
         int handlerIndex = mainBoardHandlerIndex(symbolId);
-        repository.put(symbolId, orderBook);
+        repository.put(symbolId, session);
         if (handlerIndex == SHANGHAI_HANDLER) {
-            ((TickEventShangHaiHandler) handlers[handlerIndex]).registerOrderBook(symbolId, orderBook);
+            ((TickEventShangHaiHandler) handlers[handlerIndex]).registerSession(symbolId, session);
         } else {
-            ((TickEventShenZhenHandler) handlers[handlerIndex]).registerOrderBook(symbolId, orderBook);
+            ((TickEventShenZhenHandler) handlers[handlerIndex]).registerSession(symbolId, session);
         }
+    }
+
+    /** 旧测试兼容入口；正式回测必须显式注册已经编译模板的会话。 */
+    @Deprecated
+    public void registerOrderBook(int symbolId, OrderBook orderBook) {
+        if (legacyTradeDecisionService == null) {
+            throw new IllegalStateException("正式订单簿引擎必须使用 registerSession");
+        }
+        TradeStaticFacts facts = new TradeStaticFacts(
+                orderBook.getTradeMode(), orderBook.getLbcs(), orderBook.getMaxVolume(),
+                orderBook.getMaxHs(), orderBook.getInitialMarketValue(),
+                orderBook.getThreeDaysTurnover(), orderBook.getTwoDaysTurnover(),
+                orderBook.getYesterdayTurnover(), orderBook.getOneWordLimitUp(),
+                orderBook.getAverageLimitUpHeight(), orderBook.getNextTradingDay(), 0, 0);
+        MarketSessionSpec spec = new MarketSessionSpec(
+                orderBook.getSymbol(), orderBook.getSecurityName(), orderBook.getMarket(),
+                orderBook.getDate(), orderBook.getCirculation(), orderBook.getClosePrice(),
+                orderBook.getLimitUpPrice(), orderBook.getLimitDownPrice());
+        registerSession(symbolId, new OrderBookSession(spec, facts, orderBook,
+                new LegacyTradeExecutionTemplate(facts, legacyTradeDecisionService),
+                new TradeExecutionState(orderBook.getTransactionStatus(),
+                        orderBook::getTransactionStatus, orderBook::setTransactionStatus,
+                        orderBook::recordShanghaiAuctionBuyVolume)));
     }
 
     /**

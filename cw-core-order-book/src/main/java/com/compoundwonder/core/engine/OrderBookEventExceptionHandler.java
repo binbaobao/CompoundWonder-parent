@@ -27,10 +27,10 @@ final class OrderBookEventExceptionHandler implements ExceptionHandler<TickData>
         }
 
         event.time3 = System.nanoTime();
-        OrderBook orderBook = repository.get(event.symbolId);
-        if (orderBook != null) {
+        OrderBookSession session = repository.get(event.symbolId);
+        if (session != null) {
             // 异常处理器运行在对应 Handler 的消费线程中，不会与该订单簿的正常写入并发。
-            orderBook.setTransactionStatus(0);
+            session.executionState().transactionStatus(0);
         }
         log.error("订单簿事件处理异常，已暂停该股票交易并继续消费，sequence={}, symbolId={}, dataType={}, "
                         + "time={}, orderId={}, buyerOrderId={}, sellerOrderId={}",

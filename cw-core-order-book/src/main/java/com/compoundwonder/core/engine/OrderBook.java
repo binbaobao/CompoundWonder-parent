@@ -262,6 +262,22 @@ public class OrderBook implements TradeMarketState {
     @ToString.Exclude
     public final TickNode buyMaxOrder;
 //    public TickNode sellMaxOrder;
+    /** 新会话模型使用的纯盘口构造器；静态价格事实由 {@link OrderBookSession} 持有。 */
+    public OrderBook(int limitUpPrice, int limitDownPrice) {
+        this.symbol = "";
+        this.market = null;
+        this.circulation = 1L;
+        this.closePrice = (limitUpPrice + limitDownPrice) / 2;
+        this.limitUpPrice = limitUpPrice;
+        this.limitDownPrice = limitDownPrice;
+        this.lowPrice = limitUpPrice;
+        this.maxVolume = 0L;
+        this.idIndex = new Int2ObjectOpenHashMap<>(DEFAULT_ACTIVE_ORDER_CAPACITY);
+        this.limitUpBreakLowestPrice = limitUpPrice;
+        this.priceLevels = new PriceLevel[limitUpPrice - limitDownPrice + 1];
+        this.buyMaxOrder = new TickNode();
+    }
+
     public OrderBook(String symbol, long circulation, double closePrice, long maxVolume) {
         this.symbol = symbol;
         this.market = MarketEnum.getMarketEnum(symbol);
@@ -514,6 +530,20 @@ public class OrderBook implements TradeMarketState {
      * 成交额，成交量，最高价格，最低价格,最新价格
      */
     public void updatePrice(long turnover, long volume, int tradePrice, int time) {
+        updatePrice(turnover, volume, tradePrice, time,
+                closePrice, circulation, limitUpPrice);
+    }
+
+    /** 使用会话静态参数更新纯盘口热数据。 */
+    public void updatePrice(long turnover, long volume, int tradePrice, int time,
+                            MarketSessionSpec spec) {
+        updatePrice(turnover, volume, tradePrice, time,
+                spec.closePrice(), spec.circulation(), spec.limitUpPrice());
+    }
+
+    private void updatePrice(long turnover, long volume, int tradePrice, int time,
+                             int sessionClosePrice, long sessionCirculation,
+                             int sessionLimitUpPrice) {
 
         //// 成交额，成交量，最高价格，最低价格,最新价格,更新时间
         this.turnover += turnover;
@@ -521,24 +551,24 @@ public class OrderBook implements TradeMarketState {
         this.highestPrice = Math.max(this.highestPrice, tradePrice);
         this.lowPrice = Math.min(this.lowPrice, tradePrice);
         if (this.lowPrice == tradePrice) {
-            this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
+            this.lowPriceIncrease = Math.round((lowPrice - sessionClosePrice) * 100.0 / sessionClosePrice * 100.0) / 100.0;
         }
         this.lastPrice = tradePrice;
         if (this.openPrice == 0) {
             this.openPrice = tradePrice;
-            this.openIncrease = Math.round((tradePrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
+            this.openIncrease = Math.round((tradePrice - sessionClosePrice) * 100.0 / sessionClosePrice * 100.0) / 100.0;
         }
         this.time = time;
         //(bb - aa)*100.0 / aa  计算涨幅
-        this.increase = (this.lastPrice - this.closePrice) * 100.0 / this.closePrice;
+        this.increase = (this.lastPrice - sessionClosePrice) * 100.0 / sessionClosePrice;
         // 计算振幅
-        this.amplitude = (this.highestPrice - this.lowPrice) * 100.0 / this.closePrice;
+        this.amplitude = (this.highestPrice - this.lowPrice) * 100.0 / sessionClosePrice;
         // 换手率 Math.round(bb*100.0/aa*100.0)/100.00 ;
-        this.turnoverRate = this.volume * 100.0 / this.circulation;
+        this.turnoverRate = this.volume * 100.0 / sessionCirculation;
         // 如果是炸板状态
         if (this.status > 1 && this.status % 2 == 0 && tradePrice < this.limitUpBreakLowestPrice) {
             this.limitUpBreakLowestPrice = tradePrice;
-            this.limitUpBreakDepth = (this.limitUpPrice - tradePrice) * 100.0 / this.closePrice;
+            this.limitUpBreakDepth = (sessionLimitUpPrice - tradePrice) * 100.0 / sessionClosePrice;
         }
     }
 
@@ -547,10 +577,19 @@ public class OrderBook implements TradeMarketState {
      * @param lowPrice
      */
     public void updateLowestPrice(int lowPrice){
-        if (lowPrice < limitDownPrice)return;
+        updateLowestPrice(lowPrice, limitDownPrice, closePrice);
+    }
+
+    public void updateLowestPrice(int lowPrice, MarketSessionSpec spec) {
+        updateLowestPrice(lowPrice, spec.limitDownPrice(), spec.closePrice());
+    }
+
+    private void updateLowestPrice(int lowPrice, int sessionLimitDownPrice,
+                                   int sessionClosePrice) {
+        if (lowPrice < sessionLimitDownPrice)return;
         this.lowPrice = Math.min(this.lowPrice, lowPrice);
         if (this.lowPrice == lowPrice) {
-            this.lowPriceIncrease = Math.round((lowPrice - this.closePrice) * 100.0 / this.closePrice * 100.0) / 100.0;
+            this.lowPriceIncrease = Math.round((lowPrice - sessionClosePrice) * 100.0 / sessionClosePrice * 100.0) / 100.0;
         }
     }
 
@@ -566,6 +605,17 @@ public class OrderBook implements TradeMarketState {
      * @param time 当前快照时间，格式为 HHmmssSSS
      */
     public void updateMinuteAveragePrice(int calculateIndex, int currentAveragePrice, int time) {
+        updateMinuteAveragePrice(calculateIndex, currentAveragePrice, time, closePrice);
+    }
+
+    public void updateMinuteAveragePrice(int calculateIndex, int currentAveragePrice,
+                                         int time, MarketSessionSpec spec) {
+        updateMinuteAveragePrice(calculateIndex, currentAveragePrice, time,
+                spec.closePrice());
+    }
+
+    private void updateMinuteAveragePrice(int calculateIndex, int currentAveragePrice,
+                                          int time, int sessionClosePrice) {
         if (calculateIndex < 0 || calculateIndex >= avgPrice.length || currentAveragePrice <= 0) {
             return;
         }
@@ -578,7 +628,7 @@ public class OrderBook implements TradeMarketState {
                     && (minAveragePrice == 0 || completedMinuteAveragePrice < minAveragePrice)) {
                 minAveragePrice = completedMinuteAveragePrice;
                 minAveragePriceIncrease = Math.round(
-                        (minAveragePrice - closePrice) * 100.0 / closePrice * 100.0) / 100.0;
+                        (minAveragePrice - sessionClosePrice) * 100.0 / sessionClosePrice * 100.0) / 100.0;
             }
         }
 
@@ -675,17 +725,25 @@ public class OrderBook implements TradeMarketState {
 
 
     public void updateLimitUpStatus() {
+        updateLimitUpStatus(limitUpPrice);
+    }
+
+    public void updateLimitUpStatus(MarketSessionSpec spec) {
+        updateLimitUpStatus(spec.limitUpPrice());
+    }
+
+    private void updateLimitUpStatus(int sessionLimitUpPrice) {
         if (this.time == 0) {
             return;
         }
-        long limitUpOrderVolume = getBuyQuantity(limitUpPrice);
-        long currentLimitUpBuyAmount = limitUpOrderVolume / 100L * limitUpPrice / 10000L;
+        long limitUpOrderVolume = getBuyQuantity(sessionLimitUpPrice);
+        long currentLimitUpBuyAmount = limitUpOrderVolume / 100L * sessionLimitUpPrice / 10000L;
         // 一笔砸穿的情况，涨停买还有，但是价格可能已经不是涨停价了
-        if (this.lastLimitUptime != 0 && lastPrice != limitUpPrice) {
+        if (this.lastLimitUptime != 0 && lastPrice != sessionLimitUpPrice) {
             this.lastLimitUptime = 0;
         }
         // 在没涨停的时候，一个大的委托买单会吃掉笼子内所有卖单
-        if (this.status % 2 == 0 && lastPrice == limitUpPrice && limitUpOrderVolume > 0) {
+        if (this.status % 2 == 0 && lastPrice == sessionLimitUpPrice && limitUpOrderVolume > 0) {
             // 封单
             // 涨停买一总金额，不涨停这个字段是 0
             this.limitUpBuyAmount = currentLimitUpBuyAmount;
@@ -705,7 +763,7 @@ public class OrderBook implements TradeMarketState {
             this.limitUpBuyAmount = currentLimitUpBuyAmount;
             // 如果是涨停的状态，但是成交价已经不是涨停价，视为破板
             // 如果涨停封单金额小于 100万
-            if (lastPrice != limitUpPrice || this.limitUpBuyAmount < 100) {
+            if (lastPrice != sessionLimitUpPrice || this.limitUpBuyAmount < 100) {
                 this.status++;
                 this.lastLimitUpBreakTime = time;
                 this.limitUpBuyAmount = 0;

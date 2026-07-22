@@ -19,7 +19,7 @@ class CacheServiceTest {
 
         cacheService.updatePreOpenPriceLimits("600000", 9.50, 10.45, 8.55, "浦发银行");
 
-        assertSame(orderBook, cacheService.get(symbolId));
+        assertSame(orderBook, cacheService.get(symbolId).orderBook());
         assertEquals("浦发银行", orderBook.getSecurityName());
         assertEquals(950, orderBook.getClosePrice());
         assertEquals(1045, orderBook.getLimitUpPrice());
