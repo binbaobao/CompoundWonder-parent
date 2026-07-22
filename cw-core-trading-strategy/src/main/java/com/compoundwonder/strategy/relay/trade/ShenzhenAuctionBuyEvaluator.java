@@ -69,8 +69,8 @@ final class ShenzhenAuctionBuyEvaluator {
                         market.getInitialMarketValue(), limitUpPrice, event.getQuantity())
                 : 0;
 
-        if (continuousLargeOrderRule == 0
-                && (!absoluteStrength || !sufficientAuctionDisagreement)) {
+        if (!sufficientAuctionDisagreement
+                || (continuousLargeOrderRule == 0 && !absoluteStrength)) {
             return false;
         }
 
@@ -80,9 +80,11 @@ final class ShenzhenAuctionBuyEvaluator {
             ruleCode = RULE_LARGE_ORDER;
             long orderAmountWan = event.getQuantity() / 100L * limitUpPrice / 10_000L;
             remark = StrUtil.format(
-                    "买入 - 深圳早盘竞价涨停大单，股票代码:{}，时间:{}，订单号:{}，委托量:{}，委托金额:{}W，复用连续竞价大单档位规则:{}",
+                    "买入 - 深圳早盘竞价涨停大单，股票代码:{}，时间:{}，订单号:{}，委托量:{}，委托金额:{}W，卖量占买量:{}%，最低要求:20%，复用连续竞价大单档位规则:{}",
                     market.getSymbol(), event.getTime(), event.getOrderId(),
-                    event.getQuantity(), orderAmountWan, continuousLargeOrderRule);
+                    event.getQuantity(), orderAmountWan,
+                    totalSellVolume * 100.0 / limitUpBuyVolume,
+                    continuousLargeOrderRule);
         } else {
             ruleCode = RULE_ABSOLUTE_STRENGTH;
             long estimatedMatchedVolume = totalSellVolume;
@@ -194,7 +196,7 @@ final class ShenzhenAuctionBuyEvaluator {
                 && totalSellVolume * 100L < limitUpBuyVolume * 40L;
     }
 
-    /** 只约束规则 7 的首次入场；规则 6 大单路径和买入后的强度撤单公式不变。 */
+    /** 约束规则 6、7 的首次入场；买入后的强度撤单公式不变。 */
     private static boolean hasSufficientAuctionDisagreement(long limitUpBuyVolume,
                                                             long totalSellVolume) {
         return limitUpBuyVolume > 0

@@ -38,12 +38,23 @@ class ShenzhenAuctionBuyEvaluatorTest {
     }
 
     @Test
-    void doesNotApplyTheDisagreementFloorToTheLargeOrderPath() {
+    void rejectsLargeOrderEntryWhenAuctionSellVolumeIsBelowTwentyPercent() {
         CapturedRule record = new CapturedRule();
 
         boolean bought = ShenzhenAuctionBuyEvaluator.evaluateBuy(
                 market(), event((byte) 1, (byte) 1, 888_800), 92_000_000,
                 10_000_000L, 1_000_000L, record);
+
+        assertFalse(bought);
+    }
+
+    @Test
+    void keepsLargeOrderEntryAtTwentyPercentAuctionSellVolume() {
+        CapturedRule record = new CapturedRule();
+
+        boolean bought = ShenzhenAuctionBuyEvaluator.evaluateBuy(
+                market(), event((byte) 1, (byte) 1, 888_800), 92_000_000,
+                10_000_000L, 2_000_000L, record);
 
         assertTrue(bought);
         assertEquals(6, record.ruleCode);
