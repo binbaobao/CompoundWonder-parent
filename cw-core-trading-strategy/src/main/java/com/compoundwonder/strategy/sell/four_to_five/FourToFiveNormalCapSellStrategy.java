@@ -7,8 +7,9 @@ import com.compoundwonder.strategy.sell.BoardSellStrategy;
 /**
  * 昨日 4 板、今日 4 进 5、启动流通市值大于等于 119999 万元的卖出策略。
  *
- * <p>基准任务 145、147、146 中没有该市值档的真实卖出样本，因此先清空从旧卖出逻辑
- * 复制来的规则。后续回测出现可确认的股票名和日期后，再逐条补充并建立对应测试。</p>
+ * <p>最新普通首板基准 Run 32 的 177 笔真实/虚拟卖出中，没有昨日 4 板进入本场景后
+ * 由板位策略触发的样本。后续回测出现可确认的股票名称、代码、日期和时间后，再逐条
+ * 补充并建立对应测试。</p>
  */
 public final class FourToFiveNormalCapSellStrategy implements BoardSellStrategy {
 
