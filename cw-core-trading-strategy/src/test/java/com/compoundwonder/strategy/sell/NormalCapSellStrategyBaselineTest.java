@@ -132,6 +132,18 @@ class NormalCapSellStrategyBaselineTest {
     }
 
     @Test
+    void fourToFiveDoesNotApplyAfternoonFallbackToZhongshuiFisheryOn2025_11_20() {
+        Map<String, Object> values = values(4);
+        values.put("getInitialMarketValue", 130_070);
+        values.put("getTime", 141_604_740);
+        values.put("getTurnoverRate", 23.50655601460691D);
+        values.put("getTwoDaysTurnover", 20D);
+        values.put("getChangePercent", -4.17D);
+
+        assertNoRule(new FourToFiveNormalCapSellStrategy(), values);
+    }
+
+    @Test
     void eightToNineUsesConfirmedHighBoardGapFallbackInsteadOfRemainingEmpty() {
         Map<String, Object> eightToNine = values(8);
         eightToNine.put("getOpenIncrease", 8D);

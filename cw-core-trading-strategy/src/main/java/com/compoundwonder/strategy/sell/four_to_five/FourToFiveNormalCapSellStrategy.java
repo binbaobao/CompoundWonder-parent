@@ -15,7 +15,7 @@ public final class FourToFiveNormalCapSellStrategy implements BoardSellStrategy 
 
     @Override
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
-        return NormalCapCrossBoardFallbackSellRules.evaluateOrderBook(market, record);
+        return NormalCapCrossBoardFallbackSellRules.evaluateFourToFive(market, record);
     }
 
     @Override

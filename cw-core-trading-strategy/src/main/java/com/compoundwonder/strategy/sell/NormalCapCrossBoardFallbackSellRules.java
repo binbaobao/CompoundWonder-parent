@@ -19,28 +19,52 @@ public final class NormalCapCrossBoardFallbackSellRules {
     private NormalCapCrossBoardFallbackSellRules() {
     }
 
-    /** 按原有优先级评估经过真实样本确认的跨板位盘口规则。 */
-    public static boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
+    /** 4 进 5 只启用不会提前截断中水渔业高位收益的平均高度兜底。 */
+    public static boolean evaluateFourToFive(TradeMarketState market, TradeRuleRecord record) {
+        return evaluateAverageHeightFastSeal(market, record);
+    }
+
+    /** 8 进 9 按原有高位规则优先级评估三个已确认兜底。 */
+    public static boolean evaluateEightToNine(TradeMarketState market, TradeRuleRecord record) {
+        return evaluateAfternoonShrinkingBoard(market, record)
+                || evaluateHighBoardGapShrinking(market, record)
+                || evaluateAverageHeightFastSeal(market, record);
+    }
+
+    /** 9 板以上不再满足规则 112 的既有上限，只评估规则 102 和 116。 */
+    public static boolean evaluateHighBoard(TradeMarketState market, TradeRuleRecord record) {
+        return evaluateAfternoonShrinkingBoard(market, record)
+                || evaluateAverageHeightFastSeal(market, record);
+    }
+
+    private static boolean evaluateAfternoonShrinkingBoard(TradeMarketState market,
+                                                            TradeRuleRecord record) {
         long marketValue = market.getInitialMarketValue();
-        int lbcs = market.getLbcs();
-        int time = market.getTime();
         double turnover = market.getTurnoverRate();
         double changePercent = market.getChangePercent();
-        long limitUpBuyAmount = market.getLimitUpBuyAmount();
 
         // 真实基准来源：苏豪弘业（600128），卖出 2025-01-13 14:17:42.980，规则 102。
         if (changePercent < -3
                 && marketValue > 130_000
-                && time > ConstantUtil.TIME_1130
-                && time < ConstantUtil.TIME_14563
+                && market.getTime() > ConstantUtil.TIME_1130
+                && market.getTime() < ConstantUtil.TIME_14563
                 && turnover < 25
                 && market.getTwoDaysTurnover() < 25) {
             String remark = StrUtil.format(
                     "前两天缩量板下午炸板；条件：今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
-                    lbcs + 1, marketValue, limitUpBuyAmount, turnover, changePercent);
+                    market.getLbcs() + 1, marketValue, market.getLimitUpBuyAmount(),
+                    turnover, changePercent);
             return match(market, record,
                     RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD, remark);
         }
+        return false;
+    }
+
+    private static boolean evaluateHighBoardGapShrinking(TradeMarketState market,
+                                                          TradeRuleRecord record) {
+        int lbcs = market.getLbcs();
+        double turnover = market.getTurnoverRate();
+        double changePercent = market.getChangePercent();
 
         // 真实基准来源：津药药业（600488），卖出 2026-04-08 09:42:27.270，规则 112。
         if (lbcs >= 5
@@ -51,10 +75,19 @@ public final class NormalCapCrossBoardFallbackSellRules {
             String remark = StrUtil.format(
                     "高位连板大高开后缩量炸板；条件：连板 {} 板，开盘涨幅 {}%，当前换手 {}%，昨日换手 {}%，封单变化EMA {}%，涨停封单金额 {} 万",
                     lbcs, market.getOpenIncrease(), turnover, market.getYesterdayTurnover(),
-                    changePercent, limitUpBuyAmount);
+                    changePercent, market.getLimitUpBuyAmount());
             return match(market, record,
                     RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING, remark);
         }
+        return false;
+    }
+
+    private static boolean evaluateAverageHeightFastSeal(TradeMarketState market,
+                                                          TradeRuleRecord record) {
+        int lbcs = market.getLbcs();
+        long marketValue = market.getInitialMarketValue();
+        double turnover = market.getTurnoverRate();
+        double changePercent = market.getChangePercent();
 
         // 真实基准来源：连云港（601008），卖出 2025-04-11 14:34:14.620，规则 116。
         if (isLimitUp(market.getStatus())
@@ -66,7 +99,7 @@ public final class NormalCapCrossBoardFallbackSellRules {
             String remark = StrUtil.format(
                     "达到近 15 日平均高度后秒板封单减弱；条件：平均高度 {} 板，昨日连板 {} 板，今日 {} 板，启动市值 {} 万，涨停封单金额 {} 万，换手率 {}%，封单变化EMA {}%",
                     market.getAverageLimitUpHeight(), lbcs, lbcs + 1, marketValue,
-                    limitUpBuyAmount, turnover, changePercent);
+                    market.getLimitUpBuyAmount(), turnover, changePercent);
             return match(market, record,
                     RuleConstant.SELL_LIMIT_UP_AVERAGE_HEIGHT_FAST_SEAL, remark);
         }
