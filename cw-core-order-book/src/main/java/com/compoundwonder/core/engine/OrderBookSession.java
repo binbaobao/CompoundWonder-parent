@@ -4,41 +4,71 @@ import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** 静态参数、预编译规则、热盘口和执行状态组成的单日订单簿会话。 */
 public final class OrderBookSession implements TradeMarketState {
     private final MarketSessionSpec spec;
-    private final TradeStaticFacts facts;
     private final OrderBook orderBook;
-    private final TradeExecutionTemplate template;
-    private final TradeExecutionState executionState;
+    private final List<StrategyExecutionSession> strategySessions = new ArrayList<>();
+
+    /** 创建只包含共享行情热数据、尚未注册策略的市场会话。 */
+    public OrderBookSession(MarketSessionSpec spec, OrderBook orderBook) {
+        if (spec == null || orderBook == null) {
+            throw new IllegalArgumentException("订单簿市场会话参数不能为 null");
+        }
+        this.spec = spec;
+        this.orderBook = orderBook;
+    }
 
     public OrderBookSession(MarketSessionSpec spec, TradeStaticFacts facts,
                             OrderBook orderBook, TradeExecutionTemplate template,
                             TradeExecutionState executionState) {
-        if (spec == null || facts == null || orderBook == null
-                || template == null || executionState == null) {
-            throw new IllegalArgumentException("订单簿会话参数不能为 null");
-        }
-        if (template.facts() != facts && !template.facts().equals(facts)) {
-            throw new IllegalArgumentException("交易模板与会话静态事实不一致");
-        }
-        this.spec = spec;
-        this.facts = facts;
-        this.orderBook = orderBook;
-        this.template = template;
-        this.executionState = executionState;
+        this(spec, orderBook);
+        String strategyId = "MODE_" + facts.tradeMode();
+        String tradeDate = spec.date() == null || spec.date().isBlank()
+                ? StrategyExecutionSession.UNSPECIFIED_TRADE_DATE : spec.date();
+        registerStrategy(new StrategyExecutionSession(
+                new StrategySessionKey(strategyId + ":" + spec.symbol() + ":" + tradeDate,
+                        strategyId, spec.symbol(), tradeDate),
+                this, facts, template, executionState));
     }
 
     public MarketSessionSpec spec() { return spec; }
-    public TradeStaticFacts facts() { return facts; }
     public OrderBook orderBook() { return orderBook; }
-    public TradeExecutionTemplate template() { return template; }
-    public TradeExecutionState executionState() { return executionState; }
+    public List<StrategyExecutionSession> strategySessions() { return List.copyOf(strategySessions); }
 
-    @Override public int getTradeMode() { return facts.tradeMode(); }
+    public void registerStrategy(StrategyExecutionSession strategySession) {
+        if (strategySession == null || strategySession.marketSession() != this) {
+            throw new IllegalArgumentException("策略会话必须属于当前共享订单簿");
+        }
+        boolean duplicate = strategySessions.stream().anyMatch(existing ->
+                existing.key().sessionId().equals(strategySession.key().sessionId()));
+        if (duplicate) {
+            throw new IllegalArgumentException("策略会话标识重复: " + strategySession.key().sessionId());
+        }
+        strategySessions.add(strategySession);
+    }
+
+    public StrategyExecutionSession primaryStrategySession() {
+        if (strategySessions.isEmpty()) {
+            throw new IllegalStateException("共享订单簿尚未注册策略会话");
+        }
+        return strategySessions.get(0);
+    }
+
+    /** 单策略旧调用链的兼容访问器。 */
+    public TradeStaticFacts facts() { return primaryStrategySession().facts(); }
+    /** 单策略旧调用链的兼容访问器。 */
+    public TradeExecutionTemplate template() { return primaryStrategySession().template(); }
+    /** 单策略旧调用链的兼容访问器。 */
+    public TradeExecutionState executionState() { return primaryStrategySession().executionState(); }
+
+    @Override public int getTradeMode() { return facts().tradeMode(); }
     @Override public String getSymbol() { return spec.symbol(); }
     @Override public int getStatus() { return orderBook.getStatus(); }
-    @Override public int getLbcs() { return facts.lbcs(); }
+    @Override public int getLbcs() { return facts().lbcs(); }
     @Override public int getTime() { return orderBook.getTime(); }
     @Override public int getClosePrice() { return spec.closePrice(); }
     @Override public int getLastPrice() { return orderBook.getLastPrice(); }
@@ -55,16 +85,16 @@ public final class OrderBookSession implements TradeMarketState {
     @Override public double getTurnoverRate() { return orderBook.getTurnoverRate(); }
     @Override public long getTurnover() { return orderBook.getTurnover(); }
     @Override public long getVolume() { return orderBook.getVolume(); }
-    @Override public long getMaxVolume() { return facts.maxVolume(); }
-    @Override public double getMaxHs() { return facts.maxHs(); }
+    @Override public long getMaxVolume() { return facts().maxVolume(); }
+    @Override public double getMaxHs() { return facts().maxHs(); }
     @Override public long getCirculation() { return spec.circulation(); }
-    @Override public int getInitialMarketValue() { return facts.initialMarketValue(); }
-    @Override public double getThreeDaysTurnover() { return facts.threeDaysTurnover(); }
-    @Override public double getTwoDaysTurnover() { return facts.twoDaysTurnover(); }
-    @Override public double getYesterdayTurnover() { return facts.yesterdayTurnover(); }
-    @Override public int getOneWordLimitUp() { return facts.oneWordLimitUp(); }
-    @Override public int getAverageLimitUpHeight() { return facts.averageLimitUpHeight(); }
-    @Override public int getNextTradingDay() { return facts.nextTradingDay(); }
+    @Override public int getInitialMarketValue() { return facts().initialMarketValue(); }
+    @Override public double getThreeDaysTurnover() { return facts().threeDaysTurnover(); }
+    @Override public double getTwoDaysTurnover() { return facts().twoDaysTurnover(); }
+    @Override public double getYesterdayTurnover() { return facts().yesterdayTurnover(); }
+    @Override public int getOneWordLimitUp() { return facts().oneWordLimitUp(); }
+    @Override public int getAverageLimitUpHeight() { return facts().averageLimitUpHeight(); }
+    @Override public int getNextTradingDay() { return facts().nextTradingDay(); }
     @Override public long getLimitUpBuyAmount() { return orderBook.getLimitUpBuyAmount(); }
     @Override public int getLastLimitUptime() { return orderBook.getLastLimitUptime(); }
     @Override public int getLastLimitUpBreakTime() { return orderBook.getLastLimitUpBreakTime(); }
