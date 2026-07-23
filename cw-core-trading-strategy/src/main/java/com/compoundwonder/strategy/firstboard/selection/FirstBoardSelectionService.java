@@ -33,8 +33,8 @@ public class FirstBoardSelectionService {
     /** 普通首板最终最多保留 3 只。 */
     static final int TASK_LIMIT = 3;
 
-    /** 首板当日流通市值必须严格小于 22 亿元，单位：万元。 */
-    static final double MAX_CURRENT_FIRST_BOARD_MARKET_CAP_EXCLUSIVE = 220_000D;
+    /** 首板当日流通市值必须严格小于 24 亿元，单位：万元。 */
+    static final double MAX_CURRENT_FIRST_BOARD_MARKET_CAP_EXCLUSIVE = 240_000D;
 
     private final StockSelectionDataService selectionDataService;
 
@@ -78,7 +78,7 @@ public class FirstBoardSelectionService {
         return tasks;
     }
 
-    /** 查询选股日涨幅小于 11%、流通市值小于 22 亿元的非 ST 首板基础池。 */
+    /** 查询选股日涨幅小于 11%、流通市值小于 24 亿元的非 ST 首板基础池。 */
     private List<StockDailyData> listBaseCandidates(LocalDate tradeDate) {
         return selectionDataService.listDailyByTradeDate(tradeDate).stream()
                 .filter(daily -> !Boolean.TRUE.equals(daily.getIsSt()))

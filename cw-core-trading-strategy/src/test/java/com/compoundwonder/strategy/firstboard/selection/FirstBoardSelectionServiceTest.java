@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FirstBoardSelectionServiceTest {
 
     @Test
-    void keepsFirstBoardCurrentMarketCapStrictlyBelowTwentyTwoHundredMillion() {
-        assertTrue(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(219_999.99D));
-        assertFalse(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(220_000D));
+    void keepsFirstBoardCurrentMarketCapStrictlyBelowTwentyFourHundredMillion() {
+        assertTrue(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(239_999.99D));
+        assertFalse(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(240_000D));
     }
 
     @Test

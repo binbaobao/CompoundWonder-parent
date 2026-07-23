@@ -12,4 +12,10 @@ class FirstBoardOwnershipTest {
         assertFalse(FirstBoardSelectionService.ownsStartMarketCap(119_998.99D));
         assertTrue(FirstBoardSelectionService.ownsStartMarketCap(119_999D));
     }
+
+    @Test
+    void normalFirstBoardModeEndsBeforeTwoPointFourBillion() {
+        assertTrue(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(239_999.99D));
+        assertFalse(FirstBoardSelectionService.ownsCurrentFirstBoardMarketCap(240_000D));
+    }
 }
