@@ -14,7 +14,6 @@ public record TradeExecutionProfile(
         int earliestContinuousBuyTime,
         String openingAuctionBlockReason) {
 
-    public static final int NORMAL_FIRST_BOARD_AUCTION_CAP_WAN = 160_000;
     public static final int AFTER_ACCELERATION_BUY_TIME = 93_500_000;
     private static final int SMALL_CAP_UPPER_EXCLUSIVE_WAN = 119_999;
 
@@ -23,19 +22,14 @@ public record TradeExecutionProfile(
         boolean accelerated = isPreviousBoardAccelerated(facts);
         boolean relayAccelerationGate = facts.tradeMode() == 1
                 && facts.lbcs() == 2 && accelerated;
-        boolean normalFirstBoardCapGate = facts.tradeMode() == 2
-                && facts.lbcs() == 1
-                && facts.initialMarketValue() >= NORMAL_FIRST_BOARD_AUCTION_CAP_WAN;
         String reason = relayAccelerationGate
                 ? "二板加速后禁止集合竞价买入，09:35 前只观察"
-                : normalFirstBoardCapGate
-                ? "普通首板启动市值达到 16 亿，不执行集合竞价一字板买入"
                 : null;
         return new TradeExecutionProfile(
                 facts.lbcs(), facts.lbcs() + 1,
                 facts.initialMarketValue() < SMALL_CAP_UPPER_EXCLUSIVE_WAN
                         ? MarketCapTier.SMALL_CAP : MarketCapTier.NORMAL_CAP,
-                accelerated, !relayAccelerationGate && !normalFirstBoardCapGate,
+                accelerated, !relayAccelerationGate,
                 relayAccelerationGate ? AFTER_ACCELERATION_BUY_TIME : 0,
                 reason);
     }

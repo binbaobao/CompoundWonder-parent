@@ -33,7 +33,7 @@ class DefaultTradeExecutionTemplateFactoryTest {
     }
 
     @Test
-    void templateCarriesBoardCapAndAuctionExecutionConstraints() {
+    void templateCarriesBoardAndAuctionExecutionConstraintsWithoutOverridingExchangeCapRules() {
         TradeStaticFacts acceleratedRelay = new TradeStaticFacts(
                 1, 2, 1_000_000L, 35D, 90_000,
                 18D, 20D, 14.99D, 0, 6, 0, 1, 2,
@@ -55,6 +55,6 @@ class DefaultTradeExecutionTemplateFactoryTest {
         TradeExecutionTemplate firstBoardTemplate =
                 new DefaultTradeExecutionTemplateFactory().compile(normalFirstBoardAtSixteenBillion);
 
-        assertFalse(firstBoardTemplate.executionProfile().openingAuctionBuyAllowed());
+        assertTrue(firstBoardTemplate.executionProfile().openingAuctionBuyAllowed());
     }
 }
