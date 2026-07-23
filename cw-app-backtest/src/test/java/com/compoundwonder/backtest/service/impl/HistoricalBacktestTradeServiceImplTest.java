@@ -168,6 +168,40 @@ class HistoricalBacktestTradeServiceImplTest {
     }
 
     @Test
+    void openingAuctionBlockedTaskCannotFillOvernightButCanBuyDuringContinuousAuction() {
+        LocalDate tradeDate = LocalDate.of(2026, 3, 17);
+        StockWatchingTask task = watchingTask(1L, "603819", tradeDate);
+        FakePersistenceService persistence = new FakePersistenceService(date -> List.of(task));
+        FakeReplayService replay = new FakeReplayService(request -> {
+            if (request.mode() == BacktestReplayMode.OVERNIGHT_BUY) {
+                return new BacktestReplayResult(
+                        tradeDate, request.symbol(), "神力股份", request.mode(),
+                        List.of(), 2, 91_501_001, 1_100, 1_000, 10,
+                        false, 0, "首板K线状态不等于1，禁止二板隔夜与开盘集合竞价买入");
+            }
+            RuleRecordDTO intradayBuy = rule(
+                    RuleConstant.TRADING_MODE_BUY, request.symbol(), 100_000_000, 100_000_501);
+            intradayBuy.setRuleCode(14);
+            return result(tradeDate, request.symbol(), request.mode(), List.of(intradayBuy));
+        });
+        StockDailyEntity currentDaily = daily("603819", tradeDate, 10D);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence, calendarService(List.of(tradeDate)),
+                stockDailyService(List.of(currentDaily), currentDaily),
+                noOpSelectionService(), Runnable::run);
+
+        service.runRange(tradeDate, tradeDate);
+
+        BacktestDayWrite write = persistence.savedDays.get(0);
+        assertNotNull(write.newPosition());
+        assertEquals(14, write.buyRule().getRuleCode());
+        assertEquals(100_000_000, write.buyRule().getTime());
+        assertEquals(List.of(BacktestReplayMode.OVERNIGHT_BUY, BacktestReplayMode.BUY_AFTER_TIME),
+                replay.requests.stream().map(ReplayRequest::mode).toList());
+        assertEquals(93_000_000, replay.requests.get(1).allowedAfterTime());
+    }
+
+    @Test
     void fillsIntradayLimitUpBuyAfterEarlierAuctionCancelWhenBoardLaterBreaks() {
         LocalDate tradeDate = LocalDate.of(2026, 6, 18);
         StockWatchingTask skippedTopTask = watchingTask(1L, "600615", tradeDate);

@@ -202,11 +202,13 @@ public class RelaySelectionService {
                 continue;
             }
             RelaySelectionPolicy.Decision decision = RelaySelectionPolicy.evaluate(
-                    toSelectionCandidate(assist), strength);
+                    toSelectionCandidate(assist), strength,
+                    assist.isThreeBoardKlineStateSumViolation());
             if (!decision.passed()) {
                 RelaySelectionPolicy.Decision backupDecision =
                         RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
-                                toSelectionCandidate(assist), strength);
+                                toSelectionCandidate(assist), strength,
+                                assist.isThreeBoardKlineStateSumViolation());
                 if (backupDecision.passed()) {
                     SelectionTaskData backupTask = buildWatchingTask(
                             assist, selectionScore, plan.trigger(), strength,
@@ -484,6 +486,8 @@ public class RelaySelectionService {
         assist.setConsecutiveLimitUpDays(stockDaily.getConsecutiveLimitUpDays());
         assist.setTwoAcceleratedShrinkVolumeLimitUps(hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(
                 recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
+        assist.setThreeBoardKlineStateSumViolation(violatesThreeBoardKlineStateSum(
+                recentDailyList, stockDaily.getConsecutiveLimitUpDays()));
         assist.setProvince(findProvince(stockDaily.getStockCode()));
         assist.setCurrentPrice(stockDaily.getClosePrice());
         assist.setStartMarketCap(startDaily == null ? null : startDaily.getFloatMarketCap());
@@ -596,6 +600,34 @@ public class RelaySelectionService {
             }
         }
         return false;
+    }
+
+    /**
+     * 三板候选的首板 K 线状态必须等于 1，且三根 K 线状态之和必须严格小于 6。
+     * 数据不足或任一状态不是正数时按违反处理；非三板候选不应用本规则。
+     */
+    static boolean violatesThreeBoardKlineStateSum(
+            List<StockDailyData> recentDailyList,
+            Integer consecutiveLimitUpDays) {
+        if (!Integer.valueOf(3).equals(consecutiveLimitUpDays)) {
+            return false;
+        }
+        if (recentDailyList == null || recentDailyList.size() < 3) {
+            return true;
+        }
+        Integer firstBoardKlineState = recentDailyList.get(2).getKlineState();
+        if (!Integer.valueOf(1).equals(firstBoardKlineState)) {
+            return true;
+        }
+        int klineStateSum = 0;
+        for (int i = 0; i < 3; i++) {
+            Integer klineState = recentDailyList.get(i).getKlineState();
+            if (klineState == null || klineState <= 0) {
+                return true;
+            }
+            klineStateSum += klineState;
+        }
+        return klineStateSum >= 6;
     }
 
     /**

@@ -154,6 +154,39 @@ class RelaySelectionServiceTest {
                 .hasAtLeastTwoAcceleratedShrinkVolumeLimitUps(descendingDailyList, 3));
     }
 
+    @Test
+    void threeBoardKlineStateSumOfSixViolatesStrictUpperBound() {
+        List<StockDailyData> descendingDailyList = List.of(
+                acceleratedDaily(2, 5.17D, 20.50D),
+                acceleratedDaily(2, 4D, 25D),
+                acceleratedDaily(2, 8D, 30D));
+
+        assertTrue(RelaySelectionService
+                .violatesThreeBoardKlineStateSum(descendingDailyList, 3));
+    }
+
+    @Test
+    void threeBoardKlineStateSumOfFivePassesStrictUpperBound() {
+        List<StockDailyData> descendingDailyList = List.of(
+                acceleratedDaily(3, 0D, 6D),
+                acceleratedDaily(1, 8D, 25D),
+                acceleratedDaily(1, 8D, 30D));
+
+        assertFalse(RelaySelectionService
+                .violatesThreeBoardKlineStateSum(descendingDailyList, 3));
+    }
+
+    @Test
+    void threeBoardRunRejectsNonEntityFirstBoardEvenWhenStateSumIsFive() {
+        List<StockDailyData> descendingDailyList = List.of(
+                acceleratedDaily(1, 8D, 30D),
+                acceleratedDaily(1, 8D, 25D),
+                acceleratedDaily(3, 0D, 6D));
+
+        assertTrue(RelaySelectionService
+                .violatesThreeBoardKlineStateSum(descendingDailyList, 3));
+    }
+
 
 
 

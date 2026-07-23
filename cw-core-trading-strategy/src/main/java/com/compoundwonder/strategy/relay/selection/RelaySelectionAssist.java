@@ -22,6 +22,8 @@ public class RelaySelectionAssist {
     private Integer consecutiveLimitUpDays;
     /** 本轮 2/3 板中是否至少出现两根加速缩量板。 */
     private boolean twoAcceleratedShrinkVolumeLimitUps;
+    /** 三板推荐是否违反“首板为实体板且三根 K 线状态和严格小于 6”的规则。 */
+    private boolean threeBoardKlineStateSumViolation;
     /** 公司所属省份。 */
     private String province;
     /** 选股日收盘价，单位：元。 */

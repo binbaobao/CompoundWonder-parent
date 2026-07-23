@@ -93,6 +93,16 @@ class RelayStrengthPolicyTest {
     }
 
     @Test
+    void threeBoardKlineStateSumViolationIsRejectedEvenOutsideBackupClassification() {
+        RelaySelectionCandidate candidate = candidate(
+                3, false, 10D, 80_000D, 5D,
+                10D, 1_000_000L, 30D, 30D);
+
+        assertFalse(RelaySelectionPolicy.evaluate(
+                candidate, RelaySelectionStrength.RELAXED, true).passed());
+    }
+
+    @Test
     void threeBoardAcceleratedCandidateCanEnterBackupWhenEveryOtherRulePasses() {
         RelaySelectionCandidate candidate = candidate(
                 3, true, 10D, 80_000D, 5D,
@@ -101,7 +111,9 @@ class RelayStrengthPolicyTest {
         assertFalse(RelaySelectionPolicy.evaluate(candidate,
                 RelaySelectionStrength.RELAXED).passed());
         assertTrue(RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
-                candidate, RelaySelectionStrength.RELAXED).passed());
+                candidate, RelaySelectionStrength.RELAXED, false).passed());
+        assertFalse(RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
+                candidate, RelaySelectionStrength.RELAXED, true).passed());
     }
 
     @Test
@@ -114,7 +126,7 @@ class RelayStrengthPolicyTest {
                 0, 0, 30D, 30D);
 
         assertFalse(RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
-                candidate, RelaySelectionStrength.RELAXED).passed());
+                candidate, RelaySelectionStrength.RELAXED, false).passed());
     }
 
     @Test

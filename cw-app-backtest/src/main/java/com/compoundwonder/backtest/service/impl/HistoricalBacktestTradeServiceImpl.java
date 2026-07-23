@@ -223,7 +223,19 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                         null, dailyTicks, overnightTask.getTradeMode());
                 triggeredRules.addAll(overnightTask, overnightResult.records());
                 RuleRecordDTO cancelRule = overnightResult.firstCancelRecord().orElse(null);
-                if (cancelRule != null) {
+                if (!overnightResult.openingAuctionBuyAllowed()) {
+                    int allowedAfterTime = Math.max(
+                            ConstantUtil.TIME_930,
+                            overnightResult.earliestContinuousBuyTime() - 1);
+                    BuyCandidate candidate = findEarliestBuy(
+                            tradeDate, primaryTasks, BacktestReplayMode.BUY_AFTER_TIME,
+                            allowedAfterTime, Set.of(), nonBuyableSymbols, actionRules,
+                            triggeredRules, dailyTicks);
+                    if (candidate != null) {
+                        buyTask = candidate.task();
+                        buyRule = candidate.rule();
+                    }
+                } else if (cancelRule != null) {
                     actionRules.add(new BacktestRuleAction(overnightTask, cancelRule));
                     BuyCandidate candidate = findEarliestBuy(
                             tradeDate, primaryTasks, BacktestReplayMode.BUY_AFTER_TIME,

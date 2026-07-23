@@ -19,7 +19,14 @@ public final class RelaySelectionPolicy {
      */
     public static Decision evaluate(RelaySelectionCandidate candidate,
                                     RelaySelectionStrength strength) {
-        return evaluate(candidate, strength, false);
+        return evaluate(candidate, strength, false, false);
+    }
+
+    /** 三板 K 线状态和规则是主候选和备用候选共同的硬过滤。 */
+    public static Decision evaluate(RelaySelectionCandidate candidate,
+                                    RelaySelectionStrength strength,
+                                    boolean threeBoardKlineStateSumViolation) {
+        return evaluate(candidate, strength, false, threeBoardKlineStateSumViolation);
     }
 
     /**
@@ -27,21 +34,32 @@ public final class RelaySelectionPolicy {
      */
     public static Decision evaluateThreeBoardAcceleratedBackup(
             RelaySelectionCandidate candidate,
-            RelaySelectionStrength strength) {
+            RelaySelectionStrength strength,
+            boolean threeBoardKlineStateSumViolation) {
         if (candidate == null
                 || !Objects.equals(candidate.consecutiveLimitUpDays(), 3)
                 || !candidate.twoAcceleratedShrinkVolumeLimitUps()) {
             return Decision.rejected("三板加速缩量备用资格",
                     "只接受命中三板加速缩量过滤的三板候选");
         }
-        return evaluate(candidate, strength, true);
+        if (threeBoardKlineStateSumViolation) {
+            return Decision.rejected("三板K线状态和",
+                    "首板K线状态必须等于1，且首板、二板、三板K线状态和必须严格小于6");
+        }
+        return evaluate(candidate, strength, true, false);
     }
 
     private static Decision evaluate(RelaySelectionCandidate candidate,
                                      RelaySelectionStrength strength,
-                                     boolean allowThreeBoardAcceleratedBackup) {
+                                     boolean allowThreeBoardAcceleratedBackup,
+                                     boolean threeBoardKlineStateSumViolation) {
         if (candidate == null) return Decision.rejected("数据完整性", "候选为空");
         if (strength == null) return Decision.rejected("选股强度", "强度为空");
+        int board = Objects.requireNonNullElse(candidate.consecutiveLimitUpDays(), 0);
+        if (board == 3 && threeBoardKlineStateSumViolation) {
+            return Decision.rejected("三板K线状态和",
+                    "首板K线状态必须等于1，且首板、二板、三板K线状态和必须严格小于6");
+        }
 
         int priorTwenty = Objects.requireNonNullElse(
                 candidate.priorTwentyDayAbnormalKlineStateCount(), 0);
@@ -49,7 +67,6 @@ public final class RelaySelectionPolicy {
             return Decision.rejected("前20日非正常K线次数",
                     "actual=" + priorTwenty + ", required<4");
         }
-        int board = Objects.requireNonNullElse(candidate.consecutiveLimitUpDays(), 0);
         if (candidate.twoAcceleratedShrinkVolumeLimitUps()) {
             if (board >= 3 && !allowThreeBoardAcceleratedBackup) {
                 return Decision.rejected("3连板加速缩量板",
