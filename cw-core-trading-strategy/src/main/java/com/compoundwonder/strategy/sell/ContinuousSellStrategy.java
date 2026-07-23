@@ -474,6 +474,11 @@ public final class ContinuousSellStrategy {
     private static boolean evaluateFourToFiveAverage(
             int index, TradeMarketState market, TradeRuleRecord record,
             int averagePrice3, int averagePrice2, int previousAveragePrice) {
+        int currentPrice = market.getMinutePriceAt(index);
+        int limitUpPrice = market.getLimitUpPrice();
+        if (limitUpPrice > 0 && currentPrice >= limitUpPrice) {
+            return false;
+        }
         int time = market.getTime();
         double openIncrease = market.getOpenIncrease();
         double increase = market.getIncrease();
@@ -504,7 +509,7 @@ public final class ContinuousSellStrategy {
                     "4进5均价连续走弱；条件：连续 3 分钟均价下降，当前涨幅 {}%",
                     increase);
             return match(market, record, RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING,
-                    market.getMinutePriceAt(index), remark);
+                    currentPrice, remark);
         }
         return false;
     }

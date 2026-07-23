@@ -76,6 +76,27 @@ class UnifiedContinuousSellRegressionTest {
                 4, market, record(new AtomicInteger())));
     }
 
+    @Test
+    void fourToFiveAverageWeakeningDoesNotSellAtLimitUpPrice() {
+        TradeMarketState market = market(Map.ofEntries(
+                Map.entry("getSymbol", "000020"),
+                Map.entry("getLbcs", 4),
+                Map.entry("getInitialMarketValue", 110_000),
+                Map.entry("getTime", 94_957_330),
+                Map.entry("getStatus", 1),
+                Map.entry("getLimitUpPrice", 2_333),
+                Map.entry("getIncrease", 9.995285242809995D),
+                Map.entry("getOpenIncrease", 10D),
+                Map.entry("getMinutePriceAt",
+                        new int[]{2_333, 2_333, 2_333, 2_333}),
+                Map.entry("getAveragePriceAt",
+                        new int[]{2_300, 2_290, 2_280, 2_270})
+        ));
+
+        assertFalse(new TradeStrategyDispatcher().evaluateAveragePriceSell(
+                3, market, record(new AtomicInteger())));
+    }
+
     private static TradeMarketState market(Map<String, Object> facts) {
         Map<String, Object> values = new HashMap<>(facts);
         return (TradeMarketState) Proxy.newProxyInstance(
