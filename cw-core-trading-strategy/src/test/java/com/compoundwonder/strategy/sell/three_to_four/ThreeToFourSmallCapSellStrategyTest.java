@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.sell.three_to_four;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -25,7 +26,7 @@ class ThreeToFourSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new ThreeToFourSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_MULTI_BREAK, rule.ruleCode);
         assertEquals(1_023, rule.price);
     }
@@ -49,7 +50,7 @@ class ThreeToFourSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new ThreeToFourSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_SMALL_CAP_ONE_WORD_WEAKENING, rule.ruleCode);
         assertEquals(1_052, rule.price);
     }

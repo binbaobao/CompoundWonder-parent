@@ -8,7 +8,7 @@ import com.compoundwonder.common.orderbook.AuctionMarketEvent;
  * 单一买入模式的交易判断契约。
  *
  * <p>{@code tradeMode} 只用于买入：1 连板、2 普通首板、3 小市值首板。
- * 持仓卖出由昨日板高和启动流通市值动态分发，不属于本接口。</p>
+ * 持仓卖出统一进入连续竞价卖出策略，不属于本接口。</p>
  */
 public interface BuyStrategy {
     /** 连续竞价打板买入；命中时填充 {@code record} 并返回 {@code true}。 */

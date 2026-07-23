@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.sell.two_to_three;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -29,7 +30,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_MULTI_BREAK, rule.ruleCode);
         assertEquals(1_546, rule.price);
     }
@@ -49,7 +50,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(3_006, rule.price);
     }
@@ -69,7 +70,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -88,7 +89,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(2_480, rule.price);
     }
@@ -108,7 +109,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -127,7 +128,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(1_696, rule.price);
     }
@@ -148,7 +149,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(2_975, rule.price);
     }
@@ -164,7 +165,7 @@ class TwoToThreeSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new TwoToThreeSmallCapSellStrategy().evaluateAveragePrice(index, market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateAveragePrice(index, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(1_177, rule.price);
     }

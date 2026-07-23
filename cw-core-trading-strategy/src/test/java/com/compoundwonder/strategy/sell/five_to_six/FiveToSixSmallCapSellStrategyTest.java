@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.sell.five_to_six;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -30,7 +31,7 @@ class FiveToSixSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new FiveToSixSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING, rule.ruleCode);
         assertEquals(1_855, rule.price);
     }

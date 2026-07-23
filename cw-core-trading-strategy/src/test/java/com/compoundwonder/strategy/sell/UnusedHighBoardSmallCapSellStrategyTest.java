@@ -2,9 +2,6 @@ package com.compoundwonder.strategy.sell;
 
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
-import com.compoundwonder.strategy.sell.eight_to_nine.EightToNineSmallCapSellStrategy;
-import com.compoundwonder.strategy.sell.high_board.HighBoardSmallCapSellStrategy;
-import com.compoundwonder.strategy.sell.seven_to_eight.SevenToEightSmallCapSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -17,20 +14,21 @@ class UnusedHighBoardSmallCapSellStrategyTest {
 
     @Test
     void sevenToEightHasNoBaselineInternalSellRule() {
-        assertCleared(new SevenToEightSmallCapSellStrategy(), 7);
+        assertCleared(7);
     }
 
     @Test
     void eightToNineHasNoBaselineInternalSellRule() {
-        assertCleared(new EightToNineSmallCapSellStrategy(), 8);
+        assertCleared(8);
     }
 
     @Test
     void higherBoardsHaveNoBaselineInternalSellRule() {
-        assertCleared(new HighBoardSmallCapSellStrategy(), 9);
+        assertCleared(9);
     }
 
-    private static void assertCleared(BoardSellStrategy strategy, int lbcs) {
+    private static void assertCleared(int lbcs) {
+        ContinuousSellStrategy strategy = new ContinuousSellStrategy();
         TradeMarketState market = legacySealWeakeningMarket(lbcs);
         TradeRuleRecord record = (actionType, ruleCode, symbol, time, price, increase, remark) -> { };
 

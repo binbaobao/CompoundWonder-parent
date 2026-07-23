@@ -3,14 +3,6 @@ package com.compoundwonder.strategy.sell;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
-import com.compoundwonder.strategy.sell.eight_to_nine.EightToNineNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.five_to_six.FiveToSixNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.four_to_five.FourToFiveNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.high_board.HighBoardNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.seven_to_eight.SevenToEightNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.six_to_seven.SixToSevenNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.three_to_four.ThreeToFourNormalCapSellStrategy;
-import com.compoundwonder.strategy.sell.two_to_three.TwoToThreeNormalCapSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -33,7 +25,7 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getChangePercent", -3.94D);
         values.put("getLimitUpBuyAmount", 9_668L);
 
-        assertRule(new TwoToThreeNormalCapSellStrategy(), values,
+        assertRule(values,
                 RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD);
     }
 
@@ -46,7 +38,7 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getTwoDaysTurnover", 20D);
         values.put("getChangePercent", -4D);
 
-        assertRule(new ThreeToFourNormalCapSellStrategy(), values,
+        assertRule(values,
                 RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD);
     }
 
@@ -58,7 +50,7 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getChangePercent", -4.1D);
         values.put("getLimitUpBuyAmount", 570L);
 
-        assertRule(new FiveToSixNormalCapSellStrategy(), values,
+        assertRule(values,
                 RuleConstant.SELL_LIMIT_UP_MORNING_HIGH_TURNOVER_WEAK_SEAL);
     }
 
@@ -70,7 +62,7 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getChangePercent", -4D);
         values.put("getLastSealAmount", 2_000L);
 
-        assertRule(new SixToSevenNormalCapSellStrategy(), values,
+        assertRule(values,
                 RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_SEAL_WEAKENING);
     }
 
@@ -83,39 +75,43 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getYesterdayTurnover", 20D);
         values.put("getChangePercent", -6D);
 
-        assertRule(new SevenToEightNormalCapSellStrategy(), values,
+        assertRule(values,
                 RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING);
     }
 
     @Test
-    void removesUnusedTwoToThreeMultiBreakBranch() {
+    void unifiedStrategyAppliesHighTurnoverRuleWithoutMarketCapBranch() {
         Map<String, Object> values = values(2);
         values.put("getTime", 100_000_000);
         values.put("getTurnoverRate", 55D);
         values.put("getStatus", 21);
         values.put("getAmplitude", 16D);
 
-        assertNoRule(new TwoToThreeNormalCapSellStrategy(), values);
+        assertRule(values, RuleConstant.SELL_LIMIT_UP_HIGH_TURNOVER_MULTI_BREAK);
     }
 
     @Test
-    void removesUnusedThreeToFourConsecutiveHighTurnoverBranch() {
-        assertNoRule(new ThreeToFourNormalCapSellStrategy(), consecutiveHighTurnoverValues(3));
+    void unifiedStrategyAppliesConsecutiveHighTurnoverAtThreeToFour() {
+        assertRule(consecutiveHighTurnoverValues(3),
+                RuleConstant.SELL_LIMIT_UP_CONSECUTIVE_HIGH_TURNOVER);
     }
 
     @Test
-    void removesUnusedFiveToSixConsecutiveHighTurnoverBranch() {
-        assertNoRule(new FiveToSixNormalCapSellStrategy(), consecutiveHighTurnoverValues(5));
+    void unifiedStrategyAppliesConsecutiveHighTurnoverAtFiveToSix() {
+        assertRule(consecutiveHighTurnoverValues(5),
+                RuleConstant.SELL_LIMIT_UP_CONSECUTIVE_HIGH_TURNOVER);
     }
 
     @Test
-    void removesUnusedSixToSevenConsecutiveHighTurnoverBranch() {
-        assertNoRule(new SixToSevenNormalCapSellStrategy(), consecutiveHighTurnoverValues(6));
+    void unifiedStrategyAppliesConsecutiveHighTurnoverAtSixToSeven() {
+        assertRule(consecutiveHighTurnoverValues(6),
+                RuleConstant.SELL_LIMIT_UP_CONSECUTIVE_HIGH_TURNOVER);
     }
 
     @Test
-    void removesUnusedSevenToEightConsecutiveHighTurnoverBranch() {
-        assertNoRule(new SevenToEightNormalCapSellStrategy(), consecutiveHighTurnoverValues(7));
+    void unifiedStrategyAppliesConsecutiveHighTurnoverAtSevenToEight() {
+        assertRule(consecutiveHighTurnoverValues(7),
+                RuleConstant.SELL_LIMIT_UP_CONSECUTIVE_HIGH_TURNOVER);
     }
 
     @Test
@@ -127,12 +123,12 @@ class NormalCapSellStrategyBaselineTest {
         fourToFive.put("getTurnoverRate", 20D);
         fourToFive.put("getChangePercent", -2D);
 
-        assertRule(new FourToFiveNormalCapSellStrategy(), fourToFive,
+        assertRule(fourToFive,
                 RuleConstant.SELL_LIMIT_UP_AVERAGE_HEIGHT_FAST_SEAL);
     }
 
     @Test
-    void fourToFiveDoesNotApplyAfternoonFallbackToZhongshuiFisheryOn2025_11_20() {
+    void unifiedStrategyAppliesAfternoonRuleWithoutBoardDispatcher() {
         Map<String, Object> values = values(4);
         values.put("getInitialMarketValue", 130_070);
         values.put("getTime", 141_604_740);
@@ -140,7 +136,7 @@ class NormalCapSellStrategyBaselineTest {
         values.put("getTwoDaysTurnover", 20D);
         values.put("getChangePercent", -4.17D);
 
-        assertNoRule(new FourToFiveNormalCapSellStrategy(), values);
+        assertRule(values, RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD);
     }
 
     @Test
@@ -151,7 +147,7 @@ class NormalCapSellStrategyBaselineTest {
         eightToNine.put("getYesterdayTurnover", 20D);
         eightToNine.put("getChangePercent", -6D);
 
-        assertRule(new EightToNineNormalCapSellStrategy(), eightToNine,
+        assertRule(eightToNine,
                 RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING);
     }
 
@@ -163,7 +159,7 @@ class NormalCapSellStrategyBaselineTest {
         highBoard.put("getTwoDaysTurnover", 20D);
         highBoard.put("getChangePercent", -4D);
 
-        assertRule(new HighBoardNormalCapSellStrategy(), highBoard,
+        assertRule(highBoard,
                 RuleConstant.SELL_LIMIT_UP_AFTERNOON_SHRINKING_BOARD);
     }
 
@@ -190,15 +186,10 @@ class NormalCapSellStrategyBaselineTest {
         return values;
     }
 
-    private static void assertRule(BoardSellStrategy strategy, Map<String, Object> values,
-                                   int expectedRule) {
+    private static void assertRule(Map<String, Object> values, int expectedRule) {
         CapturedRule record = new CapturedRule();
-        assertTrue(strategy.evaluateOrderBook(market(values), record));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), record));
         assertEquals(expectedRule, record.ruleCode);
-    }
-
-    private static void assertNoRule(BoardSellStrategy strategy, Map<String, Object> values) {
-        assertFalse(strategy.evaluateOrderBook(market(values), new CapturedRule()));
     }
 
     private static TradeMarketState market(Map<String, Object> values) {

@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.sell.six_to_seven;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -27,7 +28,7 @@ class SixToSevenSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new SixToSevenSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_GAP_SHRINKING, rule.ruleCode);
         assertEquals(1_040, rule.price);
     }
@@ -45,7 +46,7 @@ class SixToSevenSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new SixToSevenSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_LOW_TURNOVER, rule.ruleCode);
         assertEquals(928, rule.price);
     }
@@ -64,7 +65,7 @@ class SixToSevenSmallCapSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new SixToSevenSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_HIGH_BOARD_LOW_TURNOVER, rule.ruleCode);
         assertEquals(1_597, rule.price);
         assertTrue(rule.remark.contains("近 15 日平均高度 6 板"));

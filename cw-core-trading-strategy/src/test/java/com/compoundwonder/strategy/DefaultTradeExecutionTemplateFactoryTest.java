@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DefaultTradeExecutionTemplateFactoryTest {
@@ -25,6 +26,8 @@ class DefaultTradeExecutionTemplateFactoryTest {
         assertSame(facts, template.facts());
         assertNotNull(template.shanghaiOpeningAuctionBuy());
         assertNotNull(template.shenzhenOpeningAuctionBuy());
+        assertNotSame(template.shanghaiOpeningAuctionBuy(),
+                template.shenzhenOpeningAuctionBuy());
         assertNotNull(template.continuousBuy());
         assertNotNull(template.continuousSell());
         assertNotNull(template.averagePriceSell());

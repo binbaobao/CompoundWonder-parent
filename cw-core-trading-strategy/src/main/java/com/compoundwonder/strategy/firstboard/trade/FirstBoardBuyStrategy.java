@@ -8,8 +8,8 @@ import com.compoundwonder.strategy.BuyStrategy;
 /**
  * 普通首板模式买入规则聚合入口。
  *
- * <p>只负责分发上海集合竞价、深圳集合竞价、连续竞价打板和买入撤单。
- * 持仓卖出由独立的板高/市值分发器处理。</p>
+ * <p>只负责上海集合竞价、深圳集合竞价、连续竞价打板和买入撤单。
+ * 持仓卖出由统一连续竞价卖出策略处理。</p>
  */
 public final class FirstBoardBuyStrategy implements BuyStrategy {
 

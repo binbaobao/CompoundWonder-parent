@@ -3,6 +3,7 @@ package com.compoundwonder.strategy.sell.four_to_five;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 import com.compoundwonder.constant.RuleConstant;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -36,7 +37,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -46,7 +47,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -56,7 +57,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -68,7 +69,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_SMALL_CAP_ONE_WORD_WEAKENING, rule.ruleCode);
         assertEquals(2_951, rule.price);
     }
@@ -80,7 +81,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -91,7 +92,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 
@@ -111,7 +112,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveSmallCapSellStrategy()
+        assertFalse(new ContinuousSellStrategy()
                 .evaluateAveragePrice(calculateIndex, market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
@@ -135,7 +136,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_SMALL_CAP_ONE_WORD_WEAKENING, rule.ruleCode);
         assertEquals(3_071, rule.price);
     }
@@ -156,7 +157,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new FourToFiveSmallCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertTrue(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(RuleConstant.SELL_LIMIT_UP_AVERAGE_HEIGHT_WEAK_SEAL, rule.ruleCode);
         assertEquals(3_469, rule.price);
     }
@@ -182,7 +183,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertTrue(new FourToFiveSmallCapSellStrategy()
+        assertTrue(new ContinuousSellStrategy()
                 .evaluateAveragePrice(calculateIndex, market(values), rule));
         assertEquals(RuleConstant.SELL_AVERAGE_LOW_OPEN_WEAKENING, rule.ruleCode);
         assertEquals(1_988, rule.price);
@@ -200,7 +201,7 @@ class FourToFiveSellStrategyTest {
 
         CapturedRule rule = new CapturedRule();
 
-        assertFalse(new FourToFiveNormalCapSellStrategy().evaluateOrderBook(market(values), rule));
+        assertFalse(new ContinuousSellStrategy().evaluateOrderBook(market(values), rule));
         assertEquals(0, rule.ruleCode);
     }
 

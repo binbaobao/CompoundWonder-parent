@@ -9,8 +9,8 @@ import com.compoundwonder.common.strategy.trade.TradeExecutionTemplateFactory;
 import com.compoundwonder.common.strategy.trade.TradeExecutionProfile;
 import com.compoundwonder.strategy.firstboard.trade.FirstBoardBuyStrategy;
 import com.compoundwonder.strategy.relay.trade.RelayBuyStrategy;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import com.compoundwonder.strategy.sell.ShanghaiClosingAuctionSellEvaluator;
-import com.compoundwonder.strategy.sell.SellStrategyDispatcher;
 import com.compoundwonder.strategy.sell.ShenzhenClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.smallcapfirstboard.trade.SmallCapFirstBoardBuyStrategy;
 
@@ -25,7 +25,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
     private final BuyStrategy relayBuy = new RelayBuyStrategy();
     private final BuyStrategy firstBoardBuy = new FirstBoardBuyStrategy();
     private final BuyStrategy smallCapFirstBoardBuy = new SmallCapFirstBoardBuyStrategy();
-    private final SellStrategyDispatcher sellCatalog = new SellStrategyDispatcher();
+    private final ContinuousSellStrategy continuousSell = new ContinuousSellStrategy();
 
     @Override
     public TradeExecutionTemplate compile(TradeStaticFacts facts) {
@@ -38,7 +38,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
             case 3 -> smallCapFirstBoardBuy;
             default -> throw new IllegalStateException("不支持的交易模式: " + facts.tradeMode());
         };
-        return compileTemplate(facts, buy, sellCatalog);
+        return compileTemplate(facts, buy, continuousSell);
     }
 
     private record CompiledTradeExecutionTemplate(
@@ -55,7 +55,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
     }
 
     private static TradeExecutionTemplate compileTemplate(
-            TradeStaticFacts facts, BuyStrategy buy, SellStrategyDispatcher sellRules) {
+            TradeStaticFacts facts, BuyStrategy buy, ContinuousSellStrategy sellRules) {
         // Profile 只负责编译跨交易所约束；沪深竞价市值门槛仍由各自 evaluator 判断。
         TradeExecutionProfile profile = TradeExecutionProfile.from(facts);
         return new CompiledTradeExecutionTemplate(

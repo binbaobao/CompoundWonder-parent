@@ -6,24 +6,24 @@ import com.compoundwonder.common.orderbook.AuctionMarketEvent;
 import com.compoundwonder.common.strategy.trade.TradeDecisionService;
 import com.compoundwonder.strategy.firstboard.trade.FirstBoardBuyStrategy;
 import com.compoundwonder.strategy.relay.trade.RelayBuyStrategy;
+import com.compoundwonder.strategy.sell.ContinuousSellStrategy;
 import com.compoundwonder.strategy.sell.ShanghaiClosingAuctionSellEvaluator;
-import com.compoundwonder.strategy.sell.SellStrategyDispatcher;
 import com.compoundwonder.strategy.sell.ShenzhenClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.smallcapfirstboard.trade.SmallCapFirstBoardBuyStrategy;
 
 /**
  * 高频交易规则分发器。
  *
- * <p>买入按订单簿稳定的 {@code tradeMode} 分发，卖出按昨日板高 {@code lbcs}
- * 分发并在场景内按启动流通市值分档。热路径只使用直接 {@code switch}，
- * 不使用 Map、反射、Spring 查找或每笔行情创建对象。</p>
+ * <p>买入按订单簿稳定的 {@code tradeMode} 分发；连续竞价卖出统一进入一个卖出
+ * 策略，由规则自身判断板高、市值和盘口事实。热路径不使用 Map、反射、Spring
+ * 查找或每笔行情创建对象。</p>
  */
 public final class TradeStrategyDispatcher implements TradeDecisionService {
 
     private final BuyStrategy relayStrategy = new RelayBuyStrategy();
     private final BuyStrategy firstBoardStrategy = new FirstBoardBuyStrategy();
     private final BuyStrategy smallCapFirstBoardStrategy = new SmallCapFirstBoardBuyStrategy();
-    private final SellStrategyDispatcher sellStrategyDispatcher = new SellStrategyDispatcher();
+    private final ContinuousSellStrategy continuousSell = new ContinuousSellStrategy();
 
     @Override
     public boolean evaluateBuy(TradeMarketState market, TradeRuleRecord record) {
@@ -33,15 +33,13 @@ public final class TradeStrategyDispatcher implements TradeDecisionService {
 
     @Override
     public boolean evaluateSell(TradeMarketState market, TradeRuleRecord record) {
-        // 卖出不沿用买入模式，按昨日板高和启动流通市值进入持仓卖出场景。
-        return sellStrategyDispatcher.evaluateOrderBook(market, record);
+        return continuousSell.evaluateOrderBook(market, record);
     }
 
     @Override
     public boolean evaluateAveragePriceSell(int calculateIndex, TradeMarketState market,
                                             TradeRuleRecord record) {
-        // 卖出不沿用买入模式，按昨日板高和启动流通市值进入持仓卖出场景。
-        return sellStrategyDispatcher.evaluateAveragePrice(calculateIndex, market, record);
+        return continuousSell.evaluateAveragePrice(calculateIndex, market, record);
     }
 
     @Override
