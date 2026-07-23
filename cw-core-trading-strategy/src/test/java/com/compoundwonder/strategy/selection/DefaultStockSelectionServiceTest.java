@@ -37,15 +37,35 @@ class DefaultStockSelectionServiceTest {
                 service.select(LocalDate.of(2026, 1, 5), TradeMode.SMALL_CAP_FIRST_BOARD));
     }
 
+    @Test
+    void selectAllExecutesAllThreeModesForPageReselection() {
+        EmptySelectionDataService dataService = new EmptySelectionDataService();
+        DefaultStockSelectionService service = new DefaultStockSelectionService(dataService);
+
+        service.selectAll(LocalDate.of(2026, 1, 5));
+
+        assertEquals(1, dataService.marketEmotionRequestCount);
+        assertEquals(3, dataService.dailyPoolRequestCount);
+    }
+
     private static final class EmptySelectionDataService implements StockSelectionDataService {
-        @Override public List<StockDailyData> listDailyByTradeDate(LocalDate tradeDate) { return List.of(); }
+        private int marketEmotionRequestCount;
+        private int dailyPoolRequestCount;
+
+        @Override public List<StockDailyData> listDailyByTradeDate(LocalDate tradeDate) {
+            dailyPoolRequestCount++;
+            return List.of();
+        }
         @Override public List<StockDailyData> listLatestDaily(String stockCode, LocalDate endDate, int limit) { return List.of(); }
         @Override public List<StockDailyData> listDailyBetween(String stockCode, LocalDate startDate, LocalDate endDate) { return List.of(); }
         @Override public List<StockDailyData> listEarliestDaily(String stockCode, LocalDate endDate, int limit) { return List.of(); }
         @Override public LocalDate findLatestStDate(String stockCode, LocalDate beforeDate) { return null; }
         @Override public LocalDate findFirstTradeDate(String stockCode, LocalDate endDate) { return null; }
         @Override public StockCurrentStatusData findCurrentStatus(String stockCode) { return null; }
-        @Override public List<MarketEmotionData> listLatestMarketEmotion(LocalDate endDate, int limit) { return List.of(); }
+        @Override public List<MarketEmotionData> listLatestMarketEmotion(LocalDate endDate, int limit) {
+            marketEmotionRequestCount++;
+            return List.of();
+        }
         @Override public Set<String> listConvertibleBondStockCodes(LocalDate tradeDate) { return Set.of(); }
         @Override public LocalDate findNextTradeDate(LocalDate recommendDate) { return recommendDate.plusDays(1); }
     }

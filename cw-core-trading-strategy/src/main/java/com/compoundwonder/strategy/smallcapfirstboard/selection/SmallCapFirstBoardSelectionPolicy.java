@@ -13,8 +13,8 @@ public final class SmallCapFirstBoardSelectionPolicy {
     public static final double MAX_START_MARKET_CAP_EXCLUSIVE = 119_999D;
     /** 小市值首板要求选股日首板涨停收盘价不低于 4.5 元。 */
     public static final double MIN_FIRST_BOARD_LIMIT_PRICE_INCLUSIVE = 4.5D;
-    /** 小市值首板最近 200 根 K 线历史最大换手率不得超过 30%。 */
-    public static final double MAX_HISTORICAL_TURNOVER_RATE_INCLUSIVE = 30D;
+    /** 小市值首板最近 100 根 K 线历史最大换手率不得超过 60%。 */
+    public static final double MAX_HISTORICAL_TURNOVER_RATE_INCLUSIVE = 60D;
 
     private SmallCapFirstBoardSelectionPolicy() {
     }
@@ -46,13 +46,13 @@ public final class SmallCapFirstBoardSelectionPolicy {
         }
         double maxTurnoverRate = Objects.requireNonNullElse(candidate.maxTurnoverRate(), 0D);
         if (maxTurnoverRate > MAX_HISTORICAL_TURNOVER_RATE_INCLUSIVE) {
-            return Decision.rejected("200根K线历史最大换手率",
-                    "actual=" + maxTurnoverRate + "%, required<=30%");
+            return Decision.rejected("100根K线历史最大换手率",
+                    "actual=" + maxTurnoverRate + "%, required<=60%");
         }
         int highestBoard = Objects.requireNonNullElse(
                 candidate.highestConsecutiveLimitUpDays(), 0);
         if (highestBoard > 3) {
-            return Decision.rejected("200根K线历史最高板",
+            return Decision.rejected("100根K线历史最高板",
                     "actual=" + highestBoard + ", required<3");
         }
 //        int priorTwentyAbnormal = Objects.requireNonNullElse(

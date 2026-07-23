@@ -187,10 +187,10 @@ public class SmallCapFirstBoardSelectionService {
                 stockDaily.getTradeDate().minusMonths(18), stockDaily.getTradeDate());
     }
 
-    /** 查询首板前一交易日及以前最近 200 根日 K，用于模式独立硬过滤。 */
+    /** 查询首板前一交易日及以前最近 100 根日 K，用于模式独立硬过滤。 */
     private List<StockDailyData> listHistoryDaily(String stockCode, LocalDate historyEndDate) {
         if (stockCode == null || historyEndDate == null) return List.of();
-        return selectionDataService.listLatestDaily(stockCode, historyEndDate, 200);
+        return selectionDataService.listLatestDaily(stockCode, historyEndDate, 100);
     }
 
     /** 查询最早 11 根日 K，用第 11 根确定排除新股早期数据后的起算日。 */
@@ -265,7 +265,7 @@ public class SmallCapFirstBoardSelectionService {
 
     /** 建立股票代码到选股日收盘价的索引，供同分候选排序。 */
     /**
-     * 小市值首板排序使用 先 200日最高板 正序。了，连板越少越好，最大换手越小越好
+     * 小市值首板排序使用先 100 日最高板正序，连板越少越好，最大换手越小越好。
      * @param assistList
      * @return
      */

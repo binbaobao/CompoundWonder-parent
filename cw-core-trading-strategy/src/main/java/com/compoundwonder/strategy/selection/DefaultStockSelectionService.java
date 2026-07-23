@@ -63,10 +63,10 @@ public class DefaultStockSelectionService implements StockSelectionService {
     public List<SelectionTaskData> selectAll(LocalDate tradeDate) {
         List<SelectionTaskData> tasks = new ArrayList<>();
         // 调用连板接力模式选股方法。
-//        tasks.addAll(relaySelectionService.select(tradeDate));
-//        // 调用普通首板模式选股方法。
-//        tasks.addAll(firstBoardSelectionService.select(tradeDate));
-//        // 调用小市值首板模式选股方法。
+        tasks.addAll(select(tradeDate, TradeMode.RELAY_LIMIT_UP));
+        // 调用普通首板模式选股方法。
+        tasks.addAll(select(tradeDate, TradeMode.FIRST_BOARD));
+        // 调用小市值首板模式选股方法。
         tasks.addAll(select(tradeDate, TradeMode.SMALL_CAP_FIRST_BOARD));
         return List.copyOf(tasks);
     }

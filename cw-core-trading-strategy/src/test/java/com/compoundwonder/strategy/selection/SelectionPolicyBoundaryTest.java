@@ -24,12 +24,12 @@ class SelectionPolicyBoundaryTest {
     }
 
     @Test
-    void smallCapKeepsThirtyPercentHistoricalTurnoverBoundary() {
+    void smallCapKeepsSixtyPercentHistoricalTurnoverBoundary() {
         assertTrue(SmallCapFirstBoardSelectionPolicy.evaluate(
                 smallCapCandidate(100_000D, 4.5D)).passed());
         SmallCapFirstBoardSelectionCandidate overLimit =
                 new SmallCapFirstBoardSelectionCandidate(
-                        100_000D, 4.5D, 30.01D, 2, 0, 0, 10D, 10D);
+                        100_000D, 4.5D, 60.01D, 2, 0, 0, 10D, 10D);
         assertFalse(SmallCapFirstBoardSelectionPolicy.evaluate(overLimit).passed());
     }
 
@@ -57,7 +57,7 @@ class SelectionPolicyBoundaryTest {
     private SmallCapFirstBoardSelectionCandidate smallCapCandidate(double cap,
                                                                     double firstBoardLimitPrice) {
         return new SmallCapFirstBoardSelectionCandidate(
-                cap, firstBoardLimitPrice, 30D, 2, 0, 0, 10D, 10D);
+                cap, firstBoardLimitPrice, 60D, 2, 0, 0, 10D, 10D);
     }
 
     private RelaySelectionCandidate relayCandidate(double maxTurnover) {
