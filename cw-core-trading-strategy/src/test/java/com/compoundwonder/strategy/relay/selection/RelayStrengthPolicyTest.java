@@ -93,6 +93,31 @@ class RelayStrengthPolicyTest {
     }
 
     @Test
+    void threeBoardAcceleratedCandidateCanEnterBackupWhenEveryOtherRulePasses() {
+        RelaySelectionCandidate candidate = candidate(
+                3, true, 10D, 80_000D, 5D,
+                10D, 1_000_000L, 30D, 30D);
+
+        assertFalse(RelaySelectionPolicy.evaluate(candidate,
+                RelaySelectionStrength.RELAXED).passed());
+        assertTrue(RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
+                candidate, RelaySelectionStrength.RELAXED).passed());
+    }
+
+    @Test
+    void threeBoardAcceleratedBackupStillAppliesLaterRiskFilters() {
+        RelaySelectionCandidate candidate = new RelaySelectionCandidate(
+                3, true, "江苏", 10D, 80_000D, 5D,
+                20D, 50_000D, 8D, 36, 60,
+                10D, 2, 1, 35.01D,
+                1_000_000L, 20D, 50_000D,
+                0, 0, 30D, 30D);
+
+        assertFalse(RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
+                candidate, RelaySelectionStrength.RELAXED).passed());
+    }
+
+    @Test
     void twoBoardAcceleratedShrinkVolumeRequiresHistoricalTurnoverBelowTwenty() {
         RelaySelectionCandidate candidate = candidate(
                 2, true, 10D, 80_000D, 5D,

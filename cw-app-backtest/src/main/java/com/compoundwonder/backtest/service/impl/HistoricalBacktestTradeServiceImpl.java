@@ -159,6 +159,10 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
 
     private void processDay(long runId, LocalDate tradeDate, AccountState account) {
         List<StockWatchingTask> tasks = persistenceService.findWatchingTasks(tradeDate);
+        BacktestBuyTaskPriority.TaskGroups taskGroups =
+                BacktestBuyTaskPriority.group(tasks);
+        List<StockWatchingTask> primaryTasks = taskGroups.primaryTasks();
+        List<StockWatchingTask> backupTasks = taskGroups.backupTasks();
         BacktestPosition previousPosition = account.position;
         RuleRecordDTO sellRule = null;
         RuleRecordDTO buyRule = null;
@@ -195,7 +199,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 account.position = null;
                 account.positionBuyKlineState = null;
                 BuyCandidate candidate = findEarliestBuy(
-                        tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
+                        tradeDate, primaryTasks, BacktestReplayMode.BUY_AFTER_TIME,
                         sellRule.getTime(), Set.of(soldSymbol), nonBuyableSymbols,
                         actionRules, triggeredRules, dailyTicks);
                 if (candidate != null) {
@@ -203,11 +207,11 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                     buyRule = candidate.rule();
                 }
             }
-        } else if (!tasks.isEmpty()) {
-            StockWatchingTask overnightTask = tasks.get(0);
+        } else if (!primaryTasks.isEmpty()) {
+            StockWatchingTask overnightTask = primaryTasks.get(0);
             if (nonBuyableSymbols.contains(overnightTask.getStockCode())) {
                 BuyCandidate candidate = findEarliestBuy(
-                        tradeDate, tasks, BacktestReplayMode.BUY, null,
+                        tradeDate, primaryTasks, BacktestReplayMode.BUY, null,
                         Set.of(), nonBuyableSymbols, actionRules, triggeredRules, dailyTicks);
                 if (candidate != null) {
                     buyTask = candidate.task();
@@ -222,7 +226,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 if (cancelRule != null) {
                     actionRules.add(new BacktestRuleAction(overnightTask, cancelRule));
                     BuyCandidate candidate = findEarliestBuy(
-                            tradeDate, tasks, BacktestReplayMode.BUY_AFTER_TIME,
+                            tradeDate, primaryTasks, BacktestReplayMode.BUY_AFTER_TIME,
                             cancelRule.getTime(), Set.of(), nonBuyableSymbols, actionRules,
                             triggeredRules, dailyTicks,
                             new ReusableReplayResult(overnightTask, overnightResult));
@@ -244,6 +248,23 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                         buyRule = overnightBuyRule(overnightResult, dailyTurnover);
                     }
                 }
+            }
+        }
+
+        if (account.position == null && buyRule == null && !backupTasks.isEmpty()
+                && (previousPosition == null || sellRule != null)) {
+            boolean afterSell = previousPosition != null;
+            BuyCandidate backupCandidate = findEarliestBuy(
+                    tradeDate, backupTasks,
+                    afterSell ? BacktestReplayMode.BUY_AFTER_TIME : BacktestReplayMode.BUY,
+                    afterSell ? sellRule.getTime() : null,
+                    afterSell ? Set.of(previousPosition.getSymbol()) : Set.of(),
+                    nonBuyableSymbols, actionRules, triggeredRules, dailyTicks);
+            if (backupCandidate != null) {
+                buyTask = backupCandidate.task();
+                buyRule = backupCandidate.rule();
+                log.info("主候选未成交，启用三板加速缩量备用候选 runId={}, date={}, symbol={}",
+                        runId, tradeDate, buyTask.getStockCode());
             }
         }
 

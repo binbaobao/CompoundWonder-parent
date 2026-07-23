@@ -186,6 +186,23 @@ class RelaySelectionServiceTest {
     }
 
     @Test
+    void backupTasksOnlyFillUnusedPrimaryTopThreeSlots() {
+        SelectionTaskData primaryOne = watchingTask("600001", 80);
+        SelectionTaskData primaryTwo = watchingTask("600002", 70);
+        SelectionTaskData backupOne = watchingTask("600003", 90);
+        SelectionTaskData backupTwo = watchingTask("600004", 60);
+
+        List<SelectionTaskData> selectedBackups =
+                RelaySelectionService.selectBackupTasks(
+                        List.of(primaryOne, primaryTwo),
+                        List.of(backupOne, backupTwo),
+                        RelaySelectionService.NORMAL_RELAY_TASK_LIMIT);
+
+        assertEquals(List.of("600003"),
+                selectedBackups.stream().map(SelectionTaskData::getStockCode).toList());
+    }
+
+    @Test
     void higherBoardRanksBeforeScoreInsideMixedBoardPool() {
         SelectionTaskData twoBoard = watchingTask("600001", 99);
         twoBoard.setConsecutiveLimitUpDays(2);

@@ -29,6 +29,8 @@ import java.util.Set;
 public class RelaySelectionService {
 
     public static final String STRATEGY_VERSION = "relay-v1";
+    public static final String THREE_BOARD_ACCELERATED_BACKUP_VERSION =
+            "relay-v1-backup-3-accelerated";
 
     /** 所有连板触发点最终最多保留 3 只。 */
     static final int NORMAL_RELAY_TASK_LIMIT = 3;
@@ -55,7 +57,12 @@ public class RelaySelectionService {
      * @return {@code tradeMode=1} 的下一交易日盯盘任务
      */
     public List<SelectionTaskData> select(LocalDate tradeDate) {
-        return selectDetailed(tradeDate).tasks();
+        RelaySelectionResult result = selectDetailed(tradeDate);
+        List<SelectionTaskData> tasks = new ArrayList<>(
+                result.tasks().size() + result.backupTasks().size());
+        tasks.addAll(result.tasks());
+        tasks.addAll(result.backupTasks());
+        return List.copyOf(tasks);
     }
 
     /**
@@ -89,7 +96,7 @@ public class RelaySelectionService {
                 convertibleBondStockCodes, primaryPlan);
         if (!primary.tasks().isEmpty()) {
             return new RelaySelectionResult(tradeDate, primaryPlan, primaryPlan,
-                    primary.evaluations(), primary.tasks(), null);
+                    primary.evaluations(), primary.tasks(), primary.backupTasks(), null);
         }
 
         int todayHeight = Objects.requireNonNullElse(today.highestConsecutiveLimitUpDays(), 0);
@@ -120,12 +127,13 @@ public class RelaySelectionService {
                 PlanEvaluation fallback = evaluatePlan(tradeDate, allDaily,
                         convertibleBondStockCodes, fallbackPlan);
                 return new RelaySelectionResult(tradeDate, primaryPlan, fallbackPlan,
-                        fallback.evaluations(), fallback.tasks(), fallbackDetail);
+                        fallback.evaluations(), fallback.tasks(), fallback.backupTasks(),
+                        fallbackDetail);
             }
         }
 
         return new RelaySelectionResult(tradeDate, primaryPlan, primaryPlan,
-                primary.evaluations(), List.of(), fallbackDetail);
+                primary.evaluations(), List.of(), primary.backupTasks(), fallbackDetail);
     }
 
     /**
@@ -155,7 +163,7 @@ public class RelaySelectionService {
                                         Set<String> convertibleBondStockCodes,
                                         RelaySelectionPlan plan) {
         if (plan == null || plan.trigger() == RelaySelectionTrigger.NONE) {
-            return new PlanEvaluation(List.of(), List.of());
+            return new PlanEvaluation(List.of(), List.of(), List.of());
         }
         Map<Integer, RelaySelectionStrength> strengthByBoard = new HashMap<>();
         for (RelayBoardPlan boardPlan : plan.boardPlans()) {
@@ -164,6 +172,7 @@ public class RelaySelectionService {
 
         List<RelayCandidateEvaluation> evaluations = new ArrayList<>();
         List<SelectionTaskData> eligibleTasks = new ArrayList<>();
+        List<SelectionTaskData> eligibleBackupTasks = new ArrayList<>();
         Map<String, Double> currentPriceByStockCode = new HashMap<>();
         for (StockDailyData daily : allDaily) {
             RelaySelectionStrength strength = strengthByBoard.get(daily.getConsecutiveLimitUpDays());
@@ -195,6 +204,17 @@ public class RelaySelectionService {
             RelaySelectionPolicy.Decision decision = RelaySelectionPolicy.evaluate(
                     toSelectionCandidate(assist), strength);
             if (!decision.passed()) {
+                RelaySelectionPolicy.Decision backupDecision =
+                        RelaySelectionPolicy.evaluateThreeBoardAcceleratedBackup(
+                                toSelectionCandidate(assist), strength);
+                if (backupDecision.passed()) {
+                    SelectionTaskData backupTask = buildWatchingTask(
+                            assist, selectionScore, plan.trigger(), strength,
+                            THREE_BOARD_ACCELERATED_BACKUP_VERSION);
+                    eligibleBackupTasks.add(backupTask);
+                    currentPriceByStockCode.put(
+                            backupTask.getStockCode(), assist.getCurrentPrice());
+                }
                 logSelectionFiltered(plan.trigger().name(), assist,
                         decision.layer(), decision.detail());
                 evaluations.add(new RelayCandidateEvaluation(plan.trigger(), strength,
@@ -214,6 +234,9 @@ public class RelaySelectionService {
         sortSelectionTasks(eligibleTasks, currentPriceByStockCode);
         List<SelectionTaskData> selectedTasks = takeTopTasks(
                 plan.trigger().name(), eligibleTasks, plan.taskLimit());
+        sortSelectionTasks(eligibleBackupTasks, currentPriceByStockCode);
+        List<SelectionTaskData> selectedBackupTasks = selectBackupTasks(
+                selectedTasks, eligibleBackupTasks, plan.taskLimit());
         Map<String, Integer> selectedRankByCode = new HashMap<>();
         for (int i = 0; i < selectedTasks.size(); i++) {
             selectedRankByCode.put(selectedTasks.get(i).getStockCode(), i + 1);
@@ -224,7 +247,7 @@ public class RelaySelectionService {
                     return rank == null ? evaluation : evaluation.selectedAt(rank);
                 })
                 .toList();
-        return new PlanEvaluation(ranked, selectedTasks);
+        return new PlanEvaluation(ranked, selectedTasks, selectedBackupTasks);
     }
 
     private BaseFilterDecision evaluateBaseFilters(StockDailyData daily,
@@ -271,7 +294,8 @@ public class RelaySelectionService {
     }
 
     private record PlanEvaluation(List<RelayCandidateEvaluation> evaluations,
-                                  List<SelectionTaskData> tasks) {
+                                  List<SelectionTaskData> tasks,
+                                  List<SelectionTaskData> backupTasks) {
     }
 
     /** 将可变辅助对象压缩为核心策略只读候选。 */
@@ -359,6 +383,22 @@ public class RelaySelectionService {
     }
 
     /**
+     * 备用候选只填补主候选未占用的 TopN 名额，绝不挤掉已经入选的主候选。
+     */
+    static List<SelectionTaskData> selectBackupTasks(
+            List<SelectionTaskData> primaryTasks,
+            List<SelectionTaskData> sortedBackupTasks,
+            int limit) {
+        int primaryCount = primaryTasks == null ? 0 : primaryTasks.size();
+        int available = Math.max(0, limit - primaryCount);
+        if (available == 0 || sortedBackupTasks == null || sortedBackupTasks.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(sortedBackupTasks.subList(
+                0, Math.min(available, sortedBackupTasks.size())));
+    }
+
+    /**
      * 记录辅助对象在选股流程中被过滤的具体步骤和指标值。
      */
     private void logSelectionFiltered(String selectionMode,
@@ -383,6 +423,15 @@ public class RelaySelectionService {
                                                 Integer limitUpScore,
                                                 RelaySelectionTrigger trigger,
                                                 RelaySelectionStrength strength) {
+        return buildWatchingTask(
+                assist, limitUpScore, trigger, strength, STRATEGY_VERSION);
+    }
+
+    private SelectionTaskData buildWatchingTask(RelaySelectionAssist assist,
+                                                Integer limitUpScore,
+                                                RelaySelectionTrigger trigger,
+                                                RelaySelectionStrength strength,
+                                                String strategyVersion) {
         SelectionTaskData task = new SelectionTaskData();
         task.setStockCode(assist.getStockCode());
         task.setStockName(assist.getStockName());
@@ -393,7 +442,7 @@ public class RelaySelectionService {
         task.setTradeMode(TradeMode.RELAY_LIMIT_UP.code());
         task.setSelectionTrigger(trigger.name());
         task.setSelectionStrength(strength.name());
-        task.setStrategyVersion(STRATEGY_VERSION);
+        task.setStrategyVersion(strategyVersion);
         task.setCreatedTime(LocalDateTime.now());
         return task;
     }

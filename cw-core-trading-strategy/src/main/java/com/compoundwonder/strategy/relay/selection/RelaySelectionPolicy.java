@@ -19,6 +19,27 @@ public final class RelaySelectionPolicy {
      */
     public static Decision evaluate(RelaySelectionCandidate candidate,
                                     RelaySelectionStrength strength) {
+        return evaluate(candidate, strength, false);
+    }
+
+    /**
+     * 仅为三板加速缩量备用候选跳过对应拒绝层，其余风控、强度和筹码规则保持不变。
+     */
+    public static Decision evaluateThreeBoardAcceleratedBackup(
+            RelaySelectionCandidate candidate,
+            RelaySelectionStrength strength) {
+        if (candidate == null
+                || !Objects.equals(candidate.consecutiveLimitUpDays(), 3)
+                || !candidate.twoAcceleratedShrinkVolumeLimitUps()) {
+            return Decision.rejected("三板加速缩量备用资格",
+                    "只接受命中三板加速缩量过滤的三板候选");
+        }
+        return evaluate(candidate, strength, true);
+    }
+
+    private static Decision evaluate(RelaySelectionCandidate candidate,
+                                     RelaySelectionStrength strength,
+                                     boolean allowThreeBoardAcceleratedBackup) {
         if (candidate == null) return Decision.rejected("数据完整性", "候选为空");
         if (strength == null) return Decision.rejected("选股强度", "强度为空");
 
@@ -30,7 +51,7 @@ public final class RelaySelectionPolicy {
         }
         int board = Objects.requireNonNullElse(candidate.consecutiveLimitUpDays(), 0);
         if (candidate.twoAcceleratedShrinkVolumeLimitUps()) {
-            if (board >= 3) {
+            if (board >= 3 && !allowThreeBoardAcceleratedBackup) {
                 return Decision.rejected("3连板加速缩量板",
                         "3板本轮至少2根加速缩量板：首板判断一字板或振幅<3%，后续板增加换手率<15%");
             }
