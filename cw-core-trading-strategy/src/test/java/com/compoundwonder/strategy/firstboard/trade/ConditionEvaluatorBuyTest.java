@@ -67,6 +67,26 @@ class ConditionEvaluatorBuyTest {
     }
 
     @Test
+    void rejectsRelayEntryWhenSevenPercentWasReachedLessThanEightMinutesAgo() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("getTime", 94_000_000);
+        overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> index == 4 ? 1_071 : 0);
+
+        assertFalse(com.compoundwonder.strategy.relay.trade.ConditionEvaluatorBuy.evaluate(
+                market(12.50D, overrides), new CapturedRule()));
+    }
+
+    @Test
+    void rejectsSmallCapEntryWhenSevenPercentWasReachedLessThanEightMinutesAgo() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("getTime", 94_000_000);
+        overrides.put("getMinutePriceAt", (IntUnaryOperator) index -> index == 4 ? 1_071 : 0);
+
+        assertFalse(com.compoundwonder.strategy.smallcapfirstboard.trade.ConditionEvaluatorBuy.evaluate(
+                market(14.50D, overrides), new CapturedRule()));
+    }
+
+    @Test
     void keepsLargeOrderRuleWhenSevenPercentWasReachedAtLeastEightMinutesAgo() {
         Map<String, Object> overrides = new HashMap<>();
         overrides.put("getTime", 94_000_000);

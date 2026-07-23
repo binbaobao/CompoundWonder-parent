@@ -151,8 +151,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 orderBook.price[calculateIndex] = order.price;
                 processAveragePriceSell(marketSession, calculateIndex, order, turnover);
             }
-            // 可交易状态下，10点还没有涨停的首板就是弱了，直接关闭打板任务
-            disableWeakFirstBoardSessions(marketSession);
+            // 10 点仍未触板的买入任务全部关闭；已触板或炸板的任务继续监控回封。
+            disableUntouchedBuySessionsAtTen(marketSession);
         }
 
         // 深交所 09:25 集中撮合前使用逐笔事件观察集合竞价。
@@ -226,8 +226,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
                 marketSession, calculateIndex, order, ruleRecordBuffer);
     }
 
-    private void disableWeakFirstBoardSessions(OrderBookSession marketSession) {
-        tradeExecutor.disableWeakFirstBoardSessions(marketSession, time);
+    private void disableUntouchedBuySessionsAtTen(OrderBookSession marketSession) {
+        tradeExecutor.disableUntouchedBuySessionsAtTen(marketSession, time);
     }
 
     private void processOpeningAuctionStrategies(

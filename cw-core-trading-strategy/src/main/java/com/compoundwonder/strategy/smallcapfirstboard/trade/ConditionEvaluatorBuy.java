@@ -5,6 +5,7 @@ import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.strategy.trade.FastLimitUpBuyPolicy;
 import com.compoundwonder.util.CompactTimeUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -165,6 +166,10 @@ public final class ConditionEvaluatorBuy {
             return false;
         }
         if (orderBook.getOpenIncrease() > 6.5  && time < ConstantUtil.TIME_1000) {//  美能能源 2025-11-26
+            return false;
+        }
+
+        if (FastLimitUpBuyPolicy.shouldReject(orderBook)) {
             return false;
         }
 

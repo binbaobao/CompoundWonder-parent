@@ -5,6 +5,7 @@ import com.compoundwonder.constant.ConstantUtil;
 import com.compoundwonder.constant.RuleConstant;
 import com.compoundwonder.common.orderbook.TradeMarketState;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
+import com.compoundwonder.common.strategy.trade.FastLimitUpBuyPolicy;
 import com.compoundwonder.util.CompactTimeUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -154,6 +155,10 @@ public final class ConditionEvaluatorBuy {
             if (orderBook.getOpenIncrease() > 4.5 && time < ConstantUtil.TIME_1000) {
                 return false;
             }
+        }
+
+        if (FastLimitUpBuyPolicy.shouldReject(orderBook)) {
+            return false;
         }
 
         // 当前仍留在订单簿中的最大单笔买委托，不代表历史已成交或已撤销委托。

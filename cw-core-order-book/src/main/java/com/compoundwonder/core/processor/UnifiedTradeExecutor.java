@@ -65,23 +65,23 @@ final class UnifiedTradeExecutor {
         }
     }
 
-    void disableWeakFirstBoardSessions(OrderBookSession marketSession, int marketTime) {
-        if (!shouldDisableWeakFirstBoard(
+    void disableUntouchedBuySessionsAtTen(OrderBookSession marketSession, int marketTime) {
+        if (!shouldDisableUntouchedBuySessions(
                 marketTime, marketSession.orderBook().getStatus())) {
             return;
         }
         for (StrategyExecutionSession session : marketSession.strategySessions()) {
-            if (session.executionState().isBuyMonitoring() && session.getLbcs() == 1) {
+            if (session.executionState().isBuyMonitoring()) {
                 session.executionState().disable();
             }
         }
     }
 
     /**
-     * 只关闭 10 点仍从未触板的首板任务。偶数状态不等于弱势未触板：状态 2、4 等
+     * 关闭 10 点仍从未触板的全部买入任务。偶数状态不等于弱势未触板：状态 2、4 等
      * 表示已经炸过板，后续仍可能回封，必须继续监控。
      */
-    static boolean shouldDisableWeakFirstBoard(int marketTime, int limitUpStatus) {
+    static boolean shouldDisableUntouchedBuySessions(int marketTime, int limitUpStatus) {
         return marketTime >= ConstantUtil.TIME_1000 && limitUpStatus == 0;
     }
 
