@@ -5,13 +5,26 @@ import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-/** 静态参数、预编译规则、热盘口和执行状态组成的单日订单簿会话。 */
+/**
+ * 单只股票、单个交易日的共享市场会话。
+ *
+ * <p>本对象只拥有市场机械参数和唯一一份热盘口；静态策略事实、模板、持仓及买卖状态
+ * 属于各自的 {@link StrategyExecutionSession}。实现 {@code TradeMarketState} 仅用于兼容
+ * 单策略旧调用链，多策略规则必须接收具体的策略会话，不能把本对象当作规则上下文。</p>
+ */
 public final class OrderBookSession implements TradeMarketState {
     private final MarketSessionSpec spec;
     private final OrderBook orderBook;
     private final List<StrategyExecutionSession> strategySessions = new ArrayList<>();
+    /**
+     * 热路径复用的只读视图。它会反映初始化阶段后续注册的策略，但调用方不能修改列表；
+     * 避免每条行情调用 {@link List#copyOf} 产生临时快照和 GC 压力。
+     */
+    private final List<StrategyExecutionSession> strategySessionsView =
+            Collections.unmodifiableList(strategySessions);
 
     /** 创建只包含共享行情热数据、尚未注册策略的市场会话。 */
     public OrderBookSession(MarketSessionSpec spec, OrderBook orderBook) {
@@ -37,8 +50,9 @@ public final class OrderBookSession implements TradeMarketState {
 
     public MarketSessionSpec spec() { return spec; }
     public OrderBook orderBook() { return orderBook; }
-    public List<StrategyExecutionSession> strategySessions() { return List.copyOf(strategySessions); }
+    public List<StrategyExecutionSession> strategySessions() { return strategySessionsView; }
 
+    /** 仅在会话进入行情引擎前注册；事件消费开始后不得再改变策略集合。 */
     public void registerStrategy(StrategyExecutionSession strategySession) {
         if (strategySession == null || strategySession.marketSession() != this) {
             throw new IllegalArgumentException("策略会话必须属于当前共享订单簿");
@@ -58,11 +72,11 @@ public final class OrderBookSession implements TradeMarketState {
         return strategySessions.get(0);
     }
 
-    /** 单策略旧调用链的兼容访问器。 */
+    /** 单策略旧调用链的兼容访问器；多策略规则禁止使用。 */
     public TradeStaticFacts facts() { return primaryStrategySession().facts(); }
-    /** 单策略旧调用链的兼容访问器。 */
+    /** 单策略旧调用链的兼容访问器；多策略规则禁止使用。 */
     public TradeExecutionTemplate template() { return primaryStrategySession().template(); }
-    /** 单策略旧调用链的兼容访问器。 */
+    /** 单策略旧调用链的兼容访问器；多策略规则禁止使用。 */
     public TradeExecutionState executionState() { return primaryStrategySession().executionState(); }
 
     @Override public int getTradeMode() { return facts().tradeMode(); }

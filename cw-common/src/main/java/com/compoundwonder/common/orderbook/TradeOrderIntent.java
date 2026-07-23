@@ -3,7 +3,9 @@ package com.compoundwonder.common.orderbook;
 /**
  * 策略执行器输出的带来源标识订单意图。
  *
- * <p>策略只说明要执行的动作；回测和实盘网关分别决定如何记录、撮合或发往柜台。</p>
+ * <p>策略只说明要执行的动作；回测和实盘网关分别决定如何记录、撮合或发往柜台。
+ * 买入使用全部价格与时间字段；卖出使用 {@code price/limitDownPrice}；撤单和模式切换
+ * 未使用的数值字段固定为 0、日期固定为 {@code null}，网关必须按动作解释字段。</p>
  */
 public record TradeOrderIntent(
         Action action,
@@ -58,6 +60,7 @@ public record TradeOrderIntent(
                 sessionId, strategyId, null, 0, symbol, 0, 0, 0);
     }
 
+    /** 核心执行器允许输出的有限动作集合；不包含成交或柜台受理状态。 */
     public enum Action {
         BUY,
         SELL,

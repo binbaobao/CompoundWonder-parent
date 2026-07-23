@@ -153,9 +153,12 @@ public interface TradeMarketState {
      */
     int getAveragePriceAt(int index);
 
-    /** @return 当前订单簿中数量最大的买单价格，整数价格口径为元乘以 100 */
+    /**
+     * @return 当前行情事件重建出的买方向单笔委托价格，整数价格口径为元乘以 100；
+     *         该值服务大单买入规则，不代表全订单簿数量最大的挂单
+     */
     int getLargestBuyOrderPrice();
 
-    /** @return 当前订单簿中数量最大的买单剩余股数 */
+    /** @return 当前行情事件重建出的买方向单笔委托数量，单位为股 */
     int getLargestBuyOrderQuantity();
 }

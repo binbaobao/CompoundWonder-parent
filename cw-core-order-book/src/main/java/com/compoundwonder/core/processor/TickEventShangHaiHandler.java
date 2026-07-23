@@ -19,9 +19,11 @@ import java.util.Arrays;
 
 
 /**
- * 处理模拟撮合或盘口逻辑
- * <p>
- * 处理下单撤单逻辑
+ * 上海逐笔与三秒快照 Handler。
+ *
+ * <p>消费线程先把每条事件写入唯一共享盘口，再按注册顺序执行各策略模板；本类不查询
+ * 数据库，也不根据板位或市值选择策略。会话数组利用主板证券编号末四位直接寻址，
+ * 注册必须在行情发布前完成，运行期间只有当前 Disruptor 消费线程可以修改盘口。</p>
  */
 @Slf4j
 public class TickEventShangHaiHandler implements EventHandler<TickData> {
@@ -49,6 +51,7 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
     }
 
     public void registerSession(int symbolId, OrderBookSession session) {
+        // 60xxxx 主板范围在 10_000 容量内不会产生末四位冲突。
         sessions[symbolId % ORDER_BOOK_CAPACITY] = session;
     }
 
@@ -236,8 +239,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
     /**
      * 更新行情时间
      *
-     * @param dataType
-     * @param time
+     * @param dataType 4 为三秒快照，其他值为逐笔或控制事件
+     * @param time 紧凑时间 {@code HHmmssSSS}
      */
     private void updateTime(byte dataType, int time) {
         if (dataType == 4) {
@@ -247,12 +250,8 @@ public class TickEventShangHaiHandler implements EventHandler<TickData> {
         }
     }
 
-    /**
-     *
-     * @return
-     */
+    /** 回放完成且 awaitProcessed 成功后读取；返回 Handler 私有复用缓冲区。 */
     public RuleRecordBuffer getRuleRecords() {
-
         return ruleRecordBuffer;
     }
 }

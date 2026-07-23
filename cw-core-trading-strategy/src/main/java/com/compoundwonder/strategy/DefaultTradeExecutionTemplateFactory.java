@@ -14,7 +14,12 @@ import com.compoundwonder.strategy.sell.SellStrategyDispatcher;
 import com.compoundwonder.strategy.sell.ShenzhenClosingAuctionSellEvaluator;
 import com.compoundwonder.strategy.smallcapfirstboard.trade.SmallCapFirstBoardBuyStrategy;
 
-/** 默认交易模板编译器；模式与卖出场景只在 {@link #compile} 中解析一次。 */
+/**
+ * 默认交易模板编译器；买入模式只在 {@link #compile} 中解析一次。
+ *
+ * <p>三个买入策略和统一卖出规则目录均为无状态常驻对象，可被不同股票会话安全复用；
+ * 每次编译只创建绑定静态事实及执行时段的轻量模板。</p>
+ */
 public final class DefaultTradeExecutionTemplateFactory implements TradeExecutionTemplateFactory {
 
     private final BuyStrategy relayBuy = new RelayBuyStrategy();
@@ -51,6 +56,7 @@ public final class DefaultTradeExecutionTemplateFactory implements TradeExecutio
 
     private static TradeExecutionTemplate compileTemplate(
             TradeStaticFacts facts, BuyStrategy buy, SellStrategyDispatcher sellRules) {
+        // Profile 只负责编译跨交易所约束；沪深竞价市值门槛仍由各自 evaluator 判断。
         TradeExecutionProfile profile = TradeExecutionProfile.from(facts);
         return new CompiledTradeExecutionTemplate(
                 facts, profile,

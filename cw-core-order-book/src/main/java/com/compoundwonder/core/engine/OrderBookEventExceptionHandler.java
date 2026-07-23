@@ -7,8 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 隔离单条行情事件的处理异常，避免一个股票的异常终止整个市场的消费线程。
  *
- * <p>事件处理失败后会暂停该股票的交易状态，但不会停止 Disruptor。这样后续行情仍会继续
- * 更新其他股票的订单簿，异常股票也可以由上层在确认状态后重新启用。</p>
+ * <p>事件处理失败后会暂停该股票的全部策略会话，但不会停止 Disruptor。异常从 Handler
+ * 边界抛出时已经没有可靠的策略会话标识，因此必须整股失效，不能只暂停主会话后让其他
+ * 模式在缺失一次事件的盘口上继续下单。后续行情仍会更新其他股票的订单簿。</p>
  */
 @Slf4j
 final class OrderBookEventExceptionHandler implements ExceptionHandler<TickData> {
@@ -30,7 +31,9 @@ final class OrderBookEventExceptionHandler implements ExceptionHandler<TickData>
         OrderBookSession session = repository.get(event.symbolId);
         if (session != null) {
             // 异常处理器运行在对应 Handler 的消费线程中，不会与该订单簿的正常写入并发。
-            session.executionState().transactionStatus(0);
+            for (StrategyExecutionSession strategySession : session.strategySessions()) {
+                strategySession.executionState().disable();
+            }
         }
         log.error("订单簿事件处理异常，已暂停该股票交易并继续消费，sequence={}, symbolId={}, dataType={}, "
                         + "time={}, orderId={}, buyerOrderId={}, sellerOrderId={}",

@@ -3,11 +3,16 @@ package com.compoundwonder.core.engine;
 import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
 import com.compoundwonder.constant.MarketEnum;
+import com.compoundwonder.core.service.CacheService;
+import com.compoundwonder.util.SymbolUtil;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OrderBookSessionContractTest {
@@ -82,6 +87,56 @@ class OrderBookSessionContractTest {
         assertTrue(modelOne.executionState().isBuyOrderPending());
         assertFalse(modelTwo.executionState().isBuyOrderPending());
         assertTrue(modelTwo.executionState().isSellMonitoring());
+    }
+
+    @Test
+    void strategySessionViewIsStableReadOnlyAndReflectsRegistrations() {
+        MarketSessionSpec spec = new MarketSessionSpec(
+                "600000", "浦发银行", MarketEnum.SH, "2025-01-02",
+                1_000_000L, 1_000, 1_100, 900);
+        OrderBookSession marketSession = new OrderBookSession(
+                spec, new OrderBook(spec.limitUpPrice(), spec.limitDownPrice()));
+        List<StrategyExecutionSession> sessions = marketSession.strategySessions();
+
+        TradeStaticFacts facts = facts(1, 2, 180_000);
+        StrategyExecutionSession strategySession = new StrategyExecutionSession(
+                new StrategySessionKey("session-model-1", "MODEL_1", "600000", "2025-01-02"),
+                marketSession, facts, template(facts), new TradeExecutionState(1));
+        marketSession.registerStrategy(strategySession);
+
+        assertSame(sessions, marketSession.strategySessions());
+        assertEquals(List.of(strategySession), sessions);
+        assertThrows(UnsupportedOperationException.class,
+                () -> sessions.add(strategySession));
+    }
+
+    @Test
+    void eventFailureDisablesEveryStrategySharingTheMarketSession() {
+        String symbol = "600000";
+        int symbolId = SymbolUtil.fastSymbolToInt(symbol);
+        MarketSessionSpec spec = new MarketSessionSpec(
+                symbol, "浦发银行", MarketEnum.SH, "2025-01-02",
+                1_000_000L, 1_000, 1_100, 900);
+        OrderBookSession marketSession = new OrderBookSession(
+                spec, new OrderBook(spec.limitUpPrice(), spec.limitDownPrice()));
+        TradeStaticFacts firstFacts = facts(1, 2, 180_000);
+        TradeStaticFacts secondFacts = facts(2, 1, 180_000);
+        marketSession.registerStrategy(new StrategyExecutionSession(
+                new StrategySessionKey("session-model-1", "MODEL_1", symbol, "2025-01-02"),
+                marketSession, firstFacts, template(firstFacts), new TradeExecutionState(1)));
+        marketSession.registerStrategy(new StrategyExecutionSession(
+                new StrategySessionKey("session-model-2", "MODEL_2", symbol, "2025-01-02"),
+                marketSession, secondFacts, template(secondFacts), new TradeExecutionState(-1)));
+        CacheService repository = new CacheService();
+        repository.put(symbolId, marketSession);
+        TickData event = new TickData();
+        event.symbolId = symbolId;
+
+        new OrderBookEventExceptionHandler(repository).handleEventException(
+                new IllegalStateException("test failure"), 1L, event);
+
+        assertTrue(marketSession.strategySessions().stream()
+                .allMatch(session -> session.executionState().transactionStatus() == 0));
     }
 
     @Test

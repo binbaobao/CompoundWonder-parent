@@ -29,7 +29,7 @@ import java.util.function.Supplier;
  * <p>主要职责：</p>
  * <ol>
  *     <li>分别创建并管理上海、深圳两个 Disruptor。</li>
- *     <li>把订单簿注册到对应交易所 Handler 的私有数组中。</li>
+ *     <li>把共享市场会话注册到对应交易所 Handler 的私有数组中。</li>
  *     <li>根据证券代码把 Tick 路由到正确的 RingBuffer。</li>
  *     <li>在回测结束时等待已发布 Tick 全部消费完成。</li>
  *     <li>在两次回测之间清理订单簿和回放进度。</li>
@@ -44,7 +44,7 @@ import java.util.function.Supplier;
  * registerSession(...)
  * publish(...) // 重复发布 Tick
  * awaitProcessed(...)
- * 读取订单簿和规则结果
+ * 读取共享盘口、各策略状态和规则结果
  * reset()
  * </pre>
  */
@@ -174,7 +174,8 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      * 将一条 Tick 发布到对应主板交易所的 RingBuffer。
      *
      * <p>RingBuffer 中的 TickData 会循环复用，因此这里复制字段而不是保存 source 引用。
-     * 发布前必须先通过 registerOrderBook() 注册该证券的订单簿，否则 Handler 会忽略该 Tick。</p>
+     * 发布前必须先通过 {@link #registerSession(int, OrderBookSession)} 注册该证券会话，
+     * 否则 Handler 会忽略该 Tick。</p>
      *
      * @param source 从 ClickHouse、实时行情或其他数据源解析出的 Tick
      * @throws IllegalStateException 当引擎尚未启动时抛出
@@ -194,7 +195,7 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
     }
 
     /**
-     * 注册本轮回测需要处理的订单簿。
+     * 注册本轮回测需要处理的共享市场会话。
      *
      * <p>订单簿会同时保存到两处：</p>
      * <ul>
@@ -202,10 +203,11 @@ public final class DisruptorOrderBookEngine implements AutoCloseable {
      *     <li>OrderBookRepository：供回测编排层在回放结束后查询结果。</li>
      * </ul>
      *
-     * <p>两处保存的是同一个 OrderBook 实例，不会复制订单簿状态。</p>
+     * <p>两处保存的是同一个 {@link OrderBookSession} 引用，不会复制盘口或策略状态。
+     * 全部策略必须在调用本方法前完成注册，行情发布后不得改变会话集合。</p>
      *
      * @param symbolId 经过 SymbolUtil 转换的内部证券编号，如 600000 对应 1600000
-     * @param orderBook 已完成当日参考昨收价、流通股本等基础数据初始化的订单簿
+     * @param session 已完成市场参数、策略静态事实、模板和初始状态装配的会话
      * @throws IllegalArgumentException 当证券不属于沪深主板时抛出
      */
     public void registerSession(int symbolId, OrderBookSession session) {

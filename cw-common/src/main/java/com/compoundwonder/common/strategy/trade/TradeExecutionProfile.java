@@ -3,7 +3,10 @@ package com.compoundwonder.common.strategy.trade;
 import com.compoundwonder.common.orderbook.TradeStaticFacts;
 
 /**
- * 根据盘前静态事实编译出的执行约束。板位和市值只作为事实，不再决定 Handler 类型。
+ * 根据盘前静态事实编译出的跨交易所执行约束。板位和市值只作为事实，不再决定 Handler 类型。
+ *
+ * <p>本层目前只阻断 Model 1 二板加速后的集合竞价，并推迟到 09:35。上海、深圳各自
+ * 的启动市值竞价上限仍归具体竞价规则所有，禁止在这里再增加统一市值门槛。</p>
  */
 public record TradeExecutionProfile(
         int previousBoardHeight,
@@ -39,12 +42,15 @@ public record TradeExecutionProfile(
                 facts.yesterdayAmplitude(), facts.yesterdayTurnover());
     }
 
-    /** 二板加速的稳定静态判定，回测机会编排与逐笔模板共用同一口径。 */
+    /**
+     * 二板加速的稳定静态判定，回测机会编排与逐笔模板共用同一口径。
+     * 三组条件相互独立：一字板、低振幅/低换手 T 字板、以及整体低换手板。
+     */
     public static boolean isAcceleratedBoard(int klineState, double amplitude, double turnover) {
         if (klineState == 3) return true;
-        return amplitude >= 0 && amplitude < 3D
-                || klineState == 2 && turnover >= 0 && turnover < 18D
-                || turnover >= 0 && turnover < 15D;
+        return (amplitude >= 0 && amplitude < 3D)
+                || (klineState == 2 && turnover >= 0 && turnover < 18D)
+                || (turnover >= 0 && turnover < 15D);
     }
 
     public enum MarketCapTier {

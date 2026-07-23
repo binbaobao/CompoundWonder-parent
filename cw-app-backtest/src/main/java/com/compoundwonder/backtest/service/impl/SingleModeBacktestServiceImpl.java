@@ -485,6 +485,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         RuleRecordDTO buyRule = null;
         RuleRecordDTO cancel = overnight.firstCancelRecord().orElse(null);
         if (!overnight.openingAuctionBuyAllowed()) {
+            // 模板层只处理跨交易所的二板加速禁买；普通首板沪深市值门槛仍在竞价规则内。
             int allowedAfterTime = Math.max(ConstantUtil.TIME_930,
                     overnight.earliestContinuousBuyTime() - 1);
             buyRule = findIntradayBuy(sample, buyTicks, allowedAfterTime);
@@ -519,6 +520,7 @@ public class SingleModeBacktestServiceImpl implements SingleModeBacktestService 
         }
         if (shouldDeferRelayThirdBoardBuy(
                 sample, secondBoard, buyDaily, firstLimitUpTime)) {
+            // 即使 09:35 后再次出现买点，三板早盘已呈一字/高开秒板时仍整日放弃并递延四板。
             String reason = Integer.valueOf(3).equals(buyDaily.getKlineState())
                     ? "二板加速后不接三板一字板，递延观察 3 进 4"
                     : "二板加速后不接三板高开秒板，递延观察 3 进 4";

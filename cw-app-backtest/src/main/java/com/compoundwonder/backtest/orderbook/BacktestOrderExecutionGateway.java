@@ -10,7 +10,10 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 回测交易动作记录器。第一阶段只记录策略信号，后续由模拟账户撮合实现消费这些动作。
+ * 回测交易动作记录器。当前只记录策略信号，不负责资金、仓位竞争或真实成交确认。
+ *
+ * <p>覆盖 {@link #execute(TradeOrderIntent)} 是多策略归属的关键：若退回接口默认适配器，
+ * {@code strategySessionId/strategyId} 会在转换成旧动作方法时丢失。</p>
  */
 @Component
 public class BacktestOrderExecutionGateway implements OrderExecutionGateway {
@@ -50,6 +53,7 @@ public class BacktestOrderExecutionGateway implements OrderExecutionGateway {
     }
 
     public List<Action> actions() {
+        // 返回快照，防止测试或上层统计修改消费线程正在写入的列表。
         synchronized (actions) {
             return List.copyOf(actions);
         }

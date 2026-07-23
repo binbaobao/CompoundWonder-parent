@@ -22,9 +22,11 @@ import java.util.List;
 
 
 /**
- * 处理模拟撮合或盘口逻辑
- * <p>
- * 处理下单撤单逻辑
+ * 深圳逐笔与快照 Handler。
+ *
+ * <p>逐笔委托/成交负责重建共享盘口，快照只补充均价、竞价和成交量信息；策略收到的
+ * 始终是各自的独立会话。集合竞价撤单严格要求时间晚于 09:19:57，且只能撤销本事件
+ * 到达前已经挂出的买单，不能让同一条大单同时触发买入和撤单。</p>
  */
 @Slf4j
 public class TickEventShenZhenHandler implements EventHandler<TickData> {
@@ -41,11 +43,18 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
 
     private final OrderBookSession[] sessions = new OrderBookSession[ORDER_BOOK_CAPACITY];
 
+    /**
+     * 单线程 Handler 复用的竞价状态快照。数组只在策略会话数量首次超过历史高水位时扩容，
+     * 避免深圳逐笔热路径为每条事件创建临时 {@code boolean[]}。
+     */
+    private boolean[] pendingAuctionBuyBeforeEvent = new boolean[0];
+
     public TickEventShenZhenHandler(OrderExecutionGateway executionGateway) {
         this.tradeExecutor = new UnifiedTradeExecutor(executionGateway);
     }
 
     public void registerSession(int symbolId, OrderBookSession session) {
+        // 00xxxx 主板范围在 10_000 容量内不会产生末四位冲突。
         sessions[symbolId % ORDER_BOOK_CAPACITY] = session;
     }
 
@@ -70,7 +79,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         this.updateTime(order.dataType, order.time);
         // 撤单只能处理事件到达前已经存在的挂单，防止本次大单刚触发买入后又被
         // 同一个逐笔事件立即撤销；从下一条逐笔或下一张快照开始正常观察强度。
-        boolean[] pendingAuctionBuyBeforeEvent = new boolean[strategySessions.size()];
+        ensureAuctionStateCapacity(strategySessions.size());
         for (int index = 0; index < strategySessions.size(); index++) {
             pendingAuctionBuyBeforeEvent[index] = strategySessions.get(index)
                     .executionState().isBuyOrderPending();
@@ -104,8 +113,7 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             order.time3 = System.nanoTime();
             return;
         } else if (order.dataType == 4) {
-            // 原注释：深圳早盘竞价卖出 TODO 急跌、低开、连续三天加速后低开卖出。
-            // 当前业务已经明确不执行常规早盘低开卖出，这里只保留竞价撤单和尾盘卖出执行编排。
+            // 当前业务明确不执行深圳早盘常规低开卖出，只保留竞价撤单和尾盘卖出编排。
             // 集合竞价期间 买卖撤单操作 ConstantUtil.TIME_1457
             if (ConstantUtil.TIME_930 > order.time || (ConstantUtil.TIME_1457 <= order.time && ConstantUtil.TIME_1500 > order.time)) {
                 if (order.time > ConstantUtil.TIME_920) {
@@ -166,6 +174,12 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
             processContinuousStrategies(marketSession, order);
         }
         order.time3 = System.nanoTime();
+    }
+
+    private void ensureAuctionStateCapacity(int strategyCount) {
+        if (pendingAuctionBuyBeforeEvent.length < strategyCount) {
+            pendingAuctionBuyBeforeEvent = new boolean[strategyCount];
+        }
     }
 
     private void processControlEvent(OrderBookSession marketSession, TickData order) {
@@ -274,9 +288,9 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     /**
      * 逐笔成交数据
      *
-     * @param trade
-     * @param orderId
-     * @param orderBook
+     * @param trade 本次逐笔成交，quantity 是需要扣减的股数
+     * @param orderId 被成交的原始委托号
+     * @param orderBook 当前股票唯一共享盘口
      */
     private void tradeOrder(TickData trade, int orderId, OrderBook orderBook) {
         TickNode completed = orderBook.applyTrade(orderId, trade.quantity);
@@ -298,8 +312,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
     /**
      * 更新行情时间
      *
-     * @param dataType
-     * @param time
+     * @param dataType 4 为三秒快照，其他值为逐笔或控制事件
+     * @param time 紧凑时间 {@code HHmmssSSS}
      */
     private void updateTime(byte dataType, int time) {
         if (dataType == 4) {
@@ -309,12 +323,8 @@ public class TickEventShenZhenHandler implements EventHandler<TickData> {
         }
     }
 
-    /**
-     *
-     * @return
-     */
+    /** 回放完成且 awaitProcessed 成功后读取；返回 Handler 私有复用缓冲区。 */
     public RuleRecordBuffer getRuleRecords() {
-
         return ruleRecordBuffer;
     }
 }

@@ -15,19 +15,19 @@ import lombok.extern.slf4j.Slf4j;
  *
  * 使用方式：
  *
- * RuleRecord record = buffer.nextRecord();
- * tradeStrategyDispatcher.evaluateBuy(orderBook, record);
+ * RuleRecord record = buffer.nextRecord(strategySession);
+ * boolean matched = strategySession.template().continuousBuy()
+ *         .evaluate(strategySession, record);
  *
  * if (matched) {
  *     buffer.commit();
  *     buy(...);
- * } else {
- *     record.reset();
  * }
  *
  * 注意：
  * 一个 RuleRecordBuffer 只给一个 EventHandler 使用。
  * 不要多个线程同时写同一个 buffer。
+ * 未命中时不必手工 reset；下一次 nextRecord() 会清空当前槽位。
  */
 @Slf4j
 public final class RuleRecordBuffer {
@@ -77,8 +77,8 @@ public final class RuleRecordBuffer {
      * 注意：
      * 这个方法不会移动 cursor。
      *
-     * 只有规则真正命中后，才调用 commit()。
-     * 如果规则没有命中，只需要 reset()，该对象不会被收盘落库。
+     * 只有规则真正命中且订单网关调用成功后，才调用 commit()。
+     * 未命中时保持 cursor 不动；下一次调用会重新清空并复用同一个对象。
      */
     public RuleRecord nextRecord() {
         if (cursor >= records.length) {

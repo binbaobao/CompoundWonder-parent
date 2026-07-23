@@ -30,6 +30,7 @@ class DefaultTradeExecutionTemplateFactoryTest {
         assertNotNull(template.averagePriceSell());
         assertNotNull(template.closingAuctionSell());
         assertTrue(template.supports(TradeTriggerType.CONTINUOUS_TICK));
+        assertSame(template.triggerTypes(), template.triggerTypes());
     }
 
     @Test

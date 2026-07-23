@@ -4,6 +4,12 @@ package com.compoundwonder.core.engine;
 import com.compoundwonder.dto.RuleRecordDTO;
 import com.compoundwonder.common.orderbook.TradeRuleRecord;
 
+/**
+ * Handler 私有缓冲区中复用的可写规则命中记录。
+ *
+ * <p>规则只有在返回 {@code true} 时才允许提交；每次重新评估前由
+ * {@link RuleRecordBuffer#nextRecord()} 清空全部字段，避免未命中规则留下脏数据。</p>
+ */
 public final class RuleRecord implements TradeRuleRecord {
 
     /**
@@ -16,10 +22,13 @@ public final class RuleRecord implements TradeRuleRecord {
      */
     public int ruleCode;
 
+    /** 产生该记录的独立策略会话，用于同股多模式结果归属。 */
     public String strategySessionId;
 
+    /** 稳定策略标识，例如 MODEL_1。 */
     public String strategyId;
 
+    /** 回测交易模式编码。 */
     public int tradeMode;
 
     /**
@@ -58,14 +67,13 @@ public final class RuleRecord implements TradeRuleRecord {
         symbol = null;
         date = null;
         time = 0;
+        price = 0;
         increase = 0;
+        remark = null;
     }
 
 
-    /**
-     * 填充记录规则的
-     *
-     */
+    /** 规则命中后一次性填写交易动作、价格与诊断说明。 */
     @Override
     public void fill(int actionType, int ruleCode, String symbol, int time, int price, double increase, String remark) {
 
@@ -86,6 +94,7 @@ public final class RuleRecord implements TradeRuleRecord {
         this.tradeMode = tradeMode;
     }
 
+    /** 创建脱离复用缓冲区的传输对象，缓冲区清理不会影响返回结果。 */
     public RuleRecordDTO toDTO() {
         RuleRecordDTO dto = new RuleRecordDTO();
 

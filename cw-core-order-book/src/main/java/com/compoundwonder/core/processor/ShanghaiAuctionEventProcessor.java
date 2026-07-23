@@ -28,12 +28,10 @@ final class ShanghaiAuctionEventProcessor {
      * <p>买入与撤单只依据事件到达前的交易状态。某张快照刚触发买入时，不能再使用
      * 同一张快照立刻撤单；从下一张快照开始，挂单必须持续满足封单绝对强度。</p>
      *
-     * @param orderBook Handler 私有订单簿
+     * @param marketSession 共享盘口及本股全部独立策略会话
      * @param event 当前三秒快照
      * @param recordTime Handler 已推进的市场时间
-     * @param transactionStatus 事件到达前的交易状态
      * @param ruleRecordBuffer Handler 私有预分配规则记录缓冲区
-     * @return 处理后的交易状态
      */
     void process(OrderBookSession marketSession, TickData event, int recordTime,
                  RuleRecordBuffer ruleRecordBuffer) {
@@ -47,6 +45,7 @@ final class ShanghaiAuctionEventProcessor {
                     ? TradeTriggerType.OPENING_AUCTION : TradeTriggerType.CLOSING_AUCTION;
             if (!strategySession.template().supports(triggerType)) continue;
             int transactionStatus = strategySession.executionState().transactionStatus();
+            // 先保存事件到达前状态，保证本快照的新买单不会被同一快照立刻撤销。
             if (event.time < ConstantUtil.TIME_930) {
                 processMorningAuction(strategySession, event, recordTime,
                         transactionStatus, ruleRecordBuffer);
@@ -69,6 +68,7 @@ final class ShanghaiAuctionEventProcessor {
             // 调用当前模式上海集合竞价买入规则。
             if (session.template().shanghaiOpeningAuctionBuy().evaluateBuy(
                     session, event, previousBuyVolume, recordTime, ruleRecord)) {
+                // 网关异常时不推进状态、不提交规则，由引擎异常处理器统一停用本股。
                 tradeExecutor.submitBuy(session, event.symbolId, event.time);
                 session.executionState().transactionStatus(2);
                 ruleRecordBuffer.commit();

@@ -5,6 +5,11 @@ package com.compoundwonder.common.orderbook;
  *
  * <p>这些值来自选股任务、持仓和历史日 K，只允许在会话初始化时计算一次。
  * 行情热路径只读取本对象，不能再查询数据库，也不能把这些字段写回盘口对象。</p>
+ *
+ * <p>统一口径：{@code lbcs} 是交易日前一交易日的已封连板数；市值单位为万元；
+ * 换手、振幅和 {@code maxHs} 单位均为百分比；成交量单位为股；
+ * {@code nextTradingDay} 是当前交易日到下一交易日之间夹着的自然日数量。
+ * 历史指标取不到时使用负数，0 仍表示真实的零值。</p>
  */
 public record TradeStaticFacts(
         int tradeMode,
@@ -24,7 +29,7 @@ public record TradeStaticFacts(
         double twoDaysAgoTurnover,
         double twoDaysAgoAmplitude) {
 
-    /** 旧调用方兼容构造器；负数表示尚未提供对应的历史日 K 指标。 */
+    /** 旧调用方兼容构造器；新增的振幅、前两日换手指标以负数表示未提供。 */
     public TradeStaticFacts(int tradeMode, int lbcs, long maxVolume, double maxHs,
                             int initialMarketValue, double threeDaysTurnover,
                             double twoDaysTurnover, double yesterdayTurnover,

@@ -166,6 +166,7 @@ public class BackTestTradeService {
         OrderBookSession session = buildSession(tradeDate, stockCode, mode, tradeMode);
         OrderBook orderBook = session.orderBook();
 
+        // 每次单票回放独占两个 Handler；先清理上一轮，再注册当前唯一市场会话。
         orderBookEngine.reset();
         executionGateway.clear();
         orderBookEngine.registerSession(symbolId, session);
@@ -199,6 +200,7 @@ public class BackTestTradeService {
                     tradeDate, stockCode, mode, tickCount, records.size(), orderBook);
             return result;
         } finally {
+            // 数据源异常也要等待已发布事件，禁止在消费者仍运行时清空 Handler 会话数组。
             if (replayStarted && !processed) {
                 awaitPartiallyPublishedTicks();
             }
@@ -220,6 +222,7 @@ public class BackTestTradeService {
         AtomicBoolean monitoringOpened = new AtomicBoolean(false);
         return tick -> {
             if (!monitoringOpened.get() && tick.time > allowedAfterTime) {
+                // 控制事件必须先于同一条 Tick 发布，使允许时点后的第一条行情即可参加判断。
                 TickData control = new TickData();
                 control.symbolId = symbolId;
                 control.time = tick.time;
@@ -323,6 +326,10 @@ public class BackTestTradeService {
         return legacy;
     }
 
+    /**
+     * 将数据库冷数据一次性编译成“市场参数 + 静态事实 + 模板 + 初始状态”。
+     * 逐笔回放开始后 Handler 不再查询日 K、交易日历或市场情绪表。
+     */
     private OrderBookSession buildSession(LocalDate tradeDate, String stockCode,
                                           BacktestReplayMode mode, Integer requestedTradeMode) {
         List<StockDailyEntity> dailyRows = stockDailyService.list(
@@ -361,6 +368,7 @@ public class BackTestTradeService {
         int lbcs = Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays()));
         int initialMarketValue = calculateInitialMarketValue(previousDaily, lbcs);
         int tradeMode = resolveTradeMode(requestedTradeMode, lbcs, initialMarketValue);
+        // 买入回放不会进入卖出状态，只有 SELL 模式才查询三日换手、市场高度和交易日间隔。
         SellHistoryFacts sellHistory = mode == BacktestReplayMode.SELL
                 ? loadSellHistory(history, tradeDate, stockCode)
                 : SellHistoryFacts.EMPTY;
@@ -407,7 +415,8 @@ public class BackTestTradeService {
     }
 
     /**
-     * 按旧实盘持仓初始化口径补充卖出规则依赖的最近三日日 K 统计。
+     * 按旧实盘持仓口径补充卖出规则依赖的最近三日日 K 统计。
+     * 市场平均高度窗口是交易日前 15 个自然日，不是 15 个交易日。
      */
     private SellHistoryFacts loadSellHistory(List<StockDailyEntity> history,
                                              LocalDate tradeDate, String stockCode) {

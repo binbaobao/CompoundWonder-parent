@@ -262,7 +262,13 @@ public class OrderBook implements TradeMarketState {
     @ToString.Exclude
     public final TickNode buyMaxOrder;
 //    public TickNode sellMaxOrder;
-    /** 新会话模型使用的纯盘口构造器；静态价格事实由 {@link OrderBookSession} 持有。 */
+    /**
+     * 新会话模型使用的纯盘口构造器。
+     *
+     * <p>静态价格、流通股本和证券属性由 {@link MarketSessionSpec} 持有；这里保存的同名
+     * 兼容字段只服务价位数组和旧接口。新 Handler 更新派生指标时必须调用带 spec 的重载，
+     * 不能读取占位的流通股本。</p>
+     */
     public OrderBook(int limitUpPrice, int limitDownPrice) {
         this.symbol = "";
         this.market = null;
@@ -482,15 +488,16 @@ public class OrderBook implements TradeMarketState {
         return avgPrice[index];
     }
 
-    /** 当前仍在订单簿中的最大买委托价格，单位：分。codex 注释错误 TODO */
-    // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
+    /**
+     * 当前行情事件重建出的买方向单笔委托价格，单位为分。
+     * 上海会合并同一订单号的分片，深圳直接使用本次成功入簿的买单；并非全盘口最大挂单。
+     */
     @Override
     public int getLargestBuyOrderPrice() {
         return buyMaxOrder.getPrice();
     }
 
-    /** 当前仍在订单簿中的最大买委托剩余数量，单位：股。codex 注释错误 TODO */
-    // 上海重新组合计算接到或者成交的委托，深圳直接就是本次接到的委托买。后续买入判断是否是大单
+    /** 当前行情事件重建出的买方向单笔委托数量，单位为股，用于大单规则判断。 */
     @Override
     public int getLargestBuyOrderQuantity() {
         return buyMaxOrder.getQuantity();
@@ -574,7 +581,7 @@ public class OrderBook implements TradeMarketState {
 
     /**
      * 集合竞价就开始，更新最低价格
-     * @param lowPrice
+     * @param lowPrice 当前集合竞价或行情快照价格，单位为分
      */
     public void updateLowestPrice(int lowPrice){
         updateLowestPrice(lowPrice, limitDownPrice, closePrice);

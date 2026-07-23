@@ -4,7 +4,13 @@ import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.LongUnaryOperator;
 
-/** 单日交易执行状态；与纯盘口数据分开，由对应 Handler 单线程推进。 */
+/**
+ * 单个策略会话的单日执行状态；与纯盘口数据分开，由对应 Handler 单线程推进。
+ *
+ * <p>当前状态表达的是回测执行意图：状态 2 表示买单已提交但持仓仍为 FLAT，状态 -2
+ * 表示卖单已提交但持仓仍为 HELD。它不是券商成交确认；未来实盘迁移必须由柜台回报
+ * 另外推进真实委托和持仓状态，不能把本对象当作成交事实。</p>
+ */
 public final class TradeExecutionState {
     private BuyExecutionState buyState;
     private SellExecutionState sellState;
@@ -102,6 +108,10 @@ public final class TradeExecutionState {
         }
     }
 
+    /**
+     * 兼容旧有符号状态：1/2 为买入监控/挂单，-1/-2 为卖出监控/挂单，0 为停用。
+     * 每次映射都会同时重建买、卖、持仓三个维度，避免出现互相矛盾的组合。
+     */
     private void applyLegacyStatus(int value) {
         switch (value) {
             case 1 -> {

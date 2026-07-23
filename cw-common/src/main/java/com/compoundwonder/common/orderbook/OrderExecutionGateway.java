@@ -8,7 +8,10 @@ public interface OrderExecutionGateway {
 
     /**
      * 执行带策略来源标识的订单意图。旧实现无需修改即可继续使用原有动作方法；
-     * 需要区分多策略会话的实现可覆盖本方法保存来源标识。
+     * 需要区分多策略会话的实现必须覆盖本方法保存来源标识。
+     *
+     * <p>默认适配器会有意丢弃 {@code strategySessionId/strategyId}，只适用于当前
+     * 单策略兼容链路。正式多策略回测或未来实盘网关不能依赖该默认实现。</p>
      */
     default void execute(TradeOrderIntent intent) {
         switch (intent.action()) {

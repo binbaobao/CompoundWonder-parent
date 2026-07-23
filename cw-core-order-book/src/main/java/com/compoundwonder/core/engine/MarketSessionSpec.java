@@ -2,7 +2,12 @@ package com.compoundwonder.core.engine;
 
 import com.compoundwonder.constant.MarketEnum;
 
-/** 单只股票、单个交易日不随逐笔行情变化的市场机械参数。 */
+/**
+ * 单只股票、单个交易日不随逐笔行情变化的市场机械参数。
+ *
+ * <p>价格统一为元乘以 100 的整数，流通股本单位为股。名称和价格边界允许在首条行情前
+ * 用证券状态数据修正；行情消费开始后本对象必须视为只读。</p>
+ */
 public final class MarketSessionSpec {
     private final String symbol;
     private final MarketEnum market;

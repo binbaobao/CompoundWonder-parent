@@ -18,6 +18,9 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>交易所 Handler 只负责更新共享盘口和准备交易所特有的行情参数；本类按固定顺序
  * 对每个策略会话执行模板、推进独立状态并输出带策略来源标识的订单意图。</p>
+ *
+ * <p>所有下单路径都先调用网关，再推进状态并提交规则记录。同步回测网关抛出异常时，
+ * 当前信号不会被标成已下单；异常处理器随后整股停用，避免半提交状态继续交易。</p>
  */
 @Slf4j
 final class UnifiedTradeExecutor {
@@ -36,6 +39,7 @@ final class UnifiedTradeExecutor {
                 log.info("修改股票 {} 策略会话 {} 监控状态，由 {} -> {}",
                         event.symbolId, session.key().sessionId(), status, event.type);
             } else if (status < 0) {
+                // 卖出监控下，控制事件 0 只停用；其他值沿用旧链路立即发出快速卖单。
                 if (event.type == 0) {
                     state.disable();
                 } else {
@@ -96,6 +100,7 @@ final class UnifiedTradeExecutor {
                     && session.template().continuousBuy().isTimeAllowed(session, event.time)
                     && session.template().continuousBuy().evaluate(
                     session, records.nextRecord(session))) {
+                // 网关成功返回后再落状态和规则记录，保持一条信号的提交原子性。
                 submitBuy(session, event.symbolId, orderBook.getTime());
                 state.beginBuyOrder();
                 records.commit();
@@ -105,6 +110,7 @@ final class UnifiedTradeExecutor {
             if (state.isSellMonitoring()
                     && session.template().continuousSell().evaluate(
                     session, records.nextRecord(session))) {
+                // 卖出与买入使用相同的“网关 -> 状态 -> 规则记录”顺序。
                 submitQuickSell(session, orderBook.getLastPrice());
                 state.beginSellOrder();
                 records.commit();

@@ -67,7 +67,10 @@ public final class SellStrategyDispatcher {
             highBoardBinding(true, highBoardNormalCap)
     };
 
-    /** 按昨日板高和启动流通市值评估逐笔与盘口卖出。 */
+    /**
+     * 按昨日板高和启动流通市值评估逐笔与盘口卖出。
+     * 目录顺序是契约：任一板位只允许命中一个市值分支，再回退公共规则。
+     */
     public boolean evaluateOrderBook(TradeMarketState market, TradeRuleRecord record) {
         int yesterdayBoardHeight = market.getLbcs();
         if (yesterdayBoardHeight < 2) {
@@ -82,7 +85,10 @@ public final class SellStrategyDispatcher {
         return common.evaluateOrderBook(market, record);
     }
 
-    /** 按昨日板高和启动流通市值评估分钟价格与均价走势卖出。 */
+    /**
+     * 按昨日板高和启动流通市值评估分钟价格与均价走势卖出。
+     * 奇数状态代表当前封板，封板期间禁止均线规则抢先卖出。
+     */
     public boolean evaluateAveragePrice(int index, TradeMarketState market, TradeRuleRecord record) {
         int yesterdayBoardHeight = market.getLbcs();
         if (yesterdayBoardHeight < 2) {

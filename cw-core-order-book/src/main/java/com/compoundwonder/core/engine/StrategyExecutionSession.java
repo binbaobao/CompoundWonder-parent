@@ -8,7 +8,8 @@ import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
  * 单个策略在一只股票、一个交易日内的独立执行会话。
  *
  * <p>盘口热数据来自共享的 {@link OrderBookSession}，静态事实、模板和交易状态只属于
- * 当前策略，因而同一股票上的多个策略不会互相覆盖买卖或持仓状态。</p>
+ * 当前策略，因而同一股票上的多个策略不会互相覆盖买卖或持仓状态。本对象也是多策略
+ * 执行时唯一允许传给规则的 {@link TradeMarketState}，以免规则误读主策略的静态事实。</p>
  */
 public final class StrategyExecutionSession implements TradeMarketState {
     static final String UNSPECIFIED_TRADE_DATE = "UNSPECIFIED";
@@ -27,6 +28,7 @@ public final class StrategyExecutionSession implements TradeMarketState {
                 || template == null || executionState == null) {
             throw new IllegalArgumentException("策略执行会话参数不能为 null");
         }
+        // 允许模板保存同值副本，但拒绝事实内容不一致，防止初始化后规则看到另一模式参数。
         if (template.facts() != facts && !template.facts().equals(facts)) {
             throw new IllegalArgumentException("交易模板与策略静态事实不一致");
         }
