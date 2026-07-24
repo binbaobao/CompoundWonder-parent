@@ -49,8 +49,7 @@ public final class VolumeStateClassifier {
         if (klineState == ONE_WORD_LIMIT_UP_KLINE_STATE) {
             return SHRINK_VOLUME;
         }
-        if (klineState == ENTITY_LIMIT_UP_KLINE_STATE
-                && amplitude > ENTITY_LIMIT_UP_NORMAL_MIN_AMPLITUDE) {
+        if (klineState == ENTITY_LIMIT_UP_KLINE_STATE && amplitude > ENTITY_LIMIT_UP_NORMAL_MIN_AMPLITUDE) {
             return NORMAL_VOLUME;
         }
 
@@ -65,8 +64,7 @@ public final class VolumeStateClassifier {
         if (turnoverRate >= burstThreshold) {
             return EXPAND_VOLUME;
         }
-        if (turnoverRate
-                > effectiveHistoricalMax * NORMAL_MIN_RATIO_EXCLUSIVE) {
+        if (turnoverRate > effectiveHistoricalMax * NORMAL_MIN_RATIO_EXCLUSIVE) {
             return NORMAL_VOLUME;
         }
         return SHRINK_VOLUME;
@@ -83,8 +81,7 @@ public final class VolumeStateClassifier {
             throw new IllegalArgumentException("当日振幅必须是大于等于 0 的有限数");
         }
         // 调用 Double.isFinite 校验历史最大换手率是否为有限数。
-        if (!Double.isFinite(historicalMaxTurnoverRate200)
-                || historicalMaxTurnoverRate200 <= 0D) {
+        if (!Double.isFinite(historicalMaxTurnoverRate200) || historicalMaxTurnoverRate200 <= 0D) {
             throw new IllegalArgumentException(
                     "200 日历史最大换手率必须是大于 0 的有限数");
         }
