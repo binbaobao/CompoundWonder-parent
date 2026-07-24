@@ -43,6 +43,7 @@ public final class VolumeStateClassifier {
     public static int classify(double turnoverRate, double amplitude,
                                int klineState,
                                double historicalMaxTurnoverRate200) {
+        // 调用 validate 校验当日换手率、振幅和历史最大换手率。
         validate(turnoverRate, amplitude, historicalMaxTurnoverRate200);
 
         if (klineState == ONE_WORD_LIMIT_UP_KLINE_STATE) {
@@ -53,8 +54,10 @@ public final class VolumeStateClassifier {
             return NORMAL_VOLUME;
         }
 
+        // 调用 Math.min 将历史最大换手率限制在 70% 以内。
         double effectiveHistoricalMax = Math.min(
                 historicalMaxTurnoverRate200, MAX_HISTORICAL_TURNOVER_RATE);
+        // 调用 Math.min 取历史比例阈值与 35% 固定阈值中的较小值。
         double burstThreshold = Math.min(
                 effectiveHistoricalMax * BURST_MIN_RATIO,
                 ABSOLUTE_BURST_TURNOVER_RATE);
@@ -71,12 +74,15 @@ public final class VolumeStateClassifier {
 
     private static void validate(double turnoverRate, double amplitude,
                                  double historicalMaxTurnoverRate200) {
+        // 调用 Double.isFinite 校验当日换手率是否为有限数。
         if (!Double.isFinite(turnoverRate) || turnoverRate < 0D) {
             throw new IllegalArgumentException("当日换手率必须是大于等于 0 的有限数");
         }
+        // 调用 Double.isFinite 校验当日振幅是否为有限数。
         if (!Double.isFinite(amplitude) || amplitude < 0D) {
             throw new IllegalArgumentException("当日振幅必须是大于等于 0 的有限数");
         }
+        // 调用 Double.isFinite 校验历史最大换手率是否为有限数。
         if (!Double.isFinite(historicalMaxTurnoverRate200)
                 || historicalMaxTurnoverRate200 <= 0D) {
             throw new IllegalArgumentException(
