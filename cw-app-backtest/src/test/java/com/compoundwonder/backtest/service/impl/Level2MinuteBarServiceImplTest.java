@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.lang.reflect.Proxy;
 import java.util.List;
 
@@ -48,6 +49,28 @@ class Level2MinuteBarServiceImplTest {
         assertEquals(0, ticks.get(1).getHandlerIndex());
     }
 
+    @Test
+    void supportsSixDigitTradeTimeWhenHistoricalTimestampIsInvalid() {
+        ClickHouseLevel2QueryService queryService = new StubQueryService(List.of(
+                historicalMarket(92_500, 17.40F, 17.40F),
+                historicalMarket(93_000, 17.40F, 17.40F),
+                historicalMarket(93_059, 17.40F, 17.40F)));
+        StockDailyEntity daily = new StockDailyEntity();
+        daily.setPrevClose(15.82D);
+        StockDailyService stockDailyService = (StockDailyService) Proxy.newProxyInstance(
+                StockDailyService.class.getClassLoader(), new Class<?>[]{StockDailyService.class},
+                (proxy, method, args) -> "getOne".equals(method.getName()) ? daily : null);
+
+        List<Level2MinuteTickDTO> ticks = new Level2MinuteBarServiceImpl(queryService, stockDailyService)
+                .findMinuteBars("603960", DATE);
+
+        assertEquals(2, ticks.size());
+        assertEquals("09:25:00", ticks.get(0).getTickTime());
+        assertEquals("09:30:59", ticks.get(1).getTickTime());
+        assertEquals(DATE.atTime(9, 30, 59).atZone(ZoneId.of("Asia/Shanghai"))
+                .toInstant().toEpochMilli(), ticks.get(1).getTimestamp());
+    }
+
     private static ClickHouseMarketRow market(long time, float ask, float bid,
                                                long totalValue, long totalVolume) {
         int compact = (int) time;
@@ -58,6 +81,14 @@ class Level2MinuteBarServiceImplTest {
         return new ClickHouseMarketRow("603567", "1", DATE, time, timestamp,
                 bid, 10F, 10F, ask, bid, 0, bid, ask,
                 totalVolume, totalValue, 0, 0, 0,
+                new float[]{ask, ask + 0.01F}, new float[]{bid, bid - 0.01F},
+                new long[]{10, 20}, new long[]{30, 40});
+    }
+
+    private static ClickHouseMarketRow historicalMarket(long time, float ask, float bid) {
+        return new ClickHouseMarketRow("603960", "1", DATE, time, DATE.atStartOfDay(),
+                bid, 15.82F, bid, ask, bid, 0, bid, ask,
+                100, 1_000, 0, 0, 0,
                 new float[]{ask, ask + 0.01F}, new float[]{bid, bid - 0.01F},
                 new long[]{10, 20}, new long[]{30, 40});
     }

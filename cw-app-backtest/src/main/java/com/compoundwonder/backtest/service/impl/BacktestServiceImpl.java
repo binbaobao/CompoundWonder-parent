@@ -272,6 +272,7 @@ public class BacktestServiceImpl implements BacktestService {
         dto.setBoardLabel(boardLabel(task.getConsecutiveLimitUpDays()));
         dto.setLbc(task.getConsecutiveLimitUpDays());
         dto.setStrength(defaultInt(task.getLimitUpScore()));
+        dto.setTradeMode(task.getTradeMode());
         dto.setScope(SCOPE_RECOMMEND);
         if (daily == null) {
             dto.setTheme("");

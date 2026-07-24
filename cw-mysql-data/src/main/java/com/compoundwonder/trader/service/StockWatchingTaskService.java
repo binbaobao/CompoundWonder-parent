@@ -1,6 +1,7 @@
 package com.compoundwonder.trader.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 
 import java.time.LocalDate;
@@ -17,5 +18,12 @@ public interface StockWatchingTaskService extends IService<StockWatchingTask> {
      * 作用：按交易日期生成连板、普通首板和小市值首板三类次交易日盯盘任务。
      */
     List<StockWatchingTask> createPostCloseWatchingTasks(LocalDate tradeDate);
+
+    /**
+     * 使用一轮连板研究在指定推荐日产生的最终任务替换原有 mode 1 任务。
+     * 空列表也会执行删除，确保重跑后不会保留旧规则选出的股票。
+     */
+    List<StockWatchingTask> replaceRelaySelectionTasks(
+            LocalDate recommendDate, List<SelectionTaskData> selectedTasks);
 
 }

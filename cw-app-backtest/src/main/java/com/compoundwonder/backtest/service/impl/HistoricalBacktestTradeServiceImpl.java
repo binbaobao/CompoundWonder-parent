@@ -172,20 +172,31 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         TriggeredRuleCollector triggeredRules = new TriggeredRuleCollector();
         Set<String> nonBuyableSymbols = tasks.isEmpty()
                 ? Set.of() : findNonBuyableSymbols(tradeDate, tasks);
+        StockDailyEntity previousPositionDaily = previousPosition == null
+                ? null : findStockDailyOrNull(previousPosition.getSymbol(), tradeDate);
+        boolean positionSuspended = previousPosition != null && previousPositionDaily == null;
 
         if (previousPosition != null) {
             if (tradeDate.isAfter(previousPosition.getBuyDate())) {
                 previousPosition.setHoldingTradeDays(valueOrZero(previousPosition.getHoldingTradeDays()) + 1);
             }
-            sellRule = createBreakBoardNextOpenSellRule(
-                    previousPosition, tradeDate, account.positionBuyKlineState);
+            if (positionSuspended) {
+                log.warn("持仓停牌或缺少日K，跳过当日卖出并沿用上一收盘估值 runId={}, date={}, symbol={}",
+                        runId, tradeDate, previousPosition.getSymbol());
+            } else {
+                sellRule = createBreakBoardNextOpenSellRule(
+                        previousPosition, tradeDate, account.positionBuyKlineState,
+                        previousPositionDaily);
+            }
         }
-        Set<String> dailyReplaySymbols = findDailyReplaySymbols(
-                previousPosition, sellRule, tasks, nonBuyableSymbols);
-        BacktestDailyTickBatch dailyTicks = replayService.loadDailyTicks(
-                tradeDate, dailyReplaySymbols);
+        BacktestDailyTickBatch dailyTicks = null;
+        if (!positionSuspended) {
+            Set<String> dailyReplaySymbols = findDailyReplaySymbols(
+                    previousPosition, sellRule, tasks, nonBuyableSymbols);
+            dailyTicks = replayService.loadDailyTicks(tradeDate, dailyReplaySymbols);
+        }
 
-        if (previousPosition != null) {
+        if (previousPosition != null && !positionSuspended) {
             if (sellRule == null) {
                 BacktestReplayResult sellResult = replayService.replay(
                         tradeDate, previousPosition.getSymbol(), BacktestReplayMode.SELL, null,
@@ -198,6 +209,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 String soldSymbol = previousPosition.getSymbol();
                 account.position = null;
                 account.positionBuyKlineState = null;
+                account.positionLastClosePrice = null;
+                account.positionLastAdjustFactor = null;
                 BuyCandidate candidate = findEarliestBuy(
                         tradeDate, primaryTasks, BacktestReplayMode.BUY_AFTER_TIME,
                         sellRule.getTime(), Set.of(soldSymbol), nonBuyableSymbols,
@@ -207,7 +220,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                     buyRule = candidate.rule();
                 }
             }
-        } else if (!primaryTasks.isEmpty()) {
+        } else if (previousPosition == null && !primaryTasks.isEmpty()) {
             StockWatchingTask overnightTask = primaryTasks.get(0);
             if (nonBuyableSymbols.contains(overnightTask.getStockCode())) {
                 BuyCandidate candidate = findEarliestBuy(
@@ -289,7 +302,14 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             }
         }
 
-        BacktestDailyRecord dailyRecord = buildDailyRecord(tradeDate, account);
+        StockDailyEntity currentPositionDaily = null;
+        if (account.position != null) {
+            currentPositionDaily = account.position == previousPosition
+                    ? previousPositionDaily
+                    : findStockDaily(account.position.getSymbol(), tradeDate);
+        }
+        BacktestDailyRecord dailyRecord = buildDailyRecord(
+                tradeDate, account, currentPositionDaily);
         if (newPosition != null) {
             account.positionBuyKlineState = dailyRecord.getKlineState();
             if (BreakBoardNextOpenSellPolicy.shouldSellAtNextOpen(dailyRecord.getKlineState())) {
@@ -512,13 +532,13 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
      */
     private RuleRecordDTO createBreakBoardNextOpenSellRule(BacktestPosition position,
                                                             LocalDate tradeDate,
-                                                            Integer buyKlineState) {
+                                                            Integer buyKlineState,
+                                                            StockDailyEntity sellDaily) {
         if (!tradeDate.isAfter(position.getBuyDate())
                 || !BreakBoardNextOpenSellPolicy.shouldSellAtNextOpen(buyKlineState)) {
             return null;
         }
 
-        StockDailyEntity sellDaily = findStockDaily(position.getSymbol(), tradeDate);
         int openPrice = cents(sellDaily.getOpenPrice());
         RuleRecordDTO rule = new RuleRecordDTO();
         rule.setActionType(RuleConstant.TRADING_MODE_SELL);
@@ -626,7 +646,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
                 position.getBuyAmount().add(valueOrZero(position.getBuyFee()))));
     }
 
-    private BacktestDailyRecord buildDailyRecord(LocalDate tradeDate, AccountState account) {
+    private BacktestDailyRecord buildDailyRecord(LocalDate tradeDate, AccountState account,
+                                                 StockDailyEntity stockDaily) {
         BacktestDailyRecord daily = new BacktestDailyRecord();
         daily.setAvailableCash(account.cash);
         daily.setQuantity(0);
@@ -636,14 +657,27 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         BigDecimal totalAsset = account.cash;
         if (account.position != null) {
             BacktestPosition position = account.position;
-            StockDailyEntity stockDaily = findStockDaily(position.getSymbol(), tradeDate);
-            int closePrice = cents(stockDaily.getClosePrice());
+            int closePrice;
+            if (stockDaily == null) {
+                if (account.positionLastClosePrice == null) {
+                    throw new IllegalStateException(
+                            tradeDate + " 缺少持仓股票 " + position.getSymbol() + " 的历史收盘估值");
+                }
+                closePrice = account.positionLastClosePrice;
+            } else {
+                closePrice = cents(stockDaily.getClosePrice());
+                account.positionLastClosePrice = closePrice;
+                account.positionLastAdjustFactor = stockDaily.getAdjustFactor() == null
+                        ? null : BigDecimal.valueOf(stockDaily.getAdjustFactor());
+            }
             BigDecimal marketValue = tradeAmount(position.getQuantity(), closePrice);
             BigDecimal positionProfit = marketValue.subtract(position.getBuyAmount())
                     .subtract(valueOrZero(position.getBuyFee()));
             BigDecimal positionReturn = rate(positionProfit,
                     position.getBuyAmount().add(valueOrZero(position.getBuyFee())));
-            updatePositionMetrics(position, stockDaily, positionReturn);
+            if (stockDaily != null) {
+                updatePositionMetrics(position, stockDaily, positionReturn);
+            }
 
             totalAsset = account.cash.add(marketValue);
             daily.setPositionId(position.getId());
@@ -654,10 +688,10 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
             daily.setClosePrice(closePrice);
             daily.setPositionMarketValue(marketValue);
             daily.setPositionReturnRate(positionReturn);
-            daily.setKlineState(stockDaily.getKlineState());
-            if (stockDaily.getAdjustFactor() != null) {
-                daily.setAdjustFactor(BigDecimal.valueOf(stockDaily.getAdjustFactor()));
+            if (stockDaily != null) {
+                daily.setKlineState(stockDaily.getKlineState());
             }
+            daily.setAdjustFactor(account.positionLastAdjustFactor);
         } else {
             daily.setPositionReturnRate(BigDecimal.ZERO);
         }
@@ -681,14 +715,19 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
     }
 
     private StockDailyEntity findStockDaily(String symbol, LocalDate tradeDate) {
+        StockDailyEntity daily = findStockDailyOrNull(symbol, tradeDate);
+        if (daily == null) {
+            throw new IllegalStateException(tradeDate + " 缺少持仓股票 " + symbol + " 的日K数据");
+        }
+        return daily;
+    }
+
+    private StockDailyEntity findStockDailyOrNull(String symbol, LocalDate tradeDate) {
         StockDailyEntity daily = stockDailyService.getOne(Wrappers.<StockDailyEntity>lambdaQuery()
                 .eq(StockDailyEntity::getStockCode, symbol)
                 .eq(StockDailyEntity::getTradeDate, tradeDate)
                 .last("LIMIT 1"));
-        if (daily == null || daily.getClosePrice() == null) {
-            throw new IllegalStateException(tradeDate + " 缺少持仓股票 " + symbol + " 的日K数据");
-        }
-        return daily;
+        return daily == null || daily.getClosePrice() == null ? null : daily;
     }
 
     private BigDecimal tradeAmount(int quantity, int price) {
@@ -745,7 +784,7 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
      * 收集当日所有回放产生的原始规则，并按数据库唯一键口径去重。
      *
      * <p>这里不判断规则是否最终成交。买入规则原样保留 {@code time} 和
-     * {@code lastOrderTime}，由展示层按沪市 500ms、深市 100ms 的延迟口径判断。</p>
+     * {@code lastOrderTime}，由成交判定层按沪市 450ms、深市 80ms 的延迟口径判断。</p>
      */
     private static final class TriggeredRuleCollector {
         private final List<BacktestRuleAction> actions = new ArrayList<>();
@@ -786,6 +825,8 @@ public class HistoricalBacktestTradeServiceImpl implements HistoricalBacktestTra
         private BigDecimal previousTotalAsset;
         private BacktestPosition position;
         private Integer positionBuyKlineState;
+        private Integer positionLastClosePrice;
+        private BigDecimal positionLastAdjustFactor;
         private int limitUpBreakCount;
 
         private AccountState(BigDecimal cash, BigDecimal previousTotalAsset) {

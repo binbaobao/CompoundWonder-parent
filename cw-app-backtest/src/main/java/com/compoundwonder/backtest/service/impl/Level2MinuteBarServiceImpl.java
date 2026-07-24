@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -89,7 +90,7 @@ public class Level2MinuteBarServiceImpl implements Level2MinuteBarService {
         // 分时展示沿用已确认口径：卖一/买一低于涨停价时补一分钱作为打板挂单价。
         double price = rawPrice < limitUpPrice ? roundPrice(rawPrice + 0.01D) : rawPrice;
         Level2MinuteTickDTO dto = new Level2MinuteTickDTO();
-        dto.setTimestamp(row.tradeTimeStamp().atZone(MARKET_ZONE).toInstant().toEpochMilli());
+        dto.setTimestamp(displayTimestamp(row.tradeDate(), row.tradeTime()));
         dto.setTickTime(tickTime);
         dto.setDataType(400 + snapshot.type);
         dto.setRawTime(row.tradeTime());
@@ -167,9 +168,34 @@ public class Level2MinuteBarServiceImpl implements Level2MinuteBarService {
     }
 
     private String formatTradeTime(long raw) {
-        String normalized = String.format("%09d", raw);
+        String normalized = normalizedTradeTime(raw);
         return normalized.substring(0, 2) + ":" + normalized.substring(2, 4)
                 + ":" + normalized.substring(4, 6);
+    }
+
+    /**
+     * 兼容 ClickHouse 历史数据中的 HHmmss 与 HHmmssSSS 两种 TradeTime 编码。
+     */
+    private String normalizedTradeTime(long raw) {
+        return raw >= 0 && raw <= 235_959L
+                ? String.format("%06d", raw)
+                : String.format("%09d", raw);
+    }
+
+    /**
+     * 使用交易日与 TradeTime 生成前端时间轴，避免历史数据中 TradeTimeStamp 的时分秒失真。
+     */
+    private long displayTimestamp(LocalDate tradeDate, long rawTradeTime) {
+        String normalized = normalizedTradeTime(rawTradeTime);
+        int hour = Integer.parseInt(normalized.substring(0, 2));
+        int minute = Integer.parseInt(normalized.substring(2, 4));
+        int second = Integer.parseInt(normalized.substring(4, 6));
+        int millis = normalized.length() == 9 ? Integer.parseInt(normalized.substring(6, 9)) : 0;
+        return LocalDateTime.of(tradeDate.getYear(), tradeDate.getMonthValue(), tradeDate.getDayOfMonth(),
+                        hour, minute, second, millis * 1_000_000)
+                .atZone(MARKET_ZONE)
+                .toInstant()
+                .toEpochMilli();
     }
 
     private double findLimitUpPrice(String stockCode, LocalDate tradeDate, int symbolId) {

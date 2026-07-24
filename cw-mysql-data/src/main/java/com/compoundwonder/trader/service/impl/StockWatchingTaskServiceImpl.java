@@ -10,6 +10,7 @@ import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.mapper.StockWatchingTaskMapper;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -51,6 +52,40 @@ public class StockWatchingTaskServiceImpl
             saveBatch(tasks);
         }
         return tasks;
+    }
+
+    /**
+     * 只替换指定推荐日的连板任务，普通首板和小市值首板任务保持不变。
+     */
+    @Override
+    @Transactional
+    public List<StockWatchingTask> replaceRelaySelectionTasks(
+            LocalDate recommendDate, List<SelectionTaskData> selectedTasks) {
+        if (recommendDate == null) {
+            throw new IllegalArgumentException("推荐日期不能为空");
+        }
+        List<SelectionTaskData> safeTasks = selectedTasks == null
+                ? List.of() : List.copyOf(selectedTasks);
+        for (SelectionTaskData task : safeTasks) {
+            if (task == null
+                    || !Integer.valueOf(TradeMode.RELAY_LIMIT_UP.code())
+                    .equals(task.getTradeMode())
+                    || !recommendDate.equals(task.getRecommendDate())) {
+                throw new IllegalArgumentException(
+                        "连板研究任务必须属于指定推荐日且 tradeMode=1");
+            }
+        }
+
+        remove(Wrappers.<StockWatchingTask>lambdaQuery()
+                .eq(StockWatchingTask::getRecommendDate, recommendDate)
+                .eq(StockWatchingTask::getTradeMode, TradeMode.RELAY_LIMIT_UP.code()));
+        List<StockWatchingTask> entities = safeTasks.stream()
+                .map(this::toEntity)
+                .toList();
+        for (StockWatchingTask entity : entities) {
+            baseMapper.insert(entity);
+        }
+        return List.copyOf(entities);
     }
 
     private void removeExistingTasks(LocalDate recommendDate) {

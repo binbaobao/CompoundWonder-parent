@@ -4,6 +4,7 @@ import com.compoundwonder.backtest.service.RelaySelectionResearchService;
 import com.compoundwonder.common.mysqldata.selection.StockSelectionDataService;
 import com.compoundwonder.common.mysqldata.selection.model.MarketEmotionData;
 import com.compoundwonder.common.mysqldata.selection.model.StockDailyData;
+import com.compoundwonder.common.strategy.selection.model.SelectionTaskData;
 import com.compoundwonder.strategy.relay.selection.RelayCandidateEvaluation;
 import com.compoundwonder.strategy.relay.selection.RelaySelectionAssist;
 import com.compoundwonder.strategy.relay.selection.RelaySelectionPlan;
@@ -13,6 +14,7 @@ import com.compoundwonder.strategy.relay.selection.RelaySelectionTrigger;
 import com.compoundwonder.trader.entity.RelaySelectionCandidateRecord;
 import com.compoundwonder.trader.entity.RelaySelectionRun;
 import com.compoundwonder.trader.entity.RelaySelectionTriggerRecord;
+import com.compoundwonder.trader.service.StockWatchingTaskService;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -41,18 +43,21 @@ public class RelaySelectionResearchServiceImpl implements RelaySelectionResearch
     private final RelaySelectionResearchPersistenceService persistenceService;
     private final ObjectMapper objectMapper;
     private final Executor executor;
+    private final StockWatchingTaskService stockWatchingTaskService;
 
     public RelaySelectionResearchServiceImpl(
             RelaySelectionService relaySelectionService,
             StockSelectionDataService dataService,
             RelaySelectionResearchPersistenceService persistenceService,
             ObjectMapper objectMapper,
-            @Qualifier("historicalBacktestExecutor") Executor executor) {
+            @Qualifier("historicalBacktestExecutor") Executor executor,
+            StockWatchingTaskService stockWatchingTaskService) {
         this.relaySelectionService = relaySelectionService;
         this.dataService = dataService;
         this.persistenceService = persistenceService;
         this.objectMapper = objectMapper;
         this.executor = executor;
+        this.stockWatchingTaskService = stockWatchingTaskService;
     }
 
     @Override
@@ -108,6 +113,7 @@ public class RelaySelectionResearchServiceImpl implements RelaySelectionResearch
         parameters.put("buyCost", "D+1实际触板最高价");
         parameters.put("exit", "首次收盘不涨停日最高价");
         parameters.put("taskLimit", 3);
+        parameters.put("watchingTaskCopy", true);
         return persistenceService.createRun(startDate, endDate,
                 RelaySelectionService.STRATEGY_VERSION, json(parameters));
     }
@@ -125,6 +131,9 @@ public class RelaySelectionResearchServiceImpl implements RelaySelectionResearch
                 RelaySelectionResult result = relaySelectionService.selectDetailed(recommendDate);
                 if (result.executedPlan().trigger() != RelaySelectionTrigger.NONE) {
                     processTrigger(run, result, accumulator);
+                } else {
+                    stockWatchingTaskService.replaceRelaySelectionTasks(
+                            recommendDate, List.of());
                 }
                 run.setLastCompletedDate(recommendDate);
                 applyProgress(run, accumulator);
@@ -157,12 +166,44 @@ public class RelaySelectionResearchServiceImpl implements RelaySelectionResearch
         }
         completeTriggerMetrics(trigger, records, accumulator);
         persistenceService.updateTrigger(trigger);
+        stockWatchingTaskService.replaceRelaySelectionTasks(
+                result.selectionDate(), attachResearchReferences(
+                        run.getId(), result.tasks(), records));
         accumulator.triggerCount++;
         if (Boolean.TRUE.equals(trigger.getIsEmptyPosition())) accumulator.emptyPositionCount++;
         log.info("完成连板触发研究 runId={}, date={}, trigger={}, raw={}, eligible={}, selected={}",
                 run.getId(), result.selectionDate(), trigger.getEffectiveTriggerType(),
                 trigger.getRawCandidateCount(), trigger.getEligibleCandidateCount(),
                 trigger.getSelectedCandidateCount());
+    }
+
+    /**
+     * 将研究运行和已落库候选记录主键回填到最终 Top3 任务，供 task 表追溯来源。
+     */
+    static List<SelectionTaskData> attachResearchReferences(
+            Long runId,
+            List<SelectionTaskData> selectedTasks,
+            List<RelaySelectionCandidateRecord> candidateRecords) {
+        List<SelectionTaskData> safeTasks = selectedTasks == null
+                ? List.of() : selectedTasks;
+        Map<String, Long> selectedCandidateIds = new HashMap<>();
+        if (candidateRecords != null) {
+            for (RelaySelectionCandidateRecord record : candidateRecords) {
+                if (record != null && Boolean.TRUE.equals(record.getIsSelected())) {
+                    selectedCandidateIds.put(record.getStockCode(), record.getId());
+                }
+            }
+        }
+        for (SelectionTaskData task : safeTasks) {
+            Long candidateRecordId = selectedCandidateIds.get(task.getStockCode());
+            if (candidateRecordId == null) {
+                throw new IllegalStateException(
+                        "最终连板任务缺少候选审计记录: " + task.getStockCode());
+            }
+            task.setSelectionRunId(runId);
+            task.setRelayCandidateRecordId(candidateRecordId);
+        }
+        return List.copyOf(safeTasks);
     }
 
     private RelaySelectionTriggerRecord buildTriggerRecord(

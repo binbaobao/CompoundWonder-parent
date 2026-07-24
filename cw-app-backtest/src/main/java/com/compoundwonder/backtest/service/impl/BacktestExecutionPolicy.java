@@ -41,7 +41,7 @@ final class BacktestExecutionPolicy {
      *
      * <p>规则触发时股票位于涨停价；如果完整回放结束时最新价已经低于涨停价，
      * 说明触发后发生过炸板，先前挂在涨停价的买单必然能够成交。未炸板时仍按
-     * 上海 500ms、深圳 100ms 与最终涨停价队首委托时间判断，不放宽原有条件。</p>
+     * 上海 450ms、深圳 80ms 与最终涨停价队首委托时间判断，不放宽原有条件。</p>
      */
     static boolean isIntradayBuyFillable(RuleRecordDTO record,
                                          int finalLastPrice,

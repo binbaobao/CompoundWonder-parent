@@ -9,6 +9,7 @@ import com.compoundwonder.hxdata.entity.StockDailyEntity;
 import com.compoundwonder.hxdata.entity.StockTradeCalendar;
 import com.compoundwonder.hxdata.service.StockDailyService;
 import com.compoundwonder.hxdata.service.StockTradeCalendarService;
+import com.compoundwonder.trader.entity.BacktestDailyRecord;
 import com.compoundwonder.trader.entity.BacktestRun;
 import com.compoundwonder.trader.entity.StockWatchingTask;
 import com.compoundwonder.trader.service.StockWatchingTaskService;
@@ -23,6 +24,7 @@ import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -445,11 +447,12 @@ class HistoricalBacktestTradeServiceImplTest {
                     rule(RuleConstant.TRADING_MODE_BUY, request.symbol(), 100_000_001, 100_000_102)));
         });
         StockDailyEntity sealedBuyDay = daily("600001", firstDate, 10D);
+        StockDailyEntity holdingDaily = daily("600001", secondDate, 11D);
         StockDailyEntity brokenBuyDay = daily("000001", secondDate, 10D);
         brokenBuyDay.setKlineState(11);
         HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
                 replay, persistence, calendarService(List.of(firstDate, secondDate)),
-                stockDailyService(sealedBuyDay, brokenBuyDay),
+                stockDailyService(sealedBuyDay, holdingDaily, brokenBuyDay),
                 noOpSelectionService(), Runnable::run);
 
         BacktestRun result = service.runRange(firstDate, secondDate);
@@ -558,6 +561,67 @@ class HistoricalBacktestTradeServiceImplTest {
     }
 
     @Test
+    void carriesSuspendedPositionAtPreviousCloseAndResumesOnNextAvailableDay() {
+        LocalDate buyDate = LocalDate.of(2025, 3, 18);
+        LocalDate suspendedDate = LocalDate.of(2025, 3, 19);
+        LocalDate resumeDate = LocalDate.of(2025, 3, 21);
+        StockWatchingTask task = watchingTask(9L, "603139", buyDate);
+        StockWatchingTask suspendedDayCandidate =
+                watchingTask(10L, "000001", suspendedDate);
+        FakePersistenceService persistence = new FakePersistenceService(
+                date -> {
+                    if (date.equals(buyDate)) return List.of(task);
+                    if (date.equals(suspendedDate)) return List.of(suspendedDayCandidate);
+                    return List.of();
+                });
+        FakeReplayService replay = new FakeReplayService(request -> {
+            if (request.date().equals(buyDate)
+                    && request.mode() == BacktestReplayMode.OVERNIGHT_BUY) {
+                return new BacktestReplayResult(
+                        buyDate, "603139", "康惠制药", request.mode(),
+                        List.of(), 2, 91_501_001, 1_000, 1_000, 10);
+            }
+            if (request.date().equals(resumeDate)
+                    && request.mode() == BacktestReplayMode.SELL) {
+                return result(resumeDate, "603139", request.mode(), List.of(
+                        rule(RuleConstant.TRADING_MODE_SELL,
+                                "603139", 100_000_000, 0, 1_100)));
+            }
+            throw new AssertionError("停牌日不应回放持仓或候选: " + request);
+        });
+        StockDailyEntity buyDaily = daily("603139", buyDate, 10D);
+        StockDailyEntity resumeDaily = daily("603139", resumeDate, 11D);
+        StockDailyEntity suspendedDayCandidateDaily =
+                daily("000001", suspendedDate, 10D);
+        HistoricalBacktestTradeServiceImpl service = new HistoricalBacktestTradeServiceImpl(
+                replay, persistence,
+                calendarService(List.of(buyDate, suspendedDate, resumeDate)),
+                stockDailyServiceWithNullableRows(
+                        List.of(buyDaily, resumeDaily, suspendedDayCandidateDaily),
+                        java.util.Arrays.asList(buyDaily, null, resumeDaily)),
+                noOpSelectionService(), Runnable::run);
+
+        BacktestRun result = service.runRange(buyDate, resumeDate);
+
+        assertEquals(BacktestPersistenceService.COMPLETED, result.getStatus());
+        assertEquals(3, persistence.savedDays.size());
+        BacktestDailyRecord firstDay = persistence.savedDays.get(0).dailyRecord();
+        BacktestDailyRecord suspendedDay = persistence.savedDays.get(1).dailyRecord();
+        assertEquals(firstDay.getClosePrice(), suspendedDay.getClosePrice());
+        assertEquals(firstDay.getPositionMarketValue(), suspendedDay.getPositionMarketValue());
+        assertEquals(firstDay.getTotalAsset(), suspendedDay.getTotalAsset());
+        assertEquals(BigDecimal.ZERO, suspendedDay.getDailyReturnRate());
+        assertEquals(1, suspendedDay.getAccountStatus());
+        assertEquals("603139", suspendedDay.getSymbol());
+        assertEquals(3, persistence.savedDays.get(2).previousPosition().getHoldingTradeDays());
+        assertEquals(0, persistence.savedDays.get(2).dailyRecord().getAccountStatus());
+        assertEquals(2, replay.requests.size());
+        assertEquals(List.of(BacktestReplayMode.OVERNIGHT_BUY, BacktestReplayMode.SELL),
+                replay.requests.stream().map(ReplayRequest::mode).toList());
+        assertEquals(2, replay.dailyBatchRequests.size());
+    }
+
+    @Test
     void fillsOvernightBuyWhenDailyTurnoverExceedsFortyMillionYuan() {
         LocalDate tradeDate = LocalDate.of(2026, 7, 14);
         StockWatchingTask task = watchingTask(9L, "600001", tradeDate);
@@ -635,6 +699,25 @@ class HistoricalBacktestTradeServiceImplTest {
                     }
                     if ("getOne".equals(method.getName())) {
                         return rows.removeFirst();
+                    }
+                    throw new UnsupportedOperationException("Unexpected method: " + method.getName());
+                });
+    }
+
+    private StockDailyService stockDailyServiceWithNullableRows(
+            List<StockDailyEntity> candidateDailyRows,
+            List<StockDailyEntity> getOneRows) {
+        AtomicInteger index = new AtomicInteger();
+        return (StockDailyService) Proxy.newProxyInstance(
+                StockDailyService.class.getClassLoader(),
+                new Class<?>[]{StockDailyService.class},
+                (proxy, method, args) -> {
+                    if ("list".equals(method.getName())) {
+                        return candidateDailyRows;
+                    }
+                    if ("getOne".equals(method.getName())) {
+                        int current = index.getAndIncrement();
+                        return current < getOneRows.size() ? getOneRows.get(current) : null;
                     }
                     throw new UnsupportedOperationException("Unexpected method: " + method.getName());
                 });
