@@ -12,36 +12,78 @@ class VolumeStateClassifierTest {
 
     @Test
     void oneWordLimitUpAlwaysReturnsShrinkVolume() {
-        assertEquals(-1, VolumeStateClassifier.classify(80D, 3, 40D));
+        assertEquals(-1, VolumeStateClassifier.classify(80D, 20D, 3, 40D));
+    }
+
+    @Test
+    void entityLimitUpWithAmplitudeAboveSixReturnsNormalVolume() {
+        assertEquals(0, VolumeStateClassifier.classify(2D, 6.01D, 1, 60D));
+        assertEquals(0, VolumeStateClassifier.classify(35D, 6.01D, 1, 60D));
+    }
+
+    @Test
+    void amplitudeExactlySixDoesNotOverrideTurnoverClassification() {
+        assertEquals(-1, VolumeStateClassifier.classify(2D, 6D, 1, 60D));
+        assertEquals(1, VolumeStateClassifier.classify(35D, 6D, 1, 60D));
+    }
+
+    @Test
+    void amplitudeRuleOnlyAppliesToEntityLimitUp() {
+        assertEquals(-1, VolumeStateClassifier.classify(2D, 20D, 0, 60D));
+        assertEquals(-1, VolumeStateClassifier.classify(80D, 20D, 3, 40D));
+    }
+
+    @Test
+    void entityLimitUpAboveSixAlwaysReturnsNormalAcrossWideInputGrid() {
+        for (double historicalMax = 0.5D;
+             historicalMax <= 100D;
+             historicalMax += 0.5D) {
+            for (double turnover = 0D; turnover <= 100D; turnover += 0.5D) {
+                assertEquals(0, VolumeStateClassifier.classify(
+                        turnover, 6.01D, 1, historicalMax));
+            }
+        }
+    }
+
+    @Test
+    void oneWordLimitUpTakesPrecedenceAcrossWideInputGrid() {
+        for (double historicalMax = 0.5D;
+             historicalMax <= 100D;
+             historicalMax += 0.5D) {
+            for (double turnover = 0D; turnover <= 100D; turnover += 0.5D) {
+                assertEquals(-1, VolumeStateClassifier.classify(
+                        turnover, 20D, 3, historicalMax));
+            }
+        }
     }
 
     @Test
     void exactHalfOfHistoricalMaximumStillReturnsShrinkVolume() {
-        assertEquals(-1, VolumeStateClassifier.classify(30D, 1, 60D));
-        assertEquals(-1, VolumeStateClassifier.classify(0D, 0, 60D));
+        assertEquals(-1, VolumeStateClassifier.classify(30D, 6D, 1, 60D));
+        assertEquals(-1, VolumeStateClassifier.classify(0D, 0D, 0, 60D));
     }
 
     @Test
     void aboveHalfAndBelowBurstThresholdReturnsNormalVolume() {
-        assertEquals(0, VolumeStateClassifier.classify(30.01D, 1, 60D));
-        assertEquals(0, VolumeStateClassifier.classify(29.99D, 2, 20D));
+        assertEquals(0, VolumeStateClassifier.classify(30.01D, 6D, 1, 60D));
+        assertEquals(0, VolumeStateClassifier.classify(29.99D, 0D, 2, 20D));
     }
 
     @Test
     void exactOneHundredFiftyPercentReturnsBurstVolume() {
-        assertEquals(1, VolumeStateClassifier.classify(30D, 1, 20D));
+        assertEquals(1, VolumeStateClassifier.classify(30D, 6D, 1, 20D));
     }
 
     @Test
     void thirtyFivePercentAndAboveReturnsBurstVolume() {
-        assertEquals(1, VolumeStateClassifier.classify(35D, 1, 60D));
-        assertEquals(1, VolumeStateClassifier.classify(75D, 1, 60D));
+        assertEquals(1, VolumeStateClassifier.classify(35D, 6D, 1, 60D));
+        assertEquals(1, VolumeStateClassifier.classify(75D, 6D, 1, 60D));
     }
 
     @Test
     void capsHistoricalMaximumAtSeventyPercent() {
-        assertEquals(-1, VolumeStateClassifier.classify(34.99D, 1, 80D));
-        assertEquals(1, VolumeStateClassifier.classify(35D, 1, 80D));
+        assertEquals(-1, VolumeStateClassifier.classify(34.99D, 6D, 1, 80D));
+        assertEquals(1, VolumeStateClassifier.classify(35D, 6D, 1, 80D));
     }
 
     @ParameterizedTest(name = "turnover={0}, state={1}, max={2} => {3}")
@@ -84,7 +126,7 @@ class VolumeStateClassifierTest {
                                  double historicalMaxTurnoverRate200,
                                  int expected) {
         assertEquals(expected, VolumeStateClassifier.classify(
-                turnoverRate, klineState, historicalMaxTurnoverRate200));
+                turnoverRate, 0D, klineState, historicalMaxTurnoverRate200));
     }
 
     @Test
@@ -92,7 +134,7 @@ class VolumeStateClassifierTest {
         for (double historicalMax = 0.5D; historicalMax <= 100D; historicalMax += 0.5D) {
             for (double turnover = 0D; turnover <= 100D; turnover += 0.5D) {
                 int result = VolumeStateClassifier.classify(
-                        turnover, 1, historicalMax);
+                        turnover, 0D, 1, historicalMax);
                 assertTrue(result == -1 || result == 0 || result == 1);
             }
         }
@@ -101,19 +143,29 @@ class VolumeStateClassifierTest {
     @Test
     void rejectsInvalidInputs() {
         assertThrows(IllegalArgumentException.class,
-                () -> VolumeStateClassifier.classify(-0.01D, 1, 60D));
+                () -> VolumeStateClassifier.classify(-0.01D, 0D, 1, 60D));
         assertThrows(IllegalArgumentException.class,
-                () -> VolumeStateClassifier.classify(10D, 1, 0D));
-        assertThrows(IllegalArgumentException.class,
-                () -> VolumeStateClassifier.classify(Double.NaN, 1, 60D));
+                () -> VolumeStateClassifier.classify(10D, 0D, 1, 0D));
         assertThrows(IllegalArgumentException.class,
                 () -> VolumeStateClassifier.classify(
-                        10D, 1, Double.POSITIVE_INFINITY));
+                        Double.NaN, 0D, 1, 60D));
         assertThrows(IllegalArgumentException.class,
                 () -> VolumeStateClassifier.classify(
-                        Double.POSITIVE_INFINITY, 1, 60D));
+                        10D, 0D, 1, Double.POSITIVE_INFINITY));
         assertThrows(IllegalArgumentException.class,
                 () -> VolumeStateClassifier.classify(
-                        10D, 3, Double.NaN));
+                        Double.POSITIVE_INFINITY, 0D, 1, 60D));
+        assertThrows(IllegalArgumentException.class,
+                () -> VolumeStateClassifier.classify(
+                        10D, 0D, 3, Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> VolumeStateClassifier.classify(
+                        10D, -0.01D, 1, 60D));
+        assertThrows(IllegalArgumentException.class,
+                () -> VolumeStateClassifier.classify(
+                        10D, Double.NaN, 1, 60D));
+        assertThrows(IllegalArgumentException.class,
+                () -> VolumeStateClassifier.classify(
+                        10D, Double.POSITIVE_INFINITY, 1, 60D));
     }
 }
