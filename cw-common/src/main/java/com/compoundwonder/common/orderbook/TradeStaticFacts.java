@@ -27,7 +27,18 @@ public record TradeStaticFacts(
         int twoDaysAgoKlineState,
         double yesterdayAmplitude,
         double twoDaysAgoTurnover,
-        double twoDaysAgoAmplitude) {
+        double twoDaysAgoAmplitude,
+        int yesterdayVolumeState,
+        int twoDaysAgoVolumeState) {
+
+    /** 旧调用方兼容构造器；新增的前两日量能状态按正常量处理，保持原隔夜与竞价资格不变。 */
+    public TradeStaticFacts(int tradeMode, int lbcs, long maxVolume, double maxHs, int initialMarketValue, double threeDaysTurnover, double twoDaysTurnover,
+                            double yesterdayTurnover, int oneWordLimitUp, int averageLimitUpHeight, int nextTradingDay, int yesterdayKlineState,
+                            int twoDaysAgoKlineState, double yesterdayAmplitude, double twoDaysAgoTurnover, double twoDaysAgoAmplitude) {
+        // 调用完整 TradeStaticFacts 构造器，并为旧调用方补充中性量能状态。
+        this(tradeMode, lbcs, maxVolume, maxHs, initialMarketValue, threeDaysTurnover, twoDaysTurnover, yesterdayTurnover, oneWordLimitUp, averageLimitUpHeight, nextTradingDay,
+                yesterdayKlineState, twoDaysAgoKlineState, yesterdayAmplitude, twoDaysAgoTurnover, twoDaysAgoAmplitude, 0, 0);
+    }
 
     /** 旧调用方兼容构造器；新增的振幅、前两日换手指标以负数表示未提供。 */
     public TradeStaticFacts(int tradeMode, int lbcs, long maxVolume, double maxHs,
@@ -36,6 +47,7 @@ public record TradeStaticFacts(
                             int oneWordLimitUp, int averageLimitUpHeight,
                             int nextTradingDay, int yesterdayKlineState,
                             int twoDaysAgoKlineState) {
+        // 调用兼容 TradeStaticFacts 构造器补充尚未提供的历史指标。
         this(tradeMode, lbcs, maxVolume, maxHs, initialMarketValue,
                 threeDaysTurnover, twoDaysTurnover, yesterdayTurnover,
                 oneWordLimitUp, averageLimitUpHeight, nextTradingDay,

@@ -22,30 +22,47 @@ public record TradeExecutionProfile(
 
     public static TradeExecutionProfile from(TradeStaticFacts facts) {
         if (facts == null) throw new IllegalArgumentException("静态交易事实不能为空");
+        // 调用 isPreviousBoardAccelerated 判断前一涨停板是否属于加速板。
         boolean accelerated = isPreviousBoardAccelerated(facts);
-        boolean firstBoardKlineStateGate = (facts.tradeMode() == 2 || facts.tradeMode() == 3)
-                && facts.lbcs() == 1 && facts.yesterdayKlineState() != 1;
-        boolean relayTwoBoardKlineStateGate = facts.tradeMode() == 1
-                && facts.lbcs() == 2
-                && !isPositiveKlineStateSumBelow(
-                facts.yesterdayKlineState(), facts.twoDaysAgoKlineState(), 4);
+        // 调用 facts.tradeMode 读取当前选股模式。
+        int tradeMode = facts.tradeMode();
+        // 调用 facts.lbcs 读取买入日前已经封住的连板高度。
+        int previousBoardHeight = facts.lbcs();
+        // 调用 facts.yesterdayKlineState 读取前一交易日K线形态。
+        int yesterdayKlineState = facts.yesterdayKlineState();
+        // 调用 facts.twoDaysAgoKlineState 读取前两个交易日K线形态。
+        int twoDaysAgoKlineState = facts.twoDaysAgoKlineState();
+        // 调用 facts.yesterdayVolumeState 读取前一交易日量能状态。
+        int yesterdayVolumeState = facts.yesterdayVolumeState();
+        // 调用 facts.twoDaysAgoVolumeState 读取前两个交易日量能状态。
+        int twoDaysAgoVolumeState = facts.twoDaysAgoVolumeState();
+        boolean firstBoardKlineStateGate = (tradeMode == 2 || tradeMode == 3) && previousBoardHeight == 1 && yesterdayKlineState != 1;
+        // 调用 isPositiveKlineStateSumBelow 判断接力二板的K线形态和是否满足竞价门槛。
+        boolean relayTwoBoardKlineStateGate = tradeMode == 1 && previousBoardHeight == 2 && !isPositiveKlineStateSumBelow(yesterdayKlineState, twoDaysAgoKlineState, 4);
+        boolean requiredVolumeStateMissing = (previousBoardHeight == 1 && yesterdayVolumeState < -1)
+                || (previousBoardHeight == 2 && (yesterdayVolumeState < -1 || twoDaysAgoVolumeState < -1));
+        boolean secondBoardVolumeStateGate = previousBoardHeight == 1 && yesterdayVolumeState == -1;
+        boolean thirdBoardVolumeStateGate = previousBoardHeight == 2 && yesterdayVolumeState + twoDaysAgoVolumeState < -1;
         String reason;
         if (firstBoardKlineStateGate) {
             reason = "首板K线状态不等于1，禁止二板隔夜与开盘集合竞价买入";
         } else if (relayTwoBoardKlineStateGate) {
             reason = "首板与二板K线状态和必须小于4，禁止三板隔夜与开盘集合竞价买入，09:35 前只观察";
+        } else if (requiredVolumeStateMissing) {
+            reason = "历史量能状态数据不足，禁止隔夜与开盘集合竞价买入";
+        } else if (secondBoardVolumeStateGate) {
+            reason = "首板量能状态小于0，禁止二板隔夜与开盘集合竞价买入";
+        } else if (thirdBoardVolumeStateGate) {
+            reason = "首板与二板量能状态和小于-1，禁止三板隔夜与开盘集合竞价买入";
         } else {
             reason = null;
         }
-        boolean openingAuctionBuyAllowed =
-                !firstBoardKlineStateGate && !relayTwoBoardKlineStateGate;
-        return new TradeExecutionProfile(
-                facts.lbcs(), facts.lbcs() + 1,
-                facts.initialMarketValue() < SMALL_CAP_UPPER_EXCLUSIVE_WAN
-                        ? MarketCapTier.SMALL_CAP : MarketCapTier.NORMAL_CAP,
-                accelerated, openingAuctionBuyAllowed,
-                relayTwoBoardKlineStateGate ? AFTER_ACCELERATION_BUY_TIME : 0,
-                reason);
+        boolean openingAuctionBuyAllowed = !firstBoardKlineStateGate && !relayTwoBoardKlineStateGate && !requiredVolumeStateMissing
+                && !secondBoardVolumeStateGate && !thirdBoardVolumeStateGate;
+        // 调用 facts.initialMarketValue 读取启动流通市值并划分市值层级。
+        MarketCapTier marketCapTier = facts.initialMarketValue() < SMALL_CAP_UPPER_EXCLUSIVE_WAN ? MarketCapTier.SMALL_CAP : MarketCapTier.NORMAL_CAP;
+        return new TradeExecutionProfile(previousBoardHeight, previousBoardHeight + 1, marketCapTier, accelerated, openingAuctionBuyAllowed,
+                relayTwoBoardKlineStateGate ? AFTER_ACCELERATION_BUY_TIME : 0, reason);
     }
 
     private static boolean isPositiveKlineStateSumBelow(
@@ -54,8 +71,14 @@ public record TradeExecutionProfile(
     }
 
     private static boolean isPreviousBoardAccelerated(TradeStaticFacts facts) {
-        return isAcceleratedBoard(facts.yesterdayKlineState(),
-                facts.yesterdayAmplitude(), facts.yesterdayTurnover());
+        // 调用 facts.yesterdayKlineState 读取前一交易日K线形态。
+        int yesterdayKlineState = facts.yesterdayKlineState();
+        // 调用 facts.yesterdayAmplitude 读取前一交易日振幅。
+        double yesterdayAmplitude = facts.yesterdayAmplitude();
+        // 调用 facts.yesterdayTurnover 读取前一交易日换手率。
+        double yesterdayTurnover = facts.yesterdayTurnover();
+        // 调用 isAcceleratedBoard 判断前一涨停板是否属于加速板。
+        return isAcceleratedBoard(yesterdayKlineState, yesterdayAmplitude, yesterdayTurnover);
     }
 
     /**

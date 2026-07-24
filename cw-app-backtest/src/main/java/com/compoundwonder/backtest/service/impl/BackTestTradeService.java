@@ -20,6 +20,7 @@ import com.compoundwonder.hxdata.service.StockTradeCalendarService;
 import com.compoundwonder.common.strategy.trade.TradeMode;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplate;
 import com.compoundwonder.common.strategy.trade.TradeExecutionTemplateFactory;
+import com.compoundwonder.common.strategy.volume.VolumeStateClassifier;
 import com.compoundwonder.common.orderbook.TradeStaticFacts;
 import com.compoundwonder.strategy.DefaultTradeExecutionTemplateFactory;
 import com.compoundwonder.trader.service.StockEmotionCycleDailyService;
@@ -46,6 +47,9 @@ import java.util.function.Consumer;
 @Slf4j
 @Service
 public class BackTestTradeService {
+
+    private static final int HISTORICAL_VOLUME_LOOKBACK = 200;
+    private static final int VOLUME_STATE_UNAVAILABLE = -2;
 
     private final DisruptorOrderBookEngine orderBookEngine;
     private final BacktestTickDataSource tickDataSource;
@@ -332,12 +336,13 @@ public class BackTestTradeService {
      */
     private OrderBookSession buildSession(LocalDate tradeDate, String stockCode,
                                           BacktestReplayMode mode, Integer requestedTradeMode) {
+        // 调用 stockDailyService.list 查询回测日及量能状态计算所需的前 202 根日K。
         List<StockDailyEntity> dailyRows = stockDailyService.list(
                 Wrappers.<StockDailyEntity>lambdaQuery()
                         .eq(StockDailyEntity::getStockCode, stockCode)
                         .le(StockDailyEntity::getTradeDate, tradeDate)
                         .orderByDesc(StockDailyEntity::getTradeDate)
-                        .last("LIMIT 201"));
+                        .last("LIMIT 203"));
         if (dailyRows.isEmpty() || !tradeDate.equals(dailyRows.get(0).getTradeDate())) {
             throw new IllegalArgumentException(tradeDate + " 没有股票 " + stockCode + " 的当日日 K 数据");
         }
@@ -368,6 +373,10 @@ public class BackTestTradeService {
         int lbcs = Math.max(0, valueOrZero(previousDaily.getConsecutiveLimitUpDays()));
         int initialMarketValue = calculateInitialMarketValue(previousDaily, lbcs);
         int tradeMode = resolveTradeMode(requestedTradeMode, lbcs, initialMarketValue);
+        // 调用 calculateVolumeState 计算前一交易日基于其更早 200 根K线的量能状态。
+        int yesterdayVolumeState = calculateVolumeState(dailyRows, 1);
+        // 调用 calculateVolumeState 计算前两个交易日基于其更早 200 根K线的量能状态。
+        int twoDaysAgoVolumeState = calculateVolumeState(dailyRows, 2);
         // 买入回放不会进入卖出状态，只有 SELL 模式才查询三日换手、市场高度和交易日间隔。
         SellHistoryFacts sellHistory = mode == BacktestReplayMode.SELL
                 ? loadSellHistory(history, tradeDate, stockCode)
@@ -382,7 +391,8 @@ public class BackTestTradeService {
                 history.size() > 1 ? valueOrZero(history.get(1).getKlineState()) : 0,
                 valueOrZero(previousDaily.getAmplitude()),
                 history.size() > 1 ? valueOrZero(history.get(1).getTurnoverRate()) : -1D,
-                history.size() > 1 ? valueOrZero(history.get(1).getAmplitude()) : -1D);
+                history.size() > 1 ? valueOrZero(history.get(1).getAmplitude()) : -1D,
+                yesterdayVolumeState, twoDaysAgoVolumeState);
         MarketSessionSpec spec = MarketSessionSpec.fromPreviousClose(
                 stockCode, previousDaily.getStockName(), tradeDate.toString(),
                 circulation, currentDaily.getPrevClose());
@@ -390,6 +400,35 @@ public class BackTestTradeService {
         TradeExecutionTemplate template = templateFactory.compile(facts);
         return new OrderBookSession(spec, facts, orderBook, template,
                 new TradeExecutionState(initialTransactionStatus(mode)));
+    }
+
+    /** 按指定交易日之前最多 200 根有效日K的最大换手率计算该交易日量能状态。 */
+    static int calculateVolumeState(List<StockDailyEntity> dailyRows, int dayIndex) {
+        // 调用 dailyRows.size 校验目标交易日在倒序日K列表中的位置。
+        if (dailyRows == null || dayIndex < 0 || dayIndex >= dailyRows.size()) return VOLUME_STATE_UNAVAILABLE;
+        // 调用 dailyRows.get 读取待计算量能状态的日K。
+        StockDailyEntity daily = dailyRows.get(dayIndex);
+        // 调用日K访问器读取分类所需的当日换手率、振幅和K线形态。
+        Double turnoverRate = daily.getTurnoverRate();
+        Double amplitude = daily.getAmplitude();
+        Integer klineState = daily.getKlineState();
+        // 调用 Double.isFinite 校验当日换手率和振幅。
+        if (turnoverRate == null || amplitude == null || klineState == null || !Double.isFinite(turnoverRate) || !Double.isFinite(amplitude)
+                || turnoverRate < 0D || amplitude < 0D) return VOLUME_STATE_UNAVAILABLE;
+        // 调用 Math.min 计算该交易日之后最多 200 根更早日K的窗口终点。
+        int historyEndExclusive = Math.min(dailyRows.size(), dayIndex + HISTORICAL_VOLUME_LOOKBACK + 1);
+        double historicalMaxTurnoverRate = 0D;
+        for (int index = dayIndex + 1; index < historyEndExclusive; index++) {
+            // 调用 dailyRows.get 和 getTurnoverRate 读取一根更早日K的换手率。
+            Double historicalTurnoverRate = dailyRows.get(index).getTurnoverRate();
+            // 调用 Double.isFinite 忽略缺失、非有限数和非正数换手率。
+            if (historicalTurnoverRate == null || !Double.isFinite(historicalTurnoverRate) || historicalTurnoverRate <= 0D) continue;
+            // 调用 Math.max 更新最近 200 根有效日K的最大换手率。
+            historicalMaxTurnoverRate = Math.max(historicalMaxTurnoverRate, historicalTurnoverRate);
+        }
+        if (historicalMaxTurnoverRate <= 0D) return VOLUME_STATE_UNAVAILABLE;
+        // 调用 VolumeStateClassifier.classify 按统一公式划分缩量、正常量或放量。
+        return VolumeStateClassifier.classify(turnoverRate, amplitude, klineState, historicalMaxTurnoverRate);
     }
 
     private int resolveTradeMode(Integer requestedTradeMode, int lbcs,
